@@ -1523,6 +1523,15 @@ struct ProjectExporter {
     }
     
     private func createScriptWithCoverage() -> Data? {
+        var result: Data?
+        let light = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
+        light.performAsCurrentDrawingAppearance {
+            result = buildScriptWithCoverage()
+        }
+        return result
+    }
+
+    private func buildScriptWithCoverage() -> Data? {
         print("🔵 [SCRIPT_COVERAGE] Creating script with burned-in coverage")
         
         // Check if script PDF exists
@@ -1894,7 +1903,20 @@ struct ProjectExporter {
         return outputData as Data
     }
     
+    /// A PDF is always drawn on white paper, but NSColor.textColor and friends are
+    /// dynamic: in dark mode they resolve to white, producing a page of invisible
+    /// text. Drawing inside the light appearance pins every system colour to its
+    /// light-mode value.
     private func createPDFData(from text: String) -> Data? {
+        var result: Data?
+        let light = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
+        light.performAsCurrentDrawingAppearance {
+            result = buildPDFData(from: text)
+        }
+        return result
+    }
+
+    private func buildPDFData(from text: String) -> Data? {
         print("🔵 [PDF] Creating PDF with new layout")
         
         // Define page size (US Letter)
