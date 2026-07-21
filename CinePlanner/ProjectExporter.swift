@@ -509,6 +509,9 @@ struct ProjectExporter {
                 body += "        <div class=\"media\">\n"
                 for (reference, rendered) in refs {
                     guard let m = rendered else { continue }
+                    // Each reference is its own row: media and map side by side,
+                    // with the next reference below rather than alongside.
+                    body += "          <div class=\"mi-pair\">\n"
                     // Label each thumbnail with its reference number when a shot
                     // carries more than one.
                     let tag = shot.references.count > 1 ? " \(reference.index)" : ""
@@ -530,6 +533,7 @@ struct ProjectExporter {
                     if let topDown = m.topDownURI {
                         body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary></details>\n"
                     }
+                    body += "          </div>\n"
                 }
                 if !hasMedia {
                     body += "          <div class=\"nomedia\" title=\"No reference media\">—</div>\n"
@@ -658,7 +662,9 @@ struct ProjectExporter {
           /* Thumbnails sit in a narrow column so the details carry the row. */
           .shot-body { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: start; }
           @media (max-width: 700px) { .shot-body { grid-template-columns: minmax(0,1fr); } }
-          .media { display: flex; flex-direction: row; gap: 8px; flex: none; }
+          .media { display: flex; flex-direction: column; gap: 10px; flex: none; }
+          /* One reference: its photo/video and map side by side. */
+          .mi-pair { display: flex; flex-direction: row; gap: 8px; }
           /* Closed: a 94px thumbnail. Open: a full-screen viewer. Driven entirely by
              the <details> element so it works without JavaScript. */
           .mi > summary { position: relative; display: block; width: 94px; cursor: zoom-in;
@@ -2136,22 +2142,18 @@ struct ProjectExporter {
                     shotHeight += CGFloat(detailCount) * 12 + 8 // Each detail line + spacing
                     
                     // Add height for photos if present
-                    if hasPhoto1 || hasPhoto2 {
-                        // Calculate photo dimensions based on available space
+                    // Every reference draws its own row (image + map side by side),
+                    // so the shot's photo block grows with the number of references.
+                    let referenceRows = shot.orderedReferences.filter { $0.imageData != nil || $0.mapData != nil }
+                    if !referenceRows.isEmpty {
                         let availableWidth = textWidth - 10
                         let photoSpacing: CGFloat = 12
-                        let photoWidth: CGFloat
-                        
-                        if hasPhoto1 && hasPhoto2 {
-                            // Two photos side by side
-                            photoWidth = (availableWidth - photoSpacing) / 2
-                        } else {
-                            // Single photo
-                            photoWidth = min(availableWidth * 0.6, 360)
+                        for reference in referenceRows {
+                            let pairWidth = (reference.imageData != nil && reference.mapData != nil)
+                                ? (availableWidth - photoSpacing) / 2
+                                : min(availableWidth * 0.6, 360)
+                            shotHeight += pairWidth * 0.75 + 25
                         }
-                        
-                        let photoHeight = photoWidth * 0.75 // 4:3 aspect ratio
-                        shotHeight += photoHeight + 25 // Add photo height + spacing + label
                     }
                     
                     // Check if shot fits on current page
@@ -2285,145 +2287,69 @@ struct ProjectExporter {
                     }
                     
                     // Draw photos if present (using hasPhoto1 and hasPhoto2 declared earlier)
-                    if hasPhoto1 || hasPhoto2 {
-                        yPosition += 5 // Small gap before photos
-                        
-                        let availableWidth = textWidth - 10 // Account for indentation
+                    // One row per reference: its photo (or video poster) and its
+                    // map side by side, with the next reference below.
+                    if !referenceRows.isEmpty {
+                        yPosition += 5
+
+                        let availableWidth = textWidth - 10
                         let photoSpacing: CGFloat = 12
-                        
-                        // Calculate maximum photo size based on whether we have one or two photos
-                        let photoWidth: CGFloat
-                        let photoHeight: CGFloat
-                        
-                        if hasPhoto1 && hasPhoto2 {
-                            // Two photos side by side - split available width
-                            photoWidth = (availableWidth - photoSpacing) / 2
-                            photoHeight = photoWidth * 0.75 // 4:3 aspect ratio
-                        } else {
-                            // Single photo - use more of the available width
-                            photoWidth = min(availableWidth * 0.6, 360) // Max 60% of width or 360pt
-                            photoHeight = photoWidth * 0.75 // 4:3 aspect ratio
-                        }
-                        
-                        let bothPhotosFit = hasPhoto1 && hasPhoto2
-                        
-                        var currentX = margin + 10 // Indent photos slightly
-                        var photoY = yPosition
-                        
-                        // Draw Reference Shot (Photo 1)
-                        if hasPhoto1, let photo1Data = shot.primaryImageData, let nsImage = NSImage(data: photo1Data) {
-                            // Label
+
+                        /// Draws one image inside `box`, preserving aspect ratio, with a caption above.
+                        func drawFramed(_ data: Data, caption: String, at origin: CGPoint, size: CGSize) {
+                            guard let nsImage = NSImage(data: data) else { return }
                             let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
-                            let labelAttr: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.secondaryLabelColor]
-                            NSAttributedString(string: "Reference Shot", attributes: labelAttr).draw(at: CGPoint(x: currentX, y: photoY))
-                            photoY += 12
-                            
-                            // Calculate aspect-fit dimensions
+                            let labelAttr: [NSAttributedString.Key: Any] = [
+                                .font: labelFont, .foregroundColor: NSColor.secondaryLabelColor
+                            ]
+                            NSAttributedString(string: caption, attributes: labelAttr)
+                                .draw(at: CGPoint(x: origin.x, y: origin.y))
+
+                            let boxY = origin.y + 12
                             let imageSize = nsImage.size
-                            let aspectRatio = imageSize.width / imageSize.height
-                            var drawWidth = photoWidth
-                            var drawHeight = photoHeight
-                            
-                            if aspectRatio > (photoWidth / photoHeight) {
-                                // Image is wider - fit to width
-                                drawHeight = photoWidth / aspectRatio
-                            } else {
-                                // Image is taller - fit to height
-                                drawWidth = photoHeight * aspectRatio
+                            guard imageSize.width > 0, imageSize.height > 0 else { return }
+                            let aspect = imageSize.width / imageSize.height
+                            var drawWidth = size.width
+                            var drawHeight = drawWidth / aspect
+                            if drawHeight > size.height {
+                                drawHeight = size.height
+                                drawWidth = drawHeight * aspect
                             }
-                            
-                            // Center the image within the available space
-                            let xOffset = (photoWidth - drawWidth) / 2
-                            let yOffset = (photoHeight - drawHeight) / 2
-                            
-                            // Draw image with aspect ratio preserved and proper orientation
-                            let imageRect = CGRect(x: currentX + xOffset, y: photoY + yOffset, width: drawWidth, height: drawHeight)
-                            
-                            // Save graphics state
-                            context.saveGState()
-                            
-                            // Flip the coordinate system for this image
-                            context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
-                            context.scaleBy(x: 1.0, y: -1.0)
-                            context.translateBy(x: 0, y: -imageRect.origin.y)
-                            
-                            // Draw the image
-                            let flippedRect = CGRect(x: imageRect.origin.x, y: imageRect.origin.y, width: imageRect.width, height: imageRect.height)
-                            nsImage.draw(in: flippedRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                            
-                            // Restore graphics state
-                            context.restoreGState()
-                            
-                            // Draw border around the full photo area
-                            let borderRect = CGRect(x: currentX, y: photoY, width: photoWidth, height: photoHeight)
-                            context.setStrokeColor(NSColor.gray.cgColor)
-                            context.setLineWidth(0.5)
-                            context.stroke(borderRect)
-                            
-                            if bothPhotosFit && hasPhoto2 {
-                                currentX += photoWidth + photoSpacing
-                                photoY = yPosition // Reset Y for side-by-side
-                            } else {
-                                photoY += photoHeight + 10
-                                currentX = margin + 10 // Reset X for stacking
-                            }
+                            let xOffset = (size.width - drawWidth) / 2
+                            let yOffset = (size.height - drawHeight) / 2
+                            nsImage.draw(in: CGRect(x: origin.x + xOffset, y: boxY + yOffset,
+                                                    width: drawWidth, height: drawHeight))
+
+                            NSColor.separatorColor.setStroke()
+                            let border = NSBezierPath(rect: CGRect(x: origin.x, y: boxY,
+                                                                   width: size.width, height: size.height))
+                            border.lineWidth = 0.5
+                            border.stroke()
                         }
-                        
-                        // Draw Top Down Map (Photo 2)
-                        if hasPhoto2, let photo2Data = shot.primaryMapData, let nsImage = NSImage(data: photo2Data) {
-                            // Label
-                            let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
-                            let labelAttr: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.secondaryLabelColor]
-                            NSAttributedString(string: "Top Down Map", attributes: labelAttr).draw(at: CGPoint(x: currentX, y: photoY))
-                            photoY += 12
-                            
-                            // Calculate aspect-fit dimensions
-                            let imageSize = nsImage.size
-                            let aspectRatio = imageSize.width / imageSize.height
-                            var drawWidth = photoWidth
-                            var drawHeight = photoHeight
-                            
-                            if aspectRatio > (photoWidth / photoHeight) {
-                                // Image is wider - fit to width
-                                drawHeight = photoWidth / aspectRatio
-                            } else {
-                                // Image is taller - fit to height
-                                drawWidth = photoHeight * aspectRatio
+
+                        for (offset, reference) in referenceRows.enumerated() {
+                            let hasImage = reference.imageData != nil
+                            let hasMap = reference.mapData != nil
+                            let pairWidth = (hasImage && hasMap)
+                                ? (availableWidth - photoSpacing) / 2
+                                : min(availableWidth * 0.6, 360)
+                            let pairHeight = pairWidth * 0.75
+                            let suffix = referenceRows.count > 1 ? " \(offset + 1)" : ""
+                            var x = margin + 10
+
+                            if let data = reference.imageData {
+                                drawFramed(data, caption: "Reference Shot\(suffix)",
+                                           at: CGPoint(x: x, y: yPosition),
+                                           size: CGSize(width: pairWidth, height: pairHeight))
+                                x += pairWidth + photoSpacing
                             }
-                            
-                            // Center the image within the available space
-                            let xOffset = (photoWidth - drawWidth) / 2
-                            let yOffset = (photoHeight - drawHeight) / 2
-                            
-                            // Draw image with aspect ratio preserved and proper orientation
-                            let imageRect = CGRect(x: currentX + xOffset, y: photoY + yOffset, width: drawWidth, height: drawHeight)
-                            
-                            // Save graphics state
-                            context.saveGState()
-                            
-                            // Flip the coordinate system for this image
-                            context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
-                            context.scaleBy(x: 1.0, y: -1.0)
-                            context.translateBy(x: 0, y: -imageRect.origin.y)
-                            
-                            // Draw the image
-                            let flippedRect = CGRect(x: imageRect.origin.x, y: imageRect.origin.y, width: imageRect.width, height: imageRect.height)
-                            nsImage.draw(in: flippedRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                            
-                            // Restore graphics state
-                            context.restoreGState()
-                            
-                            // Draw border around the full photo area
-                            let borderRect = CGRect(x: currentX, y: photoY, width: photoWidth, height: photoHeight)
-                            context.setStrokeColor(NSColor.gray.cgColor)
-                            context.setLineWidth(0.5)
-                            context.stroke(borderRect)
-                            
-                            photoY += photoHeight + 10
+                            if let data = reference.mapData {
+                                drawFramed(data, caption: "Top Down Map\(suffix)",
+                                           at: CGPoint(x: x, y: yPosition),
+                                           size: CGSize(width: pairWidth, height: pairHeight))
+                            }
+                            yPosition += pairHeight + 25
                         }
-                        
-                        // Update yPosition to the bottom of whichever photo is lower
-                        yPosition = photoY
                     }
                     
                     yPosition += 8 // Extra space between shots
