@@ -14,6 +14,18 @@ import UIKit
 #endif
 
 struct PhotoMetadata {
+    /// True when anything was actually read off the file — used to decide
+    /// whether a metadata block is worth showing at all.
+    var hasContent: Bool {
+        cameraFamily != nil || cameraFormat != nil || focalLength != nil || lensPreset != nil
+            || tilt != nil || horizon != nil || height != nil || captureID != nil
+            || captureType != nil || dateTimeOriginal != nil || iptcCaption != nil
+            || framelines != nil || tiffSoftware != nil
+            || cameraPhysicalWidth != nil || cameraPhysicalLength != nil
+            || locationModel != nil || locationWidth != nil || locationLength != nil
+            || locationHeight != nil
+    }
+
     // Camera Settings
     var cameraFamily: String?
     var cameraFormat: String?

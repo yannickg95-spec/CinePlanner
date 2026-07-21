@@ -83,6 +83,11 @@ final class Project {
             scene.isArchived = true
             scene.nickname = String(scene.nickname.dropFirst("[OLD] ".count))
         }
+
+        // 5. Fold the fixed photo1/photo2/video slots into a ShotReference.
+        for scene in scenes {
+            for shot in scene.shots { shot.migrateReferencesIfNeeded() }
+        }
     }
 
     /// Absolute PDF page index (0-based) of the first scene. Falls back to the
@@ -334,6 +339,121 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
     }
 }
 
+// MARK: - Shot Reference
+
+/// One reference for a shot: a photo *or* a video, optionally paired with its
+/// own top-down map. A shot can carry several, replacing the fixed
+/// photo1/photo2/video slots the app started with.
+@Model
+final class ShotReference {
+    var sortOrder: Int = 0
+
+    // Media — exactly one of these is set
+    var imageData: Data?
+    var videoData: Data?
+    var videoExtension: String?     // "mov", "mp4" — used for export filenames
+
+    /// Top-down map belonging to this reference.
+    var mapData: Data?
+
+    // EXIF/metadata read off the reference image
+    var cameraFamily: String?
+    var cameraFormat: String?
+    var focalLength: Double?
+    var lensPreset: String?
+    var horizon: Double?
+    var tilt: Double?
+    var height: Double?
+    var captureID: String?
+    var captureType: String?
+    var dateTimeOriginal: Date?
+    var keywords: [String]?
+    var caption: String?
+    var framelines: String?
+    var software: String?
+
+    // Metadata read off the map
+    var mapCaptureID: String?
+    var mapCameraPhysicalWidth: Double?
+    var mapCameraPhysicalLength: Double?
+    var mapLocationModel: String?
+    var mapLocationWidth: Double?
+    var mapLocationLength: Double?
+    var mapLocationHeight: Double?
+
+    var shot: Shot?
+
+    init(sortOrder: Int = 0) {
+        self.sortOrder = sortOrder
+    }
+
+    /// True when this reference holds a video rather than a still.
+    var isVideo: Bool { videoData != nil }
+    var hasMedia: Bool { imageData != nil || videoData != nil }
+
+    /// Metadata rebuilt for the shared MetadataView.
+    var imageMetadata: PhotoMetadata {
+        var m = PhotoMetadata()
+        m.cameraFamily = cameraFamily
+        m.cameraFormat = cameraFormat
+        m.focalLength = focalLength
+        m.lensPreset = lensPreset
+        m.horizon = horizon
+        m.tilt = tilt
+        m.height = height
+        m.captureID = captureID
+        m.captureType = captureType
+        m.dateTimeOriginal = dateTimeOriginal
+        m.iptcKeywords = keywords
+        m.iptcCaption = caption
+        m.framelines = framelines
+        m.tiffSoftware = software
+        return m
+    }
+
+    var mapMetadata: PhotoMetadata {
+        var m = PhotoMetadata()
+        m.captureID = mapCaptureID
+        m.cameraPhysicalWidth = mapCameraPhysicalWidth
+        m.cameraPhysicalLength = mapCameraPhysicalLength
+        m.locationModel = mapLocationModel
+        m.locationWidth = mapLocationWidth
+        m.locationLength = mapLocationLength
+        m.locationHeight = mapLocationHeight
+        return m
+    }
+
+    func duplicate() -> ShotReference {
+        let copy = ShotReference(sortOrder: sortOrder)
+        copy.imageData = imageData
+        copy.videoData = videoData
+        copy.videoExtension = videoExtension
+        copy.mapData = mapData
+        copy.cameraFamily = cameraFamily
+        copy.cameraFormat = cameraFormat
+        copy.focalLength = focalLength
+        copy.lensPreset = lensPreset
+        copy.horizon = horizon
+        copy.tilt = tilt
+        copy.height = height
+        copy.captureID = captureID
+        copy.captureType = captureType
+        copy.dateTimeOriginal = dateTimeOriginal
+        copy.keywords = keywords
+        copy.caption = caption
+        copy.framelines = framelines
+        copy.software = software
+        copy.mapCaptureID = mapCaptureID
+        copy.mapCameraPhysicalWidth = mapCameraPhysicalWidth
+        copy.mapCameraPhysicalLength = mapCameraPhysicalLength
+        copy.mapLocationModel = mapLocationModel
+        copy.mapLocationWidth = mapLocationWidth
+        copy.mapLocationLength = mapLocationLength
+        copy.mapLocationHeight = mapLocationHeight
+        return copy
+    }
+}
+
 @Model
 final class Shot {
     var shotNumber: Int
@@ -368,7 +488,10 @@ final class Shot {
     // Optional reference video for the reference shot slot (shown in-app and in
     // the HTML-with-media export). Stored externally since videos are large.
     @Attribute(.externalStorage)
-    var referenceVideoData: Data?
+    /// Legacy single-video slot; migrated into a ShotReference on first open.
+    /// originalName keeps it bound to the existing column — renaming a @Model
+    /// property without it makes SwiftData treat it as a new, empty attribute.
+    @Attribute(originalName: "referenceVideoData") var videoDataLegacy: Data?
     var referenceVideoExtension: String?  // e.g. "mov", "mp4" — used for the exported filename
     
     // EXIF Metadata for Photo 1 (Shot Photo)
@@ -418,6 +541,15 @@ final class Shot {
     // Script Coverage - stores text selection information
     var scriptCoverageSelections: [ScriptTextSelection]?
     
+    /// Reference photos/videos, each with an optional top-down map. Replaces the
+    /// fixed photo1/photo2/video slots; those are migrated on first open.
+    @Relationship(deleteRule: .cascade, inverse: \ShotReference.shot)
+    var references: [ShotReference] = []
+
+    var orderedReferences: [ShotReference] {
+        references.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
     var scene: Scene?
     
     var numberingStyle: ShotNumberingStyle {
@@ -518,6 +650,51 @@ extension Shot {
     /// Deep copy of this shot, for transferring into a scene of another script
     /// version. Script coverage selections are intentionally not copied — they
     /// store page positions in the source version's PDF and would misalign.
+    /// Moves the legacy photo1 / video / photo2 slots into a single reference.
+    /// Runs once per shot: afterwards the old fields are cleared, so `references`
+    /// being non-empty (or the old fields being empty) means there's nothing to do.
+    func migrateReferencesIfNeeded() {
+        guard references.isEmpty else { return }
+        let hasLegacyMedia = photo1Data != nil || videoDataLegacy != nil || photo2Data != nil
+        guard hasLegacyMedia else { return }
+
+        let reference = ShotReference(sortOrder: 0)
+        reference.imageData = photo1Data
+        reference.videoData = videoDataLegacy
+        reference.videoExtension = referenceVideoExtension
+        reference.mapData = photo2Data
+
+        reference.cameraFamily = photo1CameraFamily
+        reference.cameraFormat = photo1CameraFormat
+        reference.focalLength = photo1FocalLength
+        reference.lensPreset = photo1LensPreset
+        reference.horizon = photo1Horizon
+        reference.tilt = photo1Tilt
+        reference.height = photo1Height
+        reference.captureID = photo1CaptureID
+        reference.captureType = photo1CaptureType
+        reference.dateTimeOriginal = photo1DateTimeOriginal
+        reference.keywords = photo1Keywords
+        reference.caption = photo1Caption
+        reference.framelines = photo1Framelines
+        reference.software = photo1Software
+
+        reference.mapCaptureID = photo2CaptureID
+        reference.mapCameraPhysicalWidth = photo2CameraPhysicalWidth
+        reference.mapCameraPhysicalLength = photo2CameraPhysicalLength
+        reference.mapLocationModel = photo2LocationModel
+        reference.mapLocationWidth = photo2LocationWidth
+        reference.mapLocationLength = photo2LocationLength
+        reference.mapLocationHeight = photo2LocationHeight
+
+        reference.shot = self
+
+        // NOTE: the legacy slots are deliberately *not* cleared yet. The shot
+        // list, PDF and text exports still read them; clearing now would make
+        // photos disappear from those. Clearing happens once every reader has
+        // been moved over to `references`.
+    }
+
     func duplicate() -> Shot {
         let copy = Shot(shotNumber: shotNumber, shotInformation: shotInformation)
         copy.numberingStyle = numberingStyle
@@ -538,9 +715,13 @@ extension Shot {
         copy.framelines = framelines
         copy.lensPreset = lensPreset
 
+        for reference in orderedReferences {
+            let copied = reference.duplicate()
+            copied.shot = copy
+        }
         copy.photo1Data = photo1Data
         copy.photo2Data = photo2Data
-        copy.referenceVideoData = referenceVideoData
+        copy.videoDataLegacy = videoDataLegacy
         copy.referenceVideoExtension = referenceVideoExtension
 
         copy.photo1CameraFamily = photo1CameraFamily

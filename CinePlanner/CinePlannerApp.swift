@@ -17,6 +17,7 @@ struct CinePlannerApp: App {
             ScriptVersion.self,
             Scene.self,
             Shot.self,
+            ShotReference.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

@@ -573,6 +573,7 @@ struct ShotListView: View {
 struct ShotDetailView: View {
     @Bindable var shot: Shot
     /// Which photo is open full size, if any.
+    @Environment(\.modelContext) private var shotModelContext
     @State private var previewPhoto: ShotExportRow.PreviewPhoto?
     @State private var selectedPhoto1: PhotosPickerItem?
     @State private var selectedPhoto2: PhotosPickerItem?
@@ -671,188 +672,19 @@ struct ShotDetailView: View {
     /// Whether the two photos came from the same capture. It describes the
     /// relationship between the cards, so it sits above the pair rather than
     /// buried under the top-down image.
-    @ViewBuilder
-    private var photoMatchChip: some View {
-        if let photo1CaptureID = photo1Metadata?.captureID,
-           let photo2CaptureID = photo2Metadata?.captureID,
-           shot.photo1Data != nil,
-           shot.photo2Data != nil {
-            let isMatch = photo1CaptureID == photo2CaptureID
-            Label(isMatch ? "Reference and top-down match" : "Reference and top-down don't match",
-                  systemImage: isMatch ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.caption)
-                .fontWeight(.medium)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .foregroundStyle(isMatch ? Color.green : Color.orange)
-                .background((isMatch ? Color.green : Color.orange).opacity(0.12))
-                .clipShape(Capsule())
-        }
-    }
-
     /// Images cap at this width; the metadata beneath them uses the same value
     /// so a data block is never wider than the picture it describes.
     private static let mediaMaxWidth: CGFloat = 700
 
-    private var photoSlotView: some View {
-        PhotoSlot(
-            photoData: shot.photo1Data,
-            selectedItem: $selectedPhoto1,
-            title: "Reference Shot",
-            maxWidth: Self.mediaMaxWidth,
-            compactWhenEmpty: true,
-            onDelete: {
-                print("🗑️ Deleting Photo 1 from shot \(shot.displayNumber)")
-                shot.photo1Data = nil
-                shot.photo1CameraFamily = nil
-                shot.photo1CameraFormat = nil
-                shot.photo1FocalLength = nil
-                shot.photo1LensPreset = nil
-                shot.photo1Horizon = nil
-                shot.photo1Tilt = nil
-                shot.photo1Height = nil
-                shot.photo1CaptureID = nil
-                shot.photo1CaptureType = nil
-                shot.photo1DateTimeOriginal = nil
-                shot.photo1Caption = nil
-                shot.photo1Framelines = nil
-                shot.photo1Software = nil
-                shot.photo1Keywords = nil
-                photo1Metadata = nil
-                selectedPhoto1 = nil
-            },
-            onEnlarge: { previewPhoto = .reference }
-        )
+    private func addReference() {
+        let next = (shot.references.map(\.sortOrder).max() ?? -1) + 1
+        let reference = ShotReference(sortOrder: next)
+        reference.shot = shot
     }
 
-    @ViewBuilder
-    private var referenceVideoView: some View {
-        if let videoData = shot.referenceVideoData {
-            ReferenceVideoView(
-                shotID: shot.id.hashValue.description,
-                videoData: videoData,
-                fileExtension: shot.referenceVideoExtension ?? "mov",
-                onDelete: {
-                    shot.referenceVideoData = nil
-                    shot.referenceVideoExtension = nil
-                }
-            )
-        }
-    }
-
-    private var referenceShotCard: some View {
-    sectionCard("REFERENCE SHOT") {
-        VStack(alignment: .leading, spacing: 12) {
-            // Media first, full width
-            // Photo and video share a row when both exist, so this card
-            // doesn't grow far taller than the top-down card beside it.
-            VStack(alignment: .leading, spacing: 10) {
-                if shot.referenceVideoData != nil {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 10) {
-                            photoSlotView
-                            referenceVideoView
-                        }
-                        VStack(alignment: .leading, spacing: 10) {
-                            photoSlotView
-                            referenceVideoView
-                        }
-                    }
-                } else {
-                    photoSlotView
-                    Button {
-                        isImportingVideo = true
-                    } label: {
-                        Label("Add Reference Video", systemImage: "video.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Metadata sits *below* the media, with a rule between so the
-            // numbers do not read as part of the picture.
-            if photo1Metadata != nil {
-                Divider().frame(maxWidth: Self.mediaMaxWidth)
-            }
-            if let metadata = photo1Metadata {
-                MetadataView(metadata: metadata)
-                    .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
-            } else if shot.photo1Data != nil {
-                Text("No camera metadata found in this photo.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .fileImporter(
-            isPresented: $isImportingVideo,
-            allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
-            allowsMultipleSelection: false
-        ) { result in
-            handleVideoImport(result)
-        }
-    }
-    }
-
-    private var topDownCard: some View {
-    sectionCard("TOP DOWN MAP VIEW") {
-        VStack(alignment: .leading, spacing: 12) {
-            PhotoSlot(
-                photoData: shot.photo2Data,
-                selectedItem: $selectedPhoto2,
-                title: "Top Down Map",
-                maxWidth: Self.mediaMaxWidth,
-                compactWhenEmpty: true,
-                onDelete: {
-                    print("🗑️ Deleting Photo 2 from shot \(shot.displayNumber)")
-                    shot.photo2Data = nil
-                    shot.photo2CameraFamily = nil
-                    shot.photo2CameraFormat = nil
-                    shot.photo2FocalLength = nil
-                    shot.photo2LensPreset = nil
-                    shot.photo2Horizon = nil
-                    shot.photo2Tilt = nil
-                    shot.photo2Height = nil
-                    shot.photo2CaptureID = nil
-                    shot.photo2CaptureType = nil
-                    shot.photo2DateTimeOriginal = nil
-                    shot.photo2Caption = nil
-                    shot.photo2Framelines = nil
-                    shot.photo2Software = nil
-                    shot.photo2Keywords = nil
-                    // Clear location metadata
-                    shot.photo2CameraPhysicalWidth = nil
-                    shot.photo2CameraPhysicalLength = nil
-                    shot.photo2LocationModel = nil
-                    shot.photo2LocationWidth = nil
-                    shot.photo2LocationLength = nil
-                    shot.photo2LocationHeight = nil
-                    photo2Metadata = nil
-                    selectedPhoto2 = nil
-                },
-                onEnlarge: { previewPhoto = .topDown }
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if photo2Metadata != nil {
-                Divider().frame(maxWidth: Self.mediaMaxWidth)
-            }
-
-            // Metadata sits below the image, no wider than it
-            VStack(alignment: .leading, spacing: 8) {
-                // Top Down Photo Metadata
-                if let metadata = photo2Metadata {
-                    TopDownMetadataView(metadata: metadata)
-                } else if shot.photo2Data != nil {
-                    Text("No location metadata found in this photo.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
-        }
-    }
+    private func deleteReference(_ reference: ShotReference) {
+        reference.shot = nil
+        shotModelContext.delete(reference)
     }
 
     private var shotSetupCard: some View {
@@ -1412,21 +1244,26 @@ struct ShotDetailView: View {
                 }
                 .padding(.horizontal)
                 
-                // Reference shot and top-down map: a pair meant to be compared,
-                // so they sit side by side whenever the pane is wide enough.
-                VStack(alignment: .leading, spacing: 10) {
-                    photoMatchChip
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 16) {
-                            referenceShotCard
-                            topDownCard
-                        }
-                        VStack(alignment: .leading, spacing: 16) {
-                            referenceShotCard
-                            topDownCard
-                        }
+                // References: each is a photo or a video with its own optional
+                // top-down map. A shot can carry as many as it needs.
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(Array(shot.orderedReferences.enumerated()), id: \.element.persistentModelID) { index, reference in
+                        ReferenceCardView(
+                            reference: reference,
+                            index: index + 1,
+                            totalCount: shot.references.count,
+                            onDelete: { deleteReference(reference) }
+                        )
                     }
+
+                    Button {
+                        addReference()
+                    } label: {
+                        Label(shot.references.isEmpty ? "Add Reference" : "Add Another Reference",
+                              systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 .padding(.horizontal)
                 
@@ -1568,25 +1405,6 @@ struct ShotDetailView: View {
         }
     }
     
-    private func handleVideoImport(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
-        let ext = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
-        // Read the (potentially large) file off the main thread, then assign on main.
-        Task {
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else {
-                print("⚠️ Could not read video at \(url.path)")
-                return
-            }
-            await MainActor.run {
-                shot.referenceVideoData = data
-                shot.referenceVideoExtension = ext
-                print("🎞️ Imported reference video (\(data.count) bytes) for shot \(shot.displayNumber)")
-            }
-        }
-    }
-
     private func loadMetadataForCurrentShot() {
         print("🔄 Loading metadata for shot \(shot.displayNumber)")
         

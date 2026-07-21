@@ -122,16 +122,22 @@ struct ProjectExporter {
     
     // MARK: - HTML with Media Export
 
+    /// One reference belonging to a shot: a photo or a video, plus its own map.
+    private struct MediaReference {
+        let index: Int              // 1-based, for labelling ("Reference 2")
+        let photoData: Data?        // JPEG
+        let mapData: Data?          // JPEG
+        let videoData: Data?
+        let videoExtension: String
+    }
+
     private struct MediaShot {
         let displayNumber: String
         let slug: String            // filesystem-safe id for media filenames
         let nickname: String
         let details: [(label: String, value: String)]
         let coverageText: String?
-        let photoData: Data?        // reference photo (already transcoded to JPEG)
-        let topDownData: Data?      // top-down photo (JPEG)
-        let videoData: Data?
-        let videoExtension: String
+        let references: [MediaReference]
     }
 
     private struct MediaScene {
@@ -171,7 +177,7 @@ struct ProjectExporter {
         let versionName = version?.name
         let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
         let scenes = snapshotScenesForMedia()
-        let needsFolder = scenes.contains { $0.shots.contains { $0.videoData != nil } }
+        let needsFolder = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
         let baseName = webExportBaseName(filmName)
 
         DispatchQueue.main.async {
@@ -219,10 +225,15 @@ struct ProjectExporter {
                     nickname: shot.nickname,
                     details: shotDetails(shot),
                     coverageText: coverageSummary(shot),
-                    photoData: shot.photo1Data.flatMap { Self.jpegData(from: $0) },
-                    topDownData: shot.photo2Data.flatMap { Self.jpegData(from: $0) },
-                    videoData: shot.referenceVideoData,
-                    videoExtension: shot.referenceVideoExtension ?? "mov"
+                    references: shot.orderedReferences.enumerated().map { index, reference in
+                        MediaReference(
+                            index: index + 1,
+                            photoData: reference.imageData.flatMap { Self.jpegData(from: $0) },
+                            mapData: reference.mapData.flatMap { Self.jpegData(from: $0) },
+                            videoData: reference.videoData,
+                            videoExtension: reference.videoExtension ?? "mov"
+                        )
+                    }
                 )
             }
             return MediaScene(heading: heading,
@@ -269,7 +280,7 @@ struct ProjectExporter {
     /// videos, otherwise a zipped folder holding the page and a media/ directory.
     private func writeWebExport(filmName: String, episodeName: String?, versionName: String?,
                                 scenes: [MediaScene], to destination: URL) throws {
-        let hasVideo = scenes.contains { $0.shots.contains { $0.videoData != nil } }
+        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
         if hasVideo {
             try writeHTMLBundle(filmName: filmName, episodeName: episodeName, versionName: versionName,
                                 scenes: scenes, to: destination)
@@ -278,12 +289,14 @@ struct ProjectExporter {
             var rendered: [String: RenderedMedia] = [:]
             for scene in scenes {
                 for shot in scene.shots {
-                    rendered[shot.slug] = RenderedMedia(
-                        photoURI: shot.photoData.map { Self.dataURI($0) },
-                        topDownURI: shot.topDownData.map { Self.dataURI($0) },
-                        videoPath: nil,
-                        posterURI: nil
-                    )
+                    for reference in shot.references {
+                        rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
+                            photoURI: reference.photoData.map { Self.dataURI($0) },
+                            topDownURI: reference.mapData.map { Self.dataURI($0) },
+                            videoPath: nil,
+                            posterURI: nil
+                        )
+                    }
                 }
             }
             let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
@@ -315,22 +328,24 @@ struct ProjectExporter {
         var rendered: [String: RenderedMedia] = [:]
         for scene in scenes {
             for shot in scene.shots {
-                var videoPath: String?
-                var posterURI: String?
-                if let data = shot.videoData {
-                    let name = "media/shot_\(shot.slug)_video.\(shot.videoExtension)"
-                    try data.write(to: staging.appendingPathComponent(name))
-                    videoPath = name
-                    if let poster = Self.posterFrame(fromVideoData: data, ext: shot.videoExtension) {
-                        posterURI = Self.dataURI(poster)
+                for reference in shot.references {
+                    var videoPath: String?
+                    var posterURI: String?
+                    if let data = reference.videoData {
+                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(reference.videoExtension)"
+                        try data.write(to: staging.appendingPathComponent(name))
+                        videoPath = name
+                        if let poster = Self.posterFrame(fromVideoData: data, ext: reference.videoExtension) {
+                            posterURI = Self.dataURI(poster)
+                        }
                     }
+                    rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
+                        photoURI: reference.photoData.map { Self.dataURI($0) },
+                        topDownURI: reference.mapData.map { Self.dataURI($0) },
+                        videoPath: videoPath,
+                        posterURI: posterURI
+                    )
                 }
-                rendered[shot.slug] = RenderedMedia(
-                    photoURI: shot.photoData.map { Self.dataURI($0) },
-                    topDownURI: shot.topDownData.map { Self.dataURI($0) },
-                    videoPath: videoPath,
-                    posterURI: posterURI
-                )
             }
         }
 
@@ -363,11 +378,16 @@ struct ProjectExporter {
         if let innerError { throw innerError }
     }
 
+    /// Rendered media for one reference, keyed by "<shot slug>#<reference index>".
     private struct RenderedMedia {
         let photoURI: String?    // data:image/jpeg;base64,… (embedded, iOS-safe)
         let topDownURI: String?
-        let videoPath: String?   // media/shot_x_video.mov
+        let videoPath: String?   // media/shot_x_1_video.mov
         let posterURI: String?   // data:image/jpeg;base64,… first frame
+    }
+
+    private static func mediaKey(_ shotSlug: String, _ referenceIndex: Int) -> String {
+        "\(shotSlug)#\(referenceIndex)"
     }
 
     /// Transcodes arbitrary image data (incl. HEIC/PNG) to JPEG so it renders in every browser.
@@ -1060,40 +1080,43 @@ struct ProjectExporter {
 
         for scene in scenes {
             for shot in scene.shots {
-                var photoHref: String?, topDownHref: String?, videoHref: String?, posterHref: String?
+                for reference in shot.references {
+                    var photoHref: String?, topDownHref: String?, videoHref: String?, posterHref: String?
+                    let stem = "\(shot.slug)_\(reference.index)"
 
-                if let photo = shot.photoData {
-                    mediaId += 1
-                    let href = "media/shot_\(shot.slug)_ref.jpg"
-                    zip.addFile("OEBPS/\(href)", data: photo)
-                    manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                    photoHref = href
-                }
-                if let topDown = shot.topDownData {
-                    mediaId += 1
-                    let href = "media/shot_\(shot.slug)_topdown.jpg"
-                    zip.addFile("OEBPS/\(href)", data: topDown)
-                    manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                    topDownHref = href
-                }
-                if let raw = shot.videoData {
-                    // Poster frame from the original video
-                    if let poster = Self.posterFrame(fromVideoData: raw, ext: shot.videoExtension) {
+                    if let photo = reference.photoData {
                         mediaId += 1
-                        let href = "media/shot_\(shot.slug)_poster.jpg"
-                        zip.addFile("OEBPS/\(href)", data: poster)
+                        let href = "media/shot_\(stem)_ref.jpg"
+                        zip.addFile("OEBPS/\(href)", data: photo)
                         manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                        posterHref = href
+                        photoHref = href
                     }
-                    // Transcode to H.264/AAC MP4 for Apple Books; fall back to original.
-                    let mp4 = await VideoTranscoder.h264MP4(from: raw, sourceExtension: shot.videoExtension) ?? raw
-                    mediaId += 1
-                    let href = "media/shot_\(shot.slug)_video.mp4"
-                    zip.addFile("OEBPS/\(href)", data: mp4)
-                    manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"video/mp4\"/>")
-                    videoHref = href
+                    if let topDown = reference.mapData {
+                        mediaId += 1
+                        let href = "media/shot_\(stem)_topdown.jpg"
+                        zip.addFile("OEBPS/\(href)", data: topDown)
+                        manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
+                        topDownHref = href
+                    }
+                    if let raw = reference.videoData {
+                        // Poster frame from the original video
+                        if let poster = Self.posterFrame(fromVideoData: raw, ext: reference.videoExtension) {
+                            mediaId += 1
+                            let href = "media/shot_\(stem)_poster.jpg"
+                            zip.addFile("OEBPS/\(href)", data: poster)
+                            manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
+                            posterHref = href
+                        }
+                        // Transcode to H.264/AAC MP4 for Apple Books; fall back to original.
+                        let mp4 = await VideoTranscoder.h264MP4(from: raw, sourceExtension: reference.videoExtension) ?? raw
+                        mediaId += 1
+                        let href = "media/shot_\(stem)_video.mp4"
+                        zip.addFile("OEBPS/\(href)", data: mp4)
+                        manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"video/mp4\"/>")
+                        videoHref = href
+                    }
+                    mediaMap[Self.mediaKey(shot.slug, reference.index)] = (photoHref, topDownHref, videoHref, posterHref)
                 }
-                mediaMap[shot.slug] = (photoHref, topDownHref, videoHref, posterHref)
             }
         }
 
