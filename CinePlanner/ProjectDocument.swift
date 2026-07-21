@@ -102,14 +102,19 @@ struct ShotContainer: Codable {
     init(from shot: Shot) {
         self.shotNumber = shot.shotNumber
         self.shotInformation = shot.shotInformation
-        self.photo1Data = shot.photo1Data
-        self.photo2Data = shot.photo2Data
+        self.photo1Data = shot.primaryImageData
+        self.photo2Data = shot.primaryMapData
     }
     
     func toShot() -> Shot {
         let shot = Shot(shotNumber: shotNumber, shotInformation: shotInformation)
-        shot.photo1Data = photo1Data
-        shot.photo2Data = photo2Data
+        // Rebuild as a reference; the fixed slots are legacy.
+        if photo1Data != nil || photo2Data != nil {
+            let reference = ShotReference(sortOrder: 0)
+            reference.imageData = photo1Data
+            reference.mapData = photo2Data
+            reference.shot = shot
+        }
         return shot
     }
 }

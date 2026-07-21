@@ -747,7 +747,7 @@ struct ProjectEditorView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("Export this shot list as PDF, text, a web page with media, or an EPUB")
+        .help("Export this shot list as PDF, text, or a web page with media")
     }
 
     @ViewBuilder
@@ -1450,19 +1450,9 @@ struct ShotExportRow: View {
     let shot: Shot
     /// The shot number lives in the frozen left column of the table
     var showsIdentifier: Bool = true
-    @State private var showingPhotoPreview: PreviewPhoto?
+    @State private var previewImage: NSImage?
+    @State private var previewTitle = ""
     
-    enum PreviewPhoto: Identifiable {
-        case reference
-        case topDown
-        
-        var id: String {
-            switch self {
-            case .reference: return "reference"
-            case .topDown: return "topDown"
-            }
-        }
-    }
     
     // Helper function to format coverage summary
     private func formatCoverageSummary(_ selection: ScriptTextSelection) -> String {
@@ -1536,6 +1526,53 @@ struct ShotExportRow: View {
         }
     }
     
+
+    /// Thumbnail(s) for one reference: its media, plus its map when it has one.
+    @ViewBuilder
+    private func referenceThumbnails(_ reference: ShotReference, index: Int) -> some View {
+        HStack(spacing: 6) {
+            thumbnail(data: reference.imageData,
+                      placeholder: reference.isVideo ? "video" : "photo",
+                      accent: Color.blue.opacity(0.6),
+                      label: shot.references.count > 1 ? "Ref \(index)" : "Reference") {
+                previewImage = reference.imageData.flatMap { NSImage(data: $0) }
+                previewTitle = shot.references.count > 1 ? "Reference \(index)" : "Reference"
+            }
+            if reference.mapData != nil {
+                thumbnail(data: reference.mapData,
+                          placeholder: "map",
+                          accent: Color.purple.opacity(0.6),
+                          label: "Map") {
+                    previewImage = reference.mapData.flatMap { NSImage(data: $0) }
+                    previewTitle = "Top Down Map"
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(data: Data?, placeholder: String, accent: Color,
+                           label: String, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            if let data, let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 80, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(accent, lineWidth: 2))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.1))
+                    .frame(width: 80, height: 60)
+                    .overlay(Image(systemName: placeholder).font(.title3).foregroundStyle(.secondary))
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(data == nil)
+        .help(data == nil ? "No \(label)" : "Click to preview \(label)")
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             // Shot number with icon
@@ -1744,162 +1781,35 @@ struct ShotExportRow: View {
             Spacer()
             
             // Photo thumbnails
-            HStack(spacing: 12) {
-                // Reference Shot Thumbnail
-                Button {
-                    if shot.photo1Data != nil {
-                        showingPhotoPreview = .reference
-                    }
-                } label: {
-                    if let photo1Data = shot.photo1Data,
-                       let nsImage = NSImage(data: photo1Data) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 80, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.green.opacity(0.6), lineWidth: 2)
-                            )
-                    } else {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.secondary.opacity(0.1))
-                            .frame(width: 80, height: 60)
-                            .overlay(
-                                Image(systemName: "photo")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                            )
+            // One thumbnail per reference (and its map), so a shot with several
+            // references shows all of them rather than a single fixed pair.
+            HStack(spacing: 8) {
+                if shot.orderedReferences.isEmpty {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.secondary.opacity(0.1))
+                        .frame(width: 80, height: 60)
+                        .overlay(
+                            Image(systemName: "photo")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        )
+                } else {
+                    ForEach(Array(shot.orderedReferences.enumerated()), id: \.element.persistentModelID) { index, reference in
+                        referenceThumbnails(reference, index: index + 1)
                     }
                 }
-                .buttonStyle(.plain)
-                .disabled(shot.photo1Data == nil)
-                .help(shot.photo1Data != nil ? "Click to preview Reference Shot" : "No Reference Shot")
-                
-                // Top Down Map Thumbnail
-                Button {
-                    if shot.photo2Data != nil {
-                        showingPhotoPreview = .topDown
-                    }
-                } label: {
-                    if let photo2Data = shot.photo2Data,
-                       let nsImage = NSImage(data: photo2Data) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 80, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.purple.opacity(0.6), lineWidth: 2)
-                            )
-                    } else {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.secondary.opacity(0.1))
-                            .frame(width: 80, height: 60)
-                            .overlay(
-                                Image(systemName: "map")
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                            )
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(shot.photo2Data == nil)
-                .help(shot.photo2Data != nil ? "Click to preview Top Down Map" : "No Top Down Map")
             }
-            .frame(width: 172) // 80 + 12 + 80 = 172
+            .frame(minWidth: 172, alignment: .leading)
         }
         .padding(.vertical, 8)
-        .sheet(item: $showingPhotoPreview) { previewType in
-            PhotoPreviewSheet(
-                shot: shot,
-                previewType: previewType
-            )
+        .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
+                             set: { if $0 == nil { previewImage = nil } })) { preview in
+            ImagePreviewSheet(preview: preview)
         }
     }
 }
 
 // MARK: - Photo Preview Sheet
-
-struct PhotoPreviewSheet: View {
-    let shot: Shot
-    let previewType: ShotExportRow.PreviewPhoto
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Shot \(shot.displayNumber)")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Text(previewType == .reference ? "Reference Shot" : "Top Down Map View")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.escape, modifiers: [])
-            }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            
-            Divider()
-            
-            // Image
-            if let nsImage = previewImage {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .scaledToFit()
-                    .padding()
-            } else {
-                ContentUnavailableView(
-                    "No Photo Available",
-                    systemImage: previewType == .reference ? "photo" : "map",
-                    description: Text("This shot doesn't have a \(previewType == .reference ? "reference photo" : "top down map") yet.")
-                )
-                .frame(minWidth: 900, minHeight: 600)
-            }
-        }
-        .frame(width: preferredSize.width, height: preferredSize.height)
-    }
-
-    private var previewImage: NSImage? {
-        guard let data = previewType == .reference ? shot.photo1Data : shot.photo2Data else { return nil }
-        return NSImage(data: data)
-    }
-
-    /// Sizes the window to the photo, capped to most of the screen. A plain
-    /// minimum let the sheet collapse to 600pt — narrower than the 700pt slot it
-    /// was opened from, so "enlarging" could actually shrink the image.
-    private var preferredSize: CGSize {
-        let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1600, height: 1000)
-        let maxWidth = visible.width * 0.85
-        let maxHeight = visible.height * 0.85
-        let chrome: CGFloat = 96          // header bar + padding around the image
-        let floorWidth = min(900, maxWidth)   // always wider than the inline slot
-        let floorHeight = min(620, maxHeight)
-
-        guard let size = previewImage?.size, size.width > 1, size.height > 1 else {
-            return CGSize(width: floorWidth, height: floorHeight)
-        }
-        let scale = min(maxWidth / size.width, (maxHeight - chrome) / size.height)
-        return CGSize(width: max(floorWidth, min(maxWidth, size.width * scale)),
-                      height: max(floorHeight, min(maxHeight, size.height * scale + chrome)))
-    }
-}
 
 // MARK: - Custom Label Style
 

@@ -75,9 +75,6 @@ struct ExportOptionsSheet: View {
                    detail: hasVideoInShots
                        ? "A zipped folder with a webpage plus every video. Photos are built into the page."
                        : "A single webpage with every photo built in. No folder to unpack.",
-                   requiresScript: false),
-            Option(format: .epub, icon: "book", title: "EPUB",
-                   detail: "Best for mobile — photos and playable video in one file. Opens in Apple Books and other e-readers.",
                    requiresScript: false)
         ]
     }

@@ -457,7 +457,7 @@ struct ShotListView: View {
                             }
                         }
                         Spacer()
-                        if shot.photo1Data != nil || shot.photo2Data != nil {
+                        if shot.hasAnyReferenceMedia {
                             Image(systemName: "photo")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -574,15 +574,9 @@ struct ShotDetailView: View {
     @Bindable var shot: Shot
     /// Which photo is open full size, if any.
     @Environment(\.modelContext) private var shotModelContext
-    @State private var previewPhoto: ShotExportRow.PreviewPhoto?
-    @State private var selectedPhoto1: PhotosPickerItem?
-    @State private var selectedPhoto2: PhotosPickerItem?
-    @State private var photo1Metadata: PhotoMetadata?
-    @State private var photo2Metadata: PhotoMetadata?
     @State private var showSecondType: Bool = false
     @State private var showThirdType: Bool = false
     @State private var showSecondSize: Bool = false
-    @State private var isImportingVideo: Bool = false
     
     // Computed properties for autocomplete suggestions
     private var previousCameraValues: [String] {
@@ -1271,219 +1265,23 @@ struct ShotDetailView: View {
             }
             .padding(.vertical)
         }
-        // Reuses the preview already built for the shot-list view.
-        .sheet(item: $previewPhoto) { which in
-            PhotoPreviewSheet(shot: shot, previewType: which)
-        }
-        .onChange(of: selectedPhoto1) { _, newValue in
-            // Clear old metadata immediately
-            print("📸 Photo 1 selection changed")
-            photo1Metadata = nil
-            
-            Task {
-                // First try to load as Data with metadata preserved
-                if let item = newValue {
-                    // Try to get image data while preserving metadata
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        print("🖼️ Photo 1: Loaded \(data.count) bytes for shot \(shot.displayNumber)")
-                        shot.photo1Data = data
-                        
-                        // Extract EXIF metadata
-                        if let metadata = EXIFExtractor.extractMetadata(from: data) {
-                            photo1Metadata = metadata
-                            
-                            // Store in Shot model
-                            shot.photo1CameraFamily = metadata.cameraFamily
-                            shot.photo1CameraFormat = metadata.cameraFormat
-                            shot.photo1FocalLength = metadata.focalLength
-                            shot.photo1LensPreset = metadata.lensPreset
-                            shot.photo1Horizon = metadata.horizon
-                            shot.photo1Tilt = metadata.tilt
-                            shot.photo1Height = metadata.height
-                            shot.photo1CaptureID = metadata.captureID
-                            shot.photo1CaptureType = metadata.captureType
-                            shot.photo1DateTimeOriginal = metadata.dateTimeOriginal
-                            shot.photo1Caption = metadata.iptcCaption
-                            shot.photo1Framelines = metadata.framelines
-                            shot.photo1Software = metadata.tiffSoftware
-                            shot.photo1Keywords = metadata.iptcKeywords
-                            
-                            print("  ✅ Stored metadata for shot \(shot.displayNumber), CaptureID: \(metadata.captureID ?? "nil")")
-                            
-                            // Auto-fill Shot fields from metadata (always update)
-                            if let cameraFamily = metadata.cameraFamily {
-                                shot.camera = cameraFamily
-                                print("  📝 Updated camera: \(cameraFamily)")
-                            }
-                            if let cameraFormat = metadata.cameraFormat {
-                                shot.format = cameraFormat
-                                print("  📝 Updated format: \(cameraFormat)")
-                            }
-                            if let framelinesData = metadata.framelines {
-                                shot.framelines = framelinesData
-                                print("  📝 Updated framelines: \(framelinesData)")
-                            }
-                            if let focalLength = metadata.focalLength {
-                                shot.lensfocal = Int(focalLength)
-                                print("  📝 Updated focal length: \(Int(focalLength))mm")
-                            }
-                            if let lensPresetData = metadata.lensPreset {
-                                shot.lensPreset = lensPresetData
-                                print("  📝 Updated lens preset: \(lensPresetData)")
-                            }
-                        } else {
-                            print("⚠️ Could not extract metadata from Photo 1 for shot \(shot.displayNumber)")
-                        }
-                    }
-                }
-            }
-        }
-        .onChange(of: selectedPhoto2) { _, newValue in
-            // Clear old metadata immediately
-            print("📸 Photo 2 selection changed")
-            photo2Metadata = nil
-            
-            Task {
-                if let data = try? await newValue?.loadTransferable(type: Data.self) {
-                    print("🖼️ Photo 2: Loaded \(data.count) bytes for shot \(shot.displayNumber)")
-                    shot.photo2Data = data
-                    
-                    // Extract EXIF metadata
-                    if let metadata = EXIFExtractor.extractMetadata(from: data) {
-                        photo2Metadata = metadata
-                        
-                        // Store in Shot model
-                        shot.photo2CameraFamily = metadata.cameraFamily
-                        shot.photo2CameraFormat = metadata.cameraFormat
-                        shot.photo2FocalLength = metadata.focalLength
-                        shot.photo2LensPreset = metadata.lensPreset
-                        shot.photo2Horizon = metadata.horizon
-                        shot.photo2Tilt = metadata.tilt
-                        shot.photo2Height = metadata.height
-                        shot.photo2CaptureID = metadata.captureID
-                        shot.photo2CaptureType = metadata.captureType
-                        shot.photo2DateTimeOriginal = metadata.dateTimeOriginal
-                        shot.photo2Caption = metadata.iptcCaption
-                        shot.photo2Framelines = metadata.framelines
-                        shot.photo2Software = metadata.tiffSoftware
-                        shot.photo2Keywords = metadata.iptcKeywords
-                        
-                        // Store location metadata
-                        shot.photo2CameraPhysicalWidth = metadata.cameraPhysicalWidth
-                        shot.photo2CameraPhysicalLength = metadata.cameraPhysicalLength
-                        shot.photo2LocationModel = metadata.locationModel
-                        shot.photo2LocationWidth = metadata.locationWidth
-                        shot.photo2LocationLength = metadata.locationLength
-                        shot.photo2LocationHeight = metadata.locationHeight
-                        
-                        print("  ✅ Stored metadata for shot \(shot.displayNumber), CaptureID: \(metadata.captureID ?? "nil")")
-                    }
-                }
-            }
-        }
-        .onAppear {
+                        .onAppear {
             // Show second type dropdown if a second type is already set
             showSecondType = shot.secondTypeCategory != .none
             // Show third type dropdown if a third type is already set
             showThirdType = shot.thirdTypeCategory != .none
             // Show second size dropdown if a second size is already set
             showSecondSize = shot.secondSize != .none
-            // Load metadata after view appears
-            loadMetadataForCurrentShot()
         }
         .onChange(of: shot.id) { _, _ in
-            // Reset metadata and photo pickers when navigating to a different shot
-            print("🔄 Shot changed, reloading metadata")
-            selectedPhoto1 = nil
-            selectedPhoto2 = nil
+            // Each reference card owns its own pickers now; only the
+            // shot-level toggles need resetting here.
             showSecondType = shot.secondTypeCategory != .none
             showThirdType = shot.thirdTypeCategory != .none
             showSecondSize = shot.secondSize != .none
-            
-            // Force reload metadata for new shot
-            loadMetadataForCurrentShot()
         }
     }
     
-    private func loadMetadataForCurrentShot() {
-        print("🔄 Loading metadata for shot \(shot.displayNumber)")
-        
-        // Always clear first to ensure clean state
-        photo1Metadata = nil
-        photo2Metadata = nil
-        
-        // Load metadata for Photo 1
-        if shot.photo1Data != nil {
-            print("  📸 Photo 1 exists, loading metadata...")
-            let metadata = PhotoMetadata(
-                cameraFamily: shot.photo1CameraFamily,
-                cameraFormat: shot.photo1CameraFormat,
-                focalLength: shot.photo1FocalLength,
-                lensPreset: shot.photo1LensPreset,
-                tilt: shot.photo1Tilt,
-                horizon: shot.photo1Horizon,
-                height: shot.photo1Height,
-                captureID: shot.photo1CaptureID,
-                captureType: shot.photo1CaptureType,
-                dateTimeOriginal: shot.photo1DateTimeOriginal,
-                iptcKeywords: shot.photo1Keywords,
-                iptcCaption: shot.photo1Caption,
-                tiffSoftware: shot.photo1Software,
-                framelines: shot.photo1Framelines
-            )
-            
-            // Only set if metadata has any content
-            if metadata.cameraFamily != nil || metadata.cameraFormat != nil || 
-               metadata.focalLength != nil || metadata.captureID != nil || 
-               metadata.dateTimeOriginal != nil {
-                photo1Metadata = metadata
-                print("  ✅ Photo 1 metadata loaded - CaptureID: \(shot.photo1CaptureID ?? "nil")")
-            } else {
-                print("  ⚠️ Photo 1 has no metadata")
-            }
-        } else {
-            print("  ⚠️ Photo 1 does not exist")
-        }
-        
-        // Load metadata for Photo 2
-        if shot.photo2Data != nil {
-            print("  📸 Photo 2 exists, loading metadata...")
-            let metadata = PhotoMetadata(
-                cameraFamily: shot.photo2CameraFamily,
-                cameraFormat: shot.photo2CameraFormat,
-                focalLength: shot.photo2FocalLength,
-                lensPreset: shot.photo2LensPreset,
-                tilt: shot.photo2Tilt,
-                horizon: shot.photo2Horizon,
-                height: shot.photo2Height,
-                captureID: shot.photo2CaptureID,
-                captureType: shot.photo2CaptureType,
-                dateTimeOriginal: shot.photo2DateTimeOriginal,
-                iptcKeywords: shot.photo2Keywords,
-                iptcCaption: shot.photo2Caption,
-                tiffSoftware: shot.photo2Software,
-                framelines: shot.photo2Framelines,
-                cameraPhysicalWidth: shot.photo2CameraPhysicalWidth,
-                cameraPhysicalLength: shot.photo2CameraPhysicalLength,
-                locationModel: shot.photo2LocationModel,
-                locationWidth: shot.photo2LocationWidth,
-                locationLength: shot.photo2LocationLength,
-                locationHeight: shot.photo2LocationHeight
-            )
-            
-            // Only set if metadata has any content
-            if metadata.cameraFamily != nil || metadata.cameraFormat != nil || 
-               metadata.focalLength != nil || metadata.captureID != nil || 
-               metadata.dateTimeOriginal != nil || metadata.locationModel != nil {
-                photo2Metadata = metadata
-                print("  ✅ Photo 2 metadata loaded - CaptureID: \(shot.photo2CaptureID ?? "nil"), Location: \(shot.photo2LocationModel ?? "nil")")
-            } else {
-                print("  ⚠️ Photo 2 has no metadata")
-            }
-        } else {
-            print("  ⚠️ Photo 2 does not exist")
-        }
-    }
 }
 
 // MARK: - Photo Slot

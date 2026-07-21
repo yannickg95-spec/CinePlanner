@@ -18,8 +18,7 @@ enum ProjectUtilities {
         let photoCount = project.scenes.reduce(0) { sceneTotal, scene in
             sceneTotal + scene.shots.reduce(0) { shotTotal, shot in
                 var count = 0
-                if shot.photo1Data != nil { count += 1 }
-                if shot.photo2Data != nil { count += 1 }
+                count += shot.attachedPhotoCount
                 return shotTotal + count
             }
         }
@@ -40,8 +39,8 @@ enum ProjectUtilities {
         for scene in project.scenes.sorted(by: { $0.sceneNumber < $1.sceneNumber }) {
             for shot in scene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }) {
                 let info = shot.shotInformation.replacingOccurrences(of: "\n", with: " ")
-                let hasPhoto1 = shot.photo1Data != nil ? "Yes" : "No"
-                let hasPhoto2 = shot.photo2Data != nil ? "Yes" : "No"
+                let hasPhoto1 = shot.primaryImageData != nil ? "Yes" : "No"
+                let hasPhoto2 = shot.primaryMapData != nil ? "Yes" : "No"
                 csv += "\(scene.sceneNumber),\(shot.shotNumber),\"\(info)\",\(hasPhoto1),\(hasPhoto2)\n"
             }
         }
@@ -62,7 +61,7 @@ enum ProjectUtilities {
         
         for scene in project.scenes {
             for shot in scene.shots {
-                let photoCount = (shot.photo1Data != nil ? 1 : 0) + (shot.photo2Data != nil ? 1 : 0)
+                let photoCount = shot.attachedPhotoCount
                 totalPhotos += photoCount
                 
                 switch photoCount {

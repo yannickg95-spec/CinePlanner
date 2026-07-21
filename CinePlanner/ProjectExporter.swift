@@ -29,10 +29,6 @@ struct ProjectExporter {
             exportHTMLWithMedia()
             return
         }
-        if format == .epub {
-            exportEPUB()
-            return
-        }
         print("🔵 [EXPORT] Starting export process...")
         print("🔵 [EXPORT] Current thread: \(Thread.current)")
         print("🔵 [EXPORT] Is main thread: \(Thread.isMainThread)")
@@ -103,7 +99,7 @@ struct ProjectExporter {
                         try pdfData.write(to: url)
                         print("✅ [EXPORT] Script with coverage saved successfully")
 
-                    case .htmlWithMedia, .epub:
+                    case .htmlWithMedia:
                         break // handled earlier via their own methods
                     }
 
@@ -142,7 +138,7 @@ struct ProjectExporter {
 
     private struct MediaScene {
         let heading: String
-        let subheading: String       // "INT · KITCHEN · DAY", used by the EPUB
+            let subheading: String       // "INT · KITCHEN · DAY"
         let isInterior: Bool         // kept separate so the web page can filter on them
         let isDay: Bool
         let location: String
@@ -476,8 +472,8 @@ struct ProjectExporter {
                 body += "    <p class=\"empty\">No shots in this scene.</p>\n"
             }
             for shot in scene.shots {
-                let m = media[shot.slug] ?? RenderedMedia(photoURI: nil, topDownURI: nil, videoPath: nil, posterURI: nil)
-                let hasMedia = m.photoURI != nil || m.topDownURI != nil || m.videoPath != nil
+                let refs = shot.references.map { (r: MediaReference) in (r, media[Self.mediaKey(shot.slug, r.index)]) }
+                let hasMedia = refs.contains { $0.1?.photoURI != nil || $0.1?.topDownURI != nil || $0.1?.videoPath != nil }
                 let shotSearch = ([shot.displayNumber, shot.nickname, shot.coverageText ?? ""]
                                   + shot.details.map { "\($0.label) \($0.value)" })
                     .joined(separator: " ").lowercased()
@@ -485,7 +481,7 @@ struct ProjectExporter {
                 body += "    <article class=\"shot\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
                 body += "      <div class=\"shot-head\"><span class=\"shot-num\">\(esc(shot.displayNumber))</span>"
                 if !shot.nickname.isEmpty { body += "<span class=\"shot-nick\">\(esc(shot.nickname))</span>" }
-                if m.videoPath != nil { body += "<span class=\"pill pill-video\">Video</span>" }
+                if refs.contains(where: { $0.1?.videoPath != nil }) { body += "<span class=\"pill pill-video\">Video</span>" }
                 body += "</div>\n"
 
                 body += "      <div class=\"shot-body\">\n"
@@ -511,23 +507,29 @@ struct ProjectExporter {
                 // Apple's Quick Look preview. The same <img> is reused enlarged, so
                 // nothing is embedded twice.
                 body += "        <div class=\"media\">\n"
-                if let video = m.videoPath {
-                    let mime = video.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
-                    body += "          <details class=\"mi mi-video\">\n            <summary title=\"Play video\">"
-                    if let poster = m.posterURI {
-                        body += "<img src=\"\(poster)\" alt=\"Video\">"
-                    } else {
-                        body += "<span class=\"thumb-blank\"></span>"
+                for (reference, rendered) in refs {
+                    guard let m = rendered else { continue }
+                    // Label each thumbnail with its reference number when a shot
+                    // carries more than one.
+                    let tag = shot.references.count > 1 ? " \(reference.index)" : ""
+                    if let video = m.videoPath {
+                        let mime = video.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
+                        body += "          <details class=\"mi mi-video\">\n            <summary title=\"Play video\">"
+                        if let poster = m.posterURI {
+                            body += "<img src=\"\(poster)\" alt=\"Video\">"
+                        } else {
+                            body += "<span class=\"thumb-blank\"></span>"
+                        }
+                        body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Video\(tag)</span></summary>\n"
+                        body += "            <video controls playsinline preload=\"none\"><source src=\"\(video)\" type=\"\(mime)\"></video>\n"
+                        body += "          </details>\n"
                     }
-                    body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Video</span></summary>\n"
-                    body += "            <video controls playsinline preload=\"none\"><source src=\"\(video)\" type=\"\(mime)\"></video>\n"
-                    body += "          </details>\n"
-                }
-                if let photo = m.photoURI {
-                    body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Reference</span></summary></details>\n"
-                }
-                if let topDown = m.topDownURI {
-                    body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Top-down</span></summary></details>\n"
+                    if let photo = m.photoURI {
+                        body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Ref\(tag)</span></summary></details>\n"
+                    }
+                    if let topDown = m.topDownURI {
+                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary></details>\n"
+                    }
                 }
                 if !hasMedia {
                     body += "          <div class=\"nomedia\" title=\"No reference media\">—</div>\n"
@@ -763,7 +765,6 @@ struct ProjectExporter {
           </div>
         </div>
 
-
         <div class="layout">
           <nav class="toc" id="toc">
             <div class="toc-title">Scenes</div>
@@ -960,8 +961,7 @@ struct ProjectExporter {
     }
 
     /// Writes several formats into one folder, no per-file save panel.
-    /// Runs on the main actor because it reads SwiftData; the slow EPUB
-    /// transcode is awaited (a suspension, so the UI stays responsive).
+    /// Runs on the main actor because it reads SwiftData.
     @MainActor
     func exportAll(formats: [ExportFormat], to folder: URL) async throws -> [URL] {
         var written: [URL] = []
@@ -993,12 +993,6 @@ struct ProjectExporter {
                                    scenes: snapshotScenesForMedia(),
                                    to: url)
 
-            case .epub:
-                let data = try await buildEPUB(filmName: project.filmName,
-                                               episodeName: episodeName,
-                                               versionName: version?.name,
-                                               scenes: snapshotScenesForMedia())
-                try data.write(to: url)
             }
             written.append(url)
         }
@@ -1028,252 +1022,6 @@ struct ProjectExporter {
     func showExportError(_ error: Error) {
         showErrorAlert(error: error)
     }
-
-    // MARK: - EPUB Export (Apple Books)
-
-    /// Exports an .epub — an EPUB 3 package that opens in Apple Books on iPhone,
-    /// iPad and Mac, with photos and (H.264-transcoded) videos that play inline.
-    private func exportEPUB() {
-        let filmName = project.filmName
-        let versionName = version?.name
-        let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
-        let scenes = snapshotScenesForMedia()
-
-        DispatchQueue.main.async {
-            let panel = NSSavePanel()
-            panel.title = "Export EPUB for Apple Books"
-            panel.message = "Saves an .epub you can open in Apple Books on iPhone, iPad and Mac"
-            panel.nameFieldStringValue = "\(filmName) - Shot List.epub"
-            panel.allowedContentTypes = [.epub]
-            panel.canCreateDirectories = true
-
-            guard panel.runModal() == .OK, let destination = panel.url else {
-                print("ℹ️ [EPUB] Export cancelled")
-                return
-            }
-
-            // Transcoding is slow, so assemble off the main thread.
-            Task.detached {
-                do {
-                    let data = try await self.buildEPUB(filmName: filmName, episodeName: episodeName,
-                                                        versionName: versionName, scenes: scenes)
-                    try data.write(to: destination)
-                    await MainActor.run { self.showSuccessNotification(fileURL: destination, format: .epub) }
-                } catch {
-                    print("❌ [EPUB] Export failed: \(error)")
-                    await MainActor.run { self.showErrorAlert(error: error) }
-                }
-            }
-        }
-    }
-
-    private func buildEPUB(filmName: String, episodeName: String?, versionName: String?,
-                           scenes: [MediaScene]) async throws -> Data {
-        var zip = ZipWriter()
-        // OCF requires `mimetype` first and stored (our writer stores everything).
-        zip.addFile("mimetype", data: Data("application/epub+zip".utf8))
-        zip.addFile("META-INF/container.xml", data: Data(Self.epubContainerXML.utf8))
-
-        var manifestItems: [String] = []
-        var mediaMap: [String: (photo: String?, topDown: String?, video: String?, poster: String?)] = [:]
-        var mediaId = 0
-
-        for scene in scenes {
-            for shot in scene.shots {
-                for reference in shot.references {
-                    var photoHref: String?, topDownHref: String?, videoHref: String?, posterHref: String?
-                    let stem = "\(shot.slug)_\(reference.index)"
-
-                    if let photo = reference.photoData {
-                        mediaId += 1
-                        let href = "media/shot_\(stem)_ref.jpg"
-                        zip.addFile("OEBPS/\(href)", data: photo)
-                        manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                        photoHref = href
-                    }
-                    if let topDown = reference.mapData {
-                        mediaId += 1
-                        let href = "media/shot_\(stem)_topdown.jpg"
-                        zip.addFile("OEBPS/\(href)", data: topDown)
-                        manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                        topDownHref = href
-                    }
-                    if let raw = reference.videoData {
-                        // Poster frame from the original video
-                        if let poster = Self.posterFrame(fromVideoData: raw, ext: reference.videoExtension) {
-                            mediaId += 1
-                            let href = "media/shot_\(stem)_poster.jpg"
-                            zip.addFile("OEBPS/\(href)", data: poster)
-                            manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"image/jpeg\"/>")
-                            posterHref = href
-                        }
-                        // Transcode to H.264/AAC MP4 for Apple Books; fall back to original.
-                        let mp4 = await VideoTranscoder.h264MP4(from: raw, sourceExtension: reference.videoExtension) ?? raw
-                        mediaId += 1
-                        let href = "media/shot_\(stem)_video.mp4"
-                        zip.addFile("OEBPS/\(href)", data: mp4)
-                        manifestItems.append("<item id=\"m\(mediaId)\" href=\"\(href)\" media-type=\"video/mp4\"/>")
-                        videoHref = href
-                    }
-                    mediaMap[Self.mediaKey(shot.slug, reference.index)] = (photoHref, topDownHref, videoHref, posterHref)
-                }
-            }
-        }
-
-        let content = Self.buildEPUBContent(filmName: filmName, episodeName: episodeName,
-                                            versionName: versionName, scenes: scenes, media: mediaMap)
-        zip.addFile("OEBPS/shotlist.xhtml", data: Data(content.utf8))
-        zip.addFile("OEBPS/style.css", data: Data(Self.epubCSS.utf8))
-        zip.addFile("OEBPS/nav.xhtml", data: Data(Self.buildEPUBNav(scenes: scenes).utf8))
-        zip.addFile("OEBPS/package.opf", data: Data(Self.buildEPUBPackage(title: "\(filmName) — Shot List",
-                                                                          manifestMediaItems: manifestItems).utf8))
-        return zip.finalizeData()
-    }
-
-    private static let epubContainerXML = """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-      <rootfiles>
-        <rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/>
-      </rootfiles>
-    </container>
-    """
-
-    private static func buildEPUBPackage(title: String, manifestMediaItems: [String]) -> String {
-        let uuid = UUID().uuidString
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        let modified = formatter.string(from: Date())
-        let media = manifestMediaItems.isEmpty ? "" : "\n    " + manifestMediaItems.joined(separator: "\n    ")
-        return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
-          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-            <dc:identifier id="bookid">urn:uuid:\(uuid)</dc:identifier>
-            <dc:title>\(esc(title))</dc:title>
-            <dc:language>en</dc:language>
-            <meta property="dcterms:modified">\(modified)</meta>
-          </metadata>
-          <manifest>
-            <item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>
-            <item id="css" href="style.css" media-type="text/css"/>
-            <item id="content" href="shotlist.xhtml" media-type="application/xhtml+xml"/>\(media)
-          </manifest>
-          <spine>
-            <itemref idref="content"/>
-          </spine>
-        </package>
-        """
-    }
-
-    private static func buildEPUBNav(scenes: [MediaScene]) -> String {
-        var items = ""
-        for (i, scene) in scenes.enumerated() {
-            items += "      <li><a href=\"shotlist.xhtml#scene-\(i)\">\(esc(scene.heading)) — \(esc(scene.subheading))</a></li>\n"
-        }
-        return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE html>
-        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-        <head><meta charset="utf-8"/><title>Contents</title></head>
-        <body>
-          <nav epub:type="toc" id="toc">
-            <h1>Shot List</h1>
-            <ol>
-        \(items)    </ol>
-          </nav>
-        </body>
-        </html>
-        """
-    }
-
-    private static func buildEPUBContent(filmName: String, episodeName: String?, versionName: String?,
-                                         scenes: [MediaScene],
-                                         media: [String: (photo: String?, topDown: String?, video: String?, poster: String?)]) -> String {
-        var subtitle: [String] = []
-        if let episodeName { subtitle.append(esc(episodeName)) }
-        if let versionName { subtitle.append(esc(versionName)) }
-        let totalShots = scenes.reduce(0) { $0 + $1.shots.count }
-        subtitle.append("\(scenes.count) scene\(scenes.count == 1 ? "" : "s")")
-        subtitle.append("\(totalShots) shot\(totalShots == 1 ? "" : "s")")
-
-        var body = ""
-        for (i, scene) in scenes.enumerated() {
-            body += "<section class=\"scene\" id=\"scene-\(i)\">\n"
-            body += "<div class=\"scene-head\"><h2>\(esc(scene.heading))</h2><span class=\"scene-sub\">\(esc(scene.subheading))</span></div>\n"
-            for shot in scene.shots {
-                let m = media[shot.slug] ?? (nil, nil, nil, nil)
-                body += "<article class=\"shot\">\n"
-                body += "<div class=\"shot-head\"><span class=\"shot-num\">Shot \(esc(shot.displayNumber))</span>"
-                if !shot.nickname.isEmpty { body += "<span class=\"shot-nick\">\(esc(shot.nickname))</span>" }
-                body += "</div>\n"
-
-                body += "<div class=\"media\">\n"
-                if let v = m.video {
-                    body += "<video class=\"vid\" controls=\"controls\" playsinline=\"playsinline\" preload=\"none\""
-                    if let poster = m.poster { body += " poster=\"\(poster)\"" }
-                    body += "><source src=\"\(v)\" type=\"video/mp4\"/></video>\n"
-                }
-                if let p = m.photo { body += "<img class=\"still\" src=\"\(p)\" alt=\"Reference\"/>\n" }
-                if let t = m.topDown { body += "<img class=\"still\" src=\"\(t)\" alt=\"Top-down\"/>\n" }
-                body += "</div>\n"
-
-                body += "<div class=\"details\">\n"
-                if !shot.details.isEmpty {
-                    body += "<table>\n"
-                    for row in shot.details {
-                        body += "<tr><th>\(esc(row.label))</th><td>\(esc(row.value))</td></tr>\n"
-                    }
-                    body += "</table>\n"
-                }
-                if let coverage = shot.coverageText {
-                    body += "<div class=\"coverage\"><span class=\"coverage-label\">Coverage</span>\(esc(coverage))</div>\n"
-                }
-                body += "</div>\n"
-                body += "</article>\n"
-            }
-            body += "</section>\n"
-        }
-
-        return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE html>
-        <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-        <head>
-        <meta charset="utf-8"/>
-        <title>\(esc(filmName)) — Shot List</title>
-        <link rel="stylesheet" type="text/css" href="style.css"/>
-        </head>
-        <body>
-        <header><h1>\(esc(filmName))</h1><div class="sub">\(subtitle.joined(separator: " · "))</div></header>
-        \(body)
-        </body>
-        </html>
-        """
-    }
-
-    private static let epubCSS = """
-    body { font-family: -apple-system, "Helvetica Neue", sans-serif; color: #1c1c1e; margin: 0; padding: 0 1em 2em; line-height: 1.4; }
-    header { padding: 1em 0 0.5em; }
-    header h1 { font-size: 1.5em; margin: 0 0 0.2em; }
-    header .sub { color: #6b6b70; font-size: 0.85em; }
-    .scene { margin-top: 1.4em; }
-    .scene-head { border-bottom: 2px solid rgba(0,0,0,0.15); padding-bottom: 0.3em; margin-bottom: 0.6em; }
-    .scene-head h2 { font-size: 1.2em; margin: 0; display: inline; }
-    .scene-sub { color: #6b6b70; font-size: 0.8em; margin-left: 0.5em; }
-    .shot { border: 1px solid rgba(0,0,0,0.12); border-radius: 10px; padding: 0.8em; margin-bottom: 0.9em; }
-    .shot-head { margin-bottom: 0.5em; }
-    .shot-num { font-weight: 700; }
-    .shot-nick { color: #6b6b70; margin-left: 0.4em; }
-    .media img, .media .vid { display: block; width: 100%; border-radius: 6px; margin-bottom: 0.5em; background: #000; }
-    .details table { border-collapse: collapse; width: 100%; margin-top: 0.3em; }
-    .details th { text-align: left; color: #6b6b70; font-weight: normal; font-size: 0.85em; padding: 0.15em 0.8em 0.15em 0; vertical-align: top; width: 7em; }
-    .details td { font-size: 0.85em; font-weight: 600; padding: 0.15em 0; }
-    .coverage { margin-top: 0.6em; font-size: 0.85em; background: rgba(0,0,0,0.05); border-radius: 6px; padding: 0.5em 0.7em; }
-    .coverage-label { display: block; font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: #8a8a8e; margin-bottom: 0.2em; }
-    """
 
     // MARK: - Text Generation
 
@@ -1390,7 +1138,7 @@ struct ProjectExporter {
             
             for shot in scene.shots {
                 // Check for photos
-                if shot.photo1Data != nil || shot.photo2Data != nil {
+                if shot.hasAnyReferenceMedia {
                     shotsWithPhotos += 1
                 }
                 
@@ -1400,7 +1148,7 @@ struct ProjectExporter {
                 }
                 
                 // Check if complete (has both photos and coverage)
-                if (shot.photo1Data != nil || shot.photo2Data != nil) &&
+                if shot.hasAnyReferenceMedia &&
                    shot.scriptCoverageSelections != nil &&
                    !(shot.scriptCoverageSelections?.isEmpty ?? true) {
                     completeShots += 1
@@ -2342,8 +2090,8 @@ struct ProjectExporter {
                     let shot = orderedShots[shotIndex]
                     
                     // Check for photos (used for height calculation and rendering)
-                    let hasPhoto1 = shot.photo1Data != nil
-                    let hasPhoto2 = shot.photo2Data != nil
+                    let hasPhoto1 = shot.primaryImageData != nil
+                    let hasPhoto2 = shot.primaryMapData != nil
                     
                     // Calculate shot height
                     var shotHeight: CGFloat = 15 // Header
@@ -2563,7 +2311,7 @@ struct ProjectExporter {
                         var photoY = yPosition
                         
                         // Draw Reference Shot (Photo 1)
-                        if hasPhoto1, let photo1Data = shot.photo1Data, let nsImage = NSImage(data: photo1Data) {
+                        if hasPhoto1, let photo1Data = shot.primaryImageData, let nsImage = NSImage(data: photo1Data) {
                             // Label
                             let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
                             let labelAttr: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.secondaryLabelColor]
@@ -2622,7 +2370,7 @@ struct ProjectExporter {
                         }
                         
                         // Draw Top Down Map (Photo 2)
-                        if hasPhoto2, let photo2Data = shot.photo2Data, let nsImage = NSImage(data: photo2Data) {
+                        if hasPhoto2, let photo2Data = shot.primaryMapData, let nsImage = NSImage(data: photo2Data) {
                             // Label
                             let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
                             let labelAttr: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: NSColor.secondaryLabelColor]
@@ -2818,8 +2566,8 @@ struct ProjectExporter {
                     details.append("  Extra Info:   \(shot.extraInfo)")
                 }
                 
-                let hasPhoto1 = shot.photo1Data != nil
-                let hasPhoto2 = shot.photo2Data != nil
+                let hasPhoto1 = shot.primaryImageData != nil
+                let hasPhoto2 = shot.primaryMapData != nil
                 if hasPhoto1 || hasPhoto2 {
                     var photoStatus = ""
                     if hasPhoto1 { photoStatus += "Reference Shot" }
@@ -2932,7 +2680,6 @@ enum ExportFormat: Hashable {
     case text
     case scriptWithCoverage
     case htmlWithMedia
-    case epub
 
     var displayName: String {
         switch self {
@@ -2940,7 +2687,6 @@ enum ExportFormat: Hashable {
         case .text: return "Text File"
         case .scriptWithCoverage: return "Script with Coverage"
         case .htmlWithMedia: return "Web Page with Media"
-        case .epub: return "EPUB (Apple Books)"
         }
     }
 
@@ -2950,7 +2696,6 @@ enum ExportFormat: Hashable {
         case .text: return "txt"
         case .scriptWithCoverage: return "pdf"
         case .htmlWithMedia: return "zip"
-        case .epub: return "epub"
         }
     }
 
@@ -2960,7 +2705,6 @@ enum ExportFormat: Hashable {
         case .text: return .plainText
         case .scriptWithCoverage: return .pdf
         case .htmlWithMedia: return .zip
-        case .epub: return .epub
         }
     }
 }

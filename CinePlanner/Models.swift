@@ -689,10 +689,11 @@ extension Shot {
 
         reference.shot = self
 
-        // NOTE: the legacy slots are deliberately *not* cleared yet. The shot
-        // list, PDF and text exports still read them; clearing now would make
-        // photos disappear from those. Clearing happens once every reader has
-        // been moved over to `references`.
+        // Every reader now goes through `references`, so the legacy slots can go.
+        photo1Data = nil
+        photo2Data = nil
+        videoDataLegacy = nil
+        referenceVideoExtension = nil
     }
 
     func duplicate() -> Shot {
@@ -831,4 +832,20 @@ extension ScriptTextSelection {
         // self.fullText = (pdfSelection as? PDFSelection)?.string
         self.fullText = nil // This will be set in the actual implementation
     }
+}
+
+// MARK: - Reference convenience
+
+extension Shot {
+    /// Every reference image, in order.
+    var referenceImages: [Data] { orderedReferences.compactMap(\.imageData) }
+    /// Every top-down map, in order.
+    var referenceMaps: [Data] { orderedReferences.compactMap(\.mapData) }
+    /// First reference image — for places that show a single representative photo.
+    var primaryImageData: Data? { referenceImages.first }
+    /// First top-down map.
+    var primaryMapData: Data? { referenceMaps.first }
+    /// Total photos attached to the shot (references + their maps).
+    var attachedPhotoCount: Int { referenceImages.count + referenceMaps.count }
+    var hasAnyReferenceMedia: Bool { orderedReferences.contains { $0.hasMedia || $0.mapData != nil } }
 }
