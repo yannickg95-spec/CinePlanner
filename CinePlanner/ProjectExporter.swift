@@ -133,6 +133,7 @@ struct ProjectExporter {
         let nickname: String
         let details: [(label: String, value: String)]
         let coverageText: String?
+        let coveragePreview: String?
         let references: [MediaReference]
     }
 
@@ -221,6 +222,7 @@ struct ProjectExporter {
                     nickname: shot.nickname,
                     details: shotDetails(shot),
                     coverageText: coverageSummary(shot),
+                    coveragePreview: coveragePreview(shot),
                     references: shot.orderedReferences.enumerated().map { index, reference in
                         MediaReference(
                             index: index + 1,
@@ -264,6 +266,29 @@ struct ProjectExporter {
         if !shot.lensPreset.isEmpty { rows.append(("Lens", shot.lensPreset)) }
         if !shot.extraInfo.isEmpty { rows.append(("Extra info", shot.extraInfo)) }
         return rows
+    }
+
+    /// Shown while coverage is collapsed: the first and last five words with the
+    /// script page(s), so a closed block still says what it covers.
+    private func coveragePreview(_ shot: Shot) -> String? {
+        guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { return nil }
+        let text = selections.compactMap { $0.fullText }.joined(separator: " ")
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        guard !words.isEmpty else { return nil }
+
+        let summary = words.count <= 10
+            ? words.joined(separator: " ")
+            : words.prefix(5).joined(separator: " ") + " … " + words.suffix(5).joined(separator: " ")
+
+        let pages = Set(selections.flatMap { $0.pageRanges.map { $0.pageIndex + 1 } }).sorted()
+        let pageText: String
+        switch pages.count {
+        case 0:  pageText = ""
+        case 1:  pageText = " (P\(pages[0]))"
+        case 2:  pageText = " (P\(pages[0]), P\(pages[1]))"
+        default: pageText = " (P\(pages.first!)–P\(pages.last!))"
+        }
+        return summary + pageText
     }
 
     private func coverageSummary(_ shot: Shot) -> String? {
@@ -501,11 +526,13 @@ struct ProjectExporter {
                     // Coverage can run long, so it collapses. <details> again, so it
                     // still opens in previews with JavaScript disabled. Short
                     // coverage starts open — there's nothing to gain by hiding it.
-                    let words = coverage.split(whereSeparator: { $0 == " " || $0.isNewline }).count
                     let startsOpen = coverage.count <= 180
                     body += "          <details class=\"coverage\"\(startsOpen ? " open" : "")>\n"
                     body += "            <summary class=\"coverage-label\">Coverage"
-                    body += "<span class=\"coverage-count\">\(words) word\(words == 1 ? "" : "s")</span></summary>\n"
+                    if let preview = shot.coveragePreview {
+                        body += "<span class=\"coverage-preview\">\(esc(preview))</span>"
+                    }
+                    body += "</summary>\n"
                     body += "            <div class=\"coverage-text\">\(esc(coverage))</div>\n"
                     body += "          </details>\n"
                 }
@@ -722,8 +749,11 @@ struct ProjectExporter {
           .coverage > summary::before { content: "▾"; font-size: 10px; color: var(--faint);
                                         transition: transform 0.15s ease; }
           .coverage:not([open]) > summary::before { transform: rotate(-90deg); }
-          .coverage-count { margin-left: auto; font-size: 10px; color: var(--faint);
-                            text-transform: none; letter-spacing: 0; font-weight: 500; }
+          .coverage-preview { font-size: 12px; color: var(--muted); font-weight: 400;
+                              text-transform: none; letter-spacing: 0; min-width: 0;
+                              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          /* The preview is a stand-in for the text, so it goes once the text is shown. */
+          .coverage[open] > summary > .coverage-preview { display: none; }
           .coverage-text { margin-top: 8px; }
           .coverage-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
                             color: var(--faint); font-weight: 600; }
