@@ -1466,6 +1466,7 @@ struct ShotExportRow: View {
     /// The shot number lives in the frozen left column of the table
     var showsIdentifier: Bool = true
     @State private var previewImage: NSImage?
+    @State private var previewVideo: VideoPreviewItem?
     @State private var previewTitle = ""
     
     
@@ -1545,13 +1546,37 @@ struct ShotExportRow: View {
     /// Thumbnail(s) for one reference: its media, plus its map when it has one.
     @ViewBuilder
     private func referenceThumbnails(_ reference: ShotReference, index: Int) -> some View {
-        HStack(spacing: 6) {
-            thumbnail(data: reference.imageData,
-                      placeholder: reference.isVideo ? "video" : "photo",
-                      accent: Color.blue.opacity(0.6),
-                      label: shot.references.count > 1 ? "Ref \(index)" : "Reference") {
-                previewImage = reference.imageData.flatMap { NSImage(data: $0) }
-                previewTitle = shot.references.count > 1 ? "Reference \(index)" : "Reference"
+        let label = shot.references.count > 1 ? "Reference \(index)" : "Reference"
+        return HStack(spacing: 6) {
+            if let videoData = reference.videoData {
+                // Video references show a poster frame with a play badge; tapping
+                // opens a player rather than a still.
+                ZStack {
+                    thumbnail(data: nil,
+                              posterImage: VideoPosterCache.poster(for: reference),
+                              placeholder: "video",
+                              accent: Color.blue.opacity(0.6),
+                              label: label) {
+                        previewVideo = VideoPreviewItem(
+                            id: "\(reference.persistentModelID.hashValue)",
+                            data: videoData,
+                            fileExtension: reference.videoExtension ?? "mov",
+                            title: "\(label) — Shot \(shot.displayNumber)")
+                    }
+                    Image(systemName: "play.circle.fill")
+                        .font(.title)
+                        .foregroundStyle(.white, .black.opacity(0.5))
+                        .shadow(radius: 2)
+                        .allowsHitTesting(false)
+                }
+            } else {
+                thumbnail(data: reference.imageData,
+                          placeholder: "photo",
+                          accent: Color.blue.opacity(0.6),
+                          label: label) {
+                    previewImage = reference.imageData.flatMap { NSImage(data: $0) }
+                    previewTitle = label
+                }
             }
             if reference.mapData != nil {
                 thumbnail(data: reference.mapData,
@@ -1566,10 +1591,11 @@ struct ShotExportRow: View {
     }
 
     @ViewBuilder
-    private func thumbnail(data: Data?, placeholder: String, accent: Color,
+    private func thumbnail(data: Data?, posterImage: NSImage? = nil,
+                           placeholder: String, accent: Color,
                            label: String, onTap: @escaping () -> Void) -> some View {
         Button(action: onTap) {
-            if let data, let nsImage = NSImage(data: data) {
+            if let nsImage = posterImage ?? data.flatMap({ NSImage(data: $0) }) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFill()
@@ -1584,8 +1610,8 @@ struct ShotExportRow: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(data == nil)
-        .help(data == nil ? "No \(label)" : "Click to preview \(label)")
+        .disabled(data == nil && posterImage == nil)
+        .help(data == nil && posterImage == nil ? "No \(label)" : "Click to preview \(label)")
     }
 
     var body: some View {
@@ -1820,6 +1846,9 @@ struct ShotExportRow: View {
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
                              set: { if $0 == nil { previewImage = nil } })) { preview in
             ImagePreviewSheet(preview: preview)
+        }
+        .sheet(item: $previewVideo) { item in
+            VideoPreviewSheet(item: item)
         }
     }
 }

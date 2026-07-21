@@ -431,6 +431,10 @@ struct ProjectExporter {
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: tmp))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 1200, height: 1200)
+        // Exact seek: otherwise the generator returns the nearest earlier
+        // keyframe, which is frame 0 — often black.
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
 
         let cg = (try? generator.copyCGImage(at: CMTime(seconds: 0.5, preferredTimescale: 600), actualTime: nil))
             ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
