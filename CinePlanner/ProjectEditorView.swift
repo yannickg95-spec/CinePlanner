@@ -121,7 +121,7 @@ struct ProjectEditorView: View {
             // Seed the live column widths from the saved values (clamped, so an
             // odd stored value can't make the window wider than the display)
             sceneWidth = min(max(CGFloat(project.sceneColumnWidth), Self.sceneColumnMinWidth), sceneColumnMaxWidth)
-            scriptWidth = min(max(CGFloat(project.scriptColumnWidth), 300), 900)
+            // scriptWidth is derived from the stored fraction once the width is known
             if selectedEpisode == nil {
                 selectedEpisode = project.orderedEpisodes.first
             }
@@ -151,8 +151,12 @@ struct ProjectEditorView: View {
             }
         }
         .onChange(of: selectedScene) { oldScene, newScene in
-            // Clear shot selection when the primary scene changes
-            if oldScene !== newScene {
+            // Picking a scene lands on its first shot, so the detail pane always
+            // has something to show. Scenes without shots clear the selection.
+            guard oldScene !== newScene else { return }
+            if let firstShot = newScene?.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
+                selectedShots = [firstShot]
+            } else {
                 selectedShots = []
             }
         }
@@ -469,14 +473,30 @@ struct ProjectEditorView: View {
     private var minimumEditorWidth: CGFloat {
         // Uses each pane's *minimum* (not its preferred width) so the window can
         // still shrink to fit smaller displays.
-        250 + Self.shotColumnWidth + Self.detailMinWidth + Self.scriptMinWidth + Self.dividerAllowance
+        250 + Self.shotColumnWidth + (Self.paneMinWidth * 2) + Self.dividerAllowance
     }
 
     private static let shotColumnWidth: CGFloat = 190
-    private static let detailMinWidth: CGFloat = 460
-    private static let scriptMinWidth: CGFloat = 300
     private static let dividerAllowance: CGFloat = 30
     private static let sceneColumnMinWidth: CGFloat = 250
+
+    // Shot details and script split the space left over from the fixed columns
+    // evenly, and the divider between them is fixed — there is nothing to drag.
+    private static let scriptSplitDefault: CGFloat = 0.5
+    /// Hard floor so a very narrow window can't collapse either pane entirely.
+    private static let paneMinWidth: CGFloat = 240
+
+    /// Space the details and script panes divide between them.
+    private func combinedPaneWidth(available: CGFloat) -> CGFloat {
+        max(0, available - sceneWidth - Self.shotColumnWidth - Self.dividerAllowance)
+    }
+
+    /// Gives the script pane exactly half of what the pair has to share.
+    private func applyScriptSplit(available: CGFloat) {
+        let combined = combinedPaneWidth(available: available)
+        guard combined > 0 else { return }
+        scriptWidth = max(Self.paneMinWidth, combined * Self.scriptSplitDefault)
+    }
 
     /// The widest the scenes column ever usefully needs to be: enough to show the
     /// longest "Scene 12A  Location" title in full. Dragging past this would only
@@ -503,7 +523,7 @@ struct ProjectEditorView: View {
 
     /// Width the fixed columns may occupy before the flexible panes hit their minimums.
     private func fixedColumnBudget(available: CGFloat) -> CGFloat {
-        available - Self.detailMinWidth - Self.scriptMinWidth - Self.dividerAllowance
+        available - (Self.paneMinWidth * 2) - Self.dividerAllowance
     }
 
     /// Keeps the stored widths inside what the current window can actually show.
@@ -519,9 +539,18 @@ struct ProjectEditorView: View {
     private var editorColumns: some View {
         GeometryReader { geo in
             editorColumnStack(available: geo.size.width)
-                .onAppear { clampColumnWidths(available: geo.size.width) }
+                .onAppear {
+                    clampColumnWidths(available: geo.size.width)
+                    applyScriptSplit(available: geo.size.width)
+                }
                 .onChange(of: geo.size.width) { _, newWidth in
                     clampColumnWidths(available: newWidth)
+                    // Re-derive from the fraction so the split holds as the window resizes.
+                    applyScriptSplit(available: newWidth)
+                }
+                .onChange(of: sceneWidth) { _, _ in
+                    // Widening the scenes column changes what the pair has to share.
+                    applyScriptSplit(available: geo.size.width)
                 }
         }
         .frame(minWidth: minimumEditorWidth, minHeight: 700)
@@ -591,17 +620,16 @@ struct ProjectEditorView: View {
             }
             // Detail is the flexible pane: it absorbs whatever width is left and can
             // compress down to its minimum so the layout fits narrower displays.
-            .frame(minWidth: Self.detailMinWidth, maxWidth: .infinity)
+            .frame(minWidth: Self.paneMinWidth, maxWidth: .infinity)
 
             // Divider sets the script pane's width (it's to the right, so inverted).
             // Capped so the detail pane always keeps its minimum.
-            ResizableDivider(
-                width: $scriptWidth,
-                minWidth: Self.scriptMinWidth,
-                maxWidth: max(Self.scriptMinWidth,
-                              min(900, available - sceneWidth - Self.shotColumnWidth - Self.detailMinWidth - Self.dividerAllowance)),
-                invertDrag: true
-            ) { project.scriptColumnWidth = Double($0) }
+            // Fixed divider: the details and script panes are always equal, so
+            // there is nothing to drag here.
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
 
             // Fourth column - Script PDF Viewer (preferred width, can compress)
             ScriptPDFViewer(
@@ -618,7 +646,7 @@ struct ProjectEditorView: View {
                 },
                 requestImport: $requestScriptImport
             )
-            .frame(minWidth: Self.scriptMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
+            .frame(minWidth: Self.paneMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
             .clipped()
         }
     }
@@ -1080,6 +1108,12 @@ struct ExportView: View {
     /// Scene/shot numbers stay pinned on the left; the detail columns scroll
     /// horizontally, so a wide shot list never pushes content off-screen.
     private var table: some View {
+        GeometryReader { geo in
+            tableContent(available: geo.size.width)
+        }
+    }
+
+    private func tableContent(available: CGFloat) -> some View {
         ScrollView(.vertical) {
             HStack(alignment: .top, spacing: 0) {
                 // Frozen identifier column
@@ -1116,6 +1150,11 @@ struct ExportView: View {
                             Divider()
                         }
                     }
+                    // Fill the window when the columns are narrower than it. Without
+                    // this the content sizes to the columns' total, the trailing
+                    // Spacer collapses, and the table stops short of the right edge.
+                    .frame(minWidth: max(0, available - Self.frozenColumnWidth),
+                           alignment: .leading)
                 }
             }
         }
@@ -1820,8 +1859,7 @@ struct PhotoPreviewSheet: View {
             Divider()
             
             // Image
-            if let photoData = previewType == .reference ? shot.photo1Data : shot.photo2Data,
-               let nsImage = NSImage(data: photoData) {
+            if let nsImage = previewImage {
                 Image(nsImage: nsImage)
                     .resizable()
                     .scaledToFit()
@@ -1835,7 +1873,31 @@ struct PhotoPreviewSheet: View {
                 .frame(minWidth: 900, minHeight: 600)
             }
         }
-        .frame(minWidth: 600, minHeight: 450)
+        .frame(width: preferredSize.width, height: preferredSize.height)
+    }
+
+    private var previewImage: NSImage? {
+        guard let data = previewType == .reference ? shot.photo1Data : shot.photo2Data else { return nil }
+        return NSImage(data: data)
+    }
+
+    /// Sizes the window to the photo, capped to most of the screen. A plain
+    /// minimum let the sheet collapse to 600pt — narrower than the 700pt slot it
+    /// was opened from, so "enlarging" could actually shrink the image.
+    private var preferredSize: CGSize {
+        let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1600, height: 1000)
+        let maxWidth = visible.width * 0.85
+        let maxHeight = visible.height * 0.85
+        let chrome: CGFloat = 96          // header bar + padding around the image
+        let floorWidth = min(900, maxWidth)   // always wider than the inline slot
+        let floorHeight = min(620, maxHeight)
+
+        guard let size = previewImage?.size, size.width > 1, size.height > 1 else {
+            return CGSize(width: floorWidth, height: floorHeight)
+        }
+        let scale = min(maxWidth / size.width, (maxHeight - chrome) / size.height)
+        return CGSize(width: max(floorWidth, min(maxWidth, size.width * scale)),
+                      height: max(floorHeight, min(maxHeight, size.height * scale + chrome)))
     }
 }
 

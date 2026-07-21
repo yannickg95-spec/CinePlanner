@@ -572,6 +572,8 @@ struct ShotListView: View {
 
 struct ShotDetailView: View {
     @Bindable var shot: Shot
+    /// Which photo is open full size, if any.
+    @State private var previewPhoto: ShotExportRow.PreviewPhoto?
     @State private var selectedPhoto1: PhotosPickerItem?
     @State private var selectedPhoto2: PhotosPickerItem?
     @State private var photo1Metadata: PhotoMetadata?
@@ -663,6 +665,699 @@ struct ShotDetailView: View {
             .clipShape(Capsule())
     }
     
+
+    // Extracted so both can be laid out either side by side or stacked,
+    // depending on how much width the details pane has.
+    /// Whether the two photos came from the same capture. It describes the
+    /// relationship between the cards, so it sits above the pair rather than
+    /// buried under the top-down image.
+    @ViewBuilder
+    private var photoMatchChip: some View {
+        if let photo1CaptureID = photo1Metadata?.captureID,
+           let photo2CaptureID = photo2Metadata?.captureID,
+           shot.photo1Data != nil,
+           shot.photo2Data != nil {
+            let isMatch = photo1CaptureID == photo2CaptureID
+            Label(isMatch ? "Reference and top-down match" : "Reference and top-down don't match",
+                  systemImage: isMatch ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .foregroundStyle(isMatch ? Color.green : Color.orange)
+                .background((isMatch ? Color.green : Color.orange).opacity(0.12))
+                .clipShape(Capsule())
+        }
+    }
+
+    /// Images cap at this width; the metadata beneath them uses the same value
+    /// so a data block is never wider than the picture it describes.
+    private static let mediaMaxWidth: CGFloat = 700
+
+    private var photoSlotView: some View {
+        PhotoSlot(
+            photoData: shot.photo1Data,
+            selectedItem: $selectedPhoto1,
+            title: "Reference Shot",
+            maxWidth: Self.mediaMaxWidth,
+            compactWhenEmpty: true,
+            onDelete: {
+                print("🗑️ Deleting Photo 1 from shot \(shot.displayNumber)")
+                shot.photo1Data = nil
+                shot.photo1CameraFamily = nil
+                shot.photo1CameraFormat = nil
+                shot.photo1FocalLength = nil
+                shot.photo1LensPreset = nil
+                shot.photo1Horizon = nil
+                shot.photo1Tilt = nil
+                shot.photo1Height = nil
+                shot.photo1CaptureID = nil
+                shot.photo1CaptureType = nil
+                shot.photo1DateTimeOriginal = nil
+                shot.photo1Caption = nil
+                shot.photo1Framelines = nil
+                shot.photo1Software = nil
+                shot.photo1Keywords = nil
+                photo1Metadata = nil
+                selectedPhoto1 = nil
+            },
+            onEnlarge: { previewPhoto = .reference }
+        )
+    }
+
+    @ViewBuilder
+    private var referenceVideoView: some View {
+        if let videoData = shot.referenceVideoData {
+            ReferenceVideoView(
+                shotID: shot.id.hashValue.description,
+                videoData: videoData,
+                fileExtension: shot.referenceVideoExtension ?? "mov",
+                onDelete: {
+                    shot.referenceVideoData = nil
+                    shot.referenceVideoExtension = nil
+                }
+            )
+        }
+    }
+
+    private var referenceShotCard: some View {
+    sectionCard("REFERENCE SHOT") {
+        VStack(alignment: .leading, spacing: 12) {
+            // Media first, full width
+            // Photo and video share a row when both exist, so this card
+            // doesn't grow far taller than the top-down card beside it.
+            VStack(alignment: .leading, spacing: 10) {
+                if shot.referenceVideoData != nil {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 10) {
+                            photoSlotView
+                            referenceVideoView
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            photoSlotView
+                            referenceVideoView
+                        }
+                    }
+                } else {
+                    photoSlotView
+                    Button {
+                        isImportingVideo = true
+                    } label: {
+                        Label("Add Reference Video", systemImage: "video.badge.plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Metadata sits *below* the media, with a rule between so the
+            // numbers do not read as part of the picture.
+            if photo1Metadata != nil {
+                Divider().frame(maxWidth: Self.mediaMaxWidth)
+            }
+            if let metadata = photo1Metadata {
+                MetadataView(metadata: metadata)
+                    .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
+            } else if shot.photo1Data != nil {
+                Text("No camera metadata found in this photo.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .fileImporter(
+            isPresented: $isImportingVideo,
+            allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
+            allowsMultipleSelection: false
+        ) { result in
+            handleVideoImport(result)
+        }
+    }
+    }
+
+    private var topDownCard: some View {
+    sectionCard("TOP DOWN MAP VIEW") {
+        VStack(alignment: .leading, spacing: 12) {
+            PhotoSlot(
+                photoData: shot.photo2Data,
+                selectedItem: $selectedPhoto2,
+                title: "Top Down Map",
+                maxWidth: Self.mediaMaxWidth,
+                compactWhenEmpty: true,
+                onDelete: {
+                    print("🗑️ Deleting Photo 2 from shot \(shot.displayNumber)")
+                    shot.photo2Data = nil
+                    shot.photo2CameraFamily = nil
+                    shot.photo2CameraFormat = nil
+                    shot.photo2FocalLength = nil
+                    shot.photo2LensPreset = nil
+                    shot.photo2Horizon = nil
+                    shot.photo2Tilt = nil
+                    shot.photo2Height = nil
+                    shot.photo2CaptureID = nil
+                    shot.photo2CaptureType = nil
+                    shot.photo2DateTimeOriginal = nil
+                    shot.photo2Caption = nil
+                    shot.photo2Framelines = nil
+                    shot.photo2Software = nil
+                    shot.photo2Keywords = nil
+                    // Clear location metadata
+                    shot.photo2CameraPhysicalWidth = nil
+                    shot.photo2CameraPhysicalLength = nil
+                    shot.photo2LocationModel = nil
+                    shot.photo2LocationWidth = nil
+                    shot.photo2LocationLength = nil
+                    shot.photo2LocationHeight = nil
+                    photo2Metadata = nil
+                    selectedPhoto2 = nil
+                },
+                onEnlarge: { previewPhoto = .topDown }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if photo2Metadata != nil {
+                Divider().frame(maxWidth: Self.mediaMaxWidth)
+            }
+
+            // Metadata sits below the image, no wider than it
+            VStack(alignment: .leading, spacing: 8) {
+                // Top Down Photo Metadata
+                if let metadata = photo2Metadata {
+                    TopDownMetadataView(metadata: metadata)
+                } else if shot.photo2Data != nil {
+                    Text("No location metadata found in this photo.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
+        }
+    }
+    }
+
+    private var shotSetupCard: some View {
+    sectionCard("SHOT SETUP") {
+    HStack {
+        Text("Nickname")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+
+        TextField("Add a nickname for this shot", text: $shot.nickname)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 200)
+    }
+    
+    HStack {
+        Text("Size")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+        
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(ShotSize.allCases, id: \.self) { size in
+                    Button(size.displayName) {
+                        shot.size = size
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(shot.size == .none ? "Select size" : shot.size.displayName)
+                        .foregroundStyle(shot.size == .none ? .secondary : .primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 60)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Plus button (only show when first size is selected and second dropdown is hidden)
+            if shot.size != .none && !showSecondSize {
+                Button {
+                    showSecondSize = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            // Arrow and second size dropdown (only show when showSecondSize is true)
+            if showSecondSize {
+                Image(systemName: "arrow.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                
+                Menu {
+                    ForEach(ShotSize.allCases, id: \.self) { size in
+                        Button(size.displayName) {
+                            shot.secondSize = size
+                            // Hide second dropdown if none is selected
+                            if size == .none {
+                                showSecondSize = false
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(shot.secondSize == .none ? "Select size" : shot.secondSize.displayName)
+                            .foregroundStyle(shot.secondSize == .none ? .secondary : .primary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 60)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                // Remove button for second size
+                Button {
+                    shot.secondSize = .none
+                    showSecondSize = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    HStack {
+        Text("Type")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+        
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
+                    if typeCategory == .topShot || typeCategory == .pushIn {
+                        Divider()
+                    }
+                    Button(typeCategory.displayName) {
+                        shot.typeCategory = typeCategory
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(shot.typeCategory == .none ? "Select type" : shot.typeCategory.displayName)
+                        .foregroundStyle(shot.typeCategory == .none ? .secondary : .primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minWidth: 60)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Plus button (only show when first type is selected and second dropdown is hidden)
+            if shot.typeCategory != .none && !showSecondType {
+                Button {
+                    showSecondType = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            // Second type dropdown (only show when showSecondType is true)
+            if showSecondType {
+                Menu {
+                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
+                        if typeCategory == .topShot || typeCategory == .pushIn {
+                            Divider()
+                        }
+                        Button(typeCategory.displayName) {
+                            shot.secondTypeCategory = typeCategory
+                            // Hide second dropdown if none is selected
+                            if typeCategory == .none {
+                                showSecondType = false
+                                showThirdType = false
+                                shot.thirdTypeCategory = .none
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(shot.secondTypeCategory == .none ? "Select type" : shot.secondTypeCategory.displayName)
+                            .foregroundStyle(shot.secondTypeCategory == .none ? .secondary : .primary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 60)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                // Plus button for third type (only show when second type is selected and third is hidden)
+                if shot.secondTypeCategory != .none && !showThirdType {
+                    Button {
+                        showThirdType = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                } else if !showThirdType {
+                    // Remove button for second type (only show if third type is not visible)
+                    Button {
+                        shot.secondTypeCategory = .none
+                        showSecondType = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.gray)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
+            // Third type dropdown (only show when showThirdType is true)
+            if showThirdType {
+                Menu {
+                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
+                        if typeCategory == .topShot || typeCategory == .pushIn {
+                            Divider()
+                        }
+                        Button(typeCategory.displayName) {
+                            shot.thirdTypeCategory = typeCategory
+                            // Hide third dropdown if none is selected
+                            if typeCategory == .none {
+                                showThirdType = false
+                            }
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(shot.thirdTypeCategory == .none ? "Select type" : shot.thirdTypeCategory.displayName)
+                            .foregroundStyle(shot.thirdTypeCategory == .none ? .secondary : .primary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 60)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                
+                // Remove button for third type
+                Button {
+                    shot.thirdTypeCategory = .none
+                    showThirdType = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.gray)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    HStack {
+        Text("Focal Length")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+        
+        HStack(spacing: 8) {
+            // First focal length field
+            HStack(spacing: 4) {
+                TextField("", value: $shot.lensfocal, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 35)
+                    .multilineTextAlignment(.leading)
+                
+                Text("mm")
+                    .foregroundStyle(.secondary)
+            }
+            
+            // Arrow and second field (only for zoom)
+            if !shot.lensIsPrime {
+                Image(systemName: "arrow.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 4) {
+                    TextField("", value: $shot.lensfocalEnd, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 35)
+                        .multilineTextAlignment(.leading)
+
+                    Text("mm")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+                .frame(height: 16)
+                .padding(.horizontal, 4)
+
+            // Zoom checkbox (off = prime lens, the default)
+            Toggle("Zoom lens", isOn: Binding(
+                get: { !shot.lensIsPrime },
+                set: { shot.lensIsPrime = !$0 }
+            ))
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .fixedSize()
+            .help("On: zoom lens with a focal range. Off: prime lens with a single focal length.")
+        }
+    }
+    
+    HStack {
+        Text("Grip")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+        
+        Menu {
+            ForEach(ShotType.allCases, id: \.self) { type in
+                Button(type.displayName) {
+                    shot.type = type
+                }
+            }
+        } label: {
+            HStack {
+                Text(shot.type == .none ? "Select grip" : shot.type.displayName)
+                    .foregroundStyle(shot.type == .none ? .secondary : .primary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 60)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.1))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
+    // Extra info — part of the core shot settings, right under Grip.
+    // Vertical axis lets the field grow as the text gets longer.
+    HStack(alignment: .top) {
+        Text("Extra info")
+            .font(.headline)
+            .frame(width: 100, alignment: .leading)
+
+        TextField("Additional information", text: $shot.extraInfo, axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(1...10)
+            .frame(width: 200)
+    }
+
+    }
+    }
+
+    private var scriptCoverageCard: some View {
+    sectionCard("SCRIPT COVERAGE") {
+        HStack {
+        Button {
+            // Signal to enter text selection mode
+            NotificationCenter.default.post(
+                name: .startScriptTextSelection,
+                object: nil,
+                userInfo: ["shot": shot]
+            )
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "highlighter")
+                Text("Mark Text")
+            }
+        }
+        .buttonStyle(.bordered)
+        
+        if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
+            Text("(\(selections.count) marking\(selections.count == 1 ? "" : "s"))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            Button(role: .destructive) {
+                shot.scriptCoverageSelections = nil
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Clear all coverage markings")
+        }
+        }
+    }
+    }
+
+    private var cameraInformationCard: some View {
+    sectionCard("CAMERA INFORMATION") {
+        // Camera - Always editable
+        HStack {
+            Text("Camera")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
+
+            HStack(spacing: 4) {
+                TextField("Camera name", text: $shot.camera)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+
+                // Show suggestions menu if there are previous values
+                if !previousCameraValues.isEmpty {
+                    Menu {
+                        ForEach(previousCameraValues, id: \.self) { camera in
+                            Button(camera) {
+                                shot.camera = camera
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Select from previously used cameras")
+                }
+            }
+        }
+
+        // Format - Always editable
+        HStack {
+            Text("Format")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
+
+            HStack(spacing: 4) {
+                TextField("Format", text: $shot.format)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+
+                // Show suggestions menu if there are previous values
+                if !previousFormatValues.isEmpty {
+                    Menu {
+                        ForEach(previousFormatValues, id: \.self) { format in
+                            Button(format) {
+                                shot.format = format
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Select from previously used formats")
+                }
+            }
+        }
+
+        // Framelines - Only show if metadata is available
+        if !shot.framelines.isEmpty {
+            HStack {
+                Text("Framelines")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 92, alignment: .leading)
+
+                Text(shot.framelines)
+                    .font(.body)
+            }
+        }
+
+        // Lens - Always editable
+        HStack {
+            Text("Lens")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
+
+            HStack(spacing: 4) {
+                TextField("Lens name", text: $shot.lensPreset)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+
+                // Show suggestions menu if there are previous values
+                if !previousLensValues.isEmpty {
+                    Menu {
+                        ForEach(previousLensValues, id: \.self) { lens in
+                            Button(lens) {
+                                shot.lensPreset = lens
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Select from previously used lenses")
+                }
+            }
+        }
+    }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -696,651 +1391,40 @@ struct ShotDetailView: View {
                 
                 // Settings, grouped into cards
                 VStack(alignment: .leading, spacing: 16) {
-                    sectionCard("SHOT SETUP") {
-                    HStack {
-                        Text("Nickname")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-
-                        TextField("Add a nickname for this shot", text: $shot.nickname)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                    }
-                    
-                    HStack {
-                        Text("Size")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-                        
-                        HStack(spacing: 8) {
-                            Menu {
-                                ForEach(ShotSize.allCases, id: \.self) { size in
-                                    Button(size.displayName) {
-                                        shot.size = size
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Text(shot.size == .none ? "Select size" : shot.size.displayName)
-                                        .foregroundStyle(shot.size == .none ? .secondary : .primary)
-                                    Image(systemName: "chevron.up.chevron.down")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(minWidth: 60)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            
-                            // Plus button (only show when first size is selected and second dropdown is hidden)
-                            if shot.size != .none && !showSecondSize {
-                                Button {
-                                    showSecondSize = true
-                                } label: {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.blue)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            
-                            // Arrow and second size dropdown (only show when showSecondSize is true)
-                            if showSecondSize {
-                                Image(systemName: "arrow.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                
-                                Menu {
-                                    ForEach(ShotSize.allCases, id: \.self) { size in
-                                        Button(size.displayName) {
-                                            shot.secondSize = size
-                                            // Hide second dropdown if none is selected
-                                            if size == .none {
-                                                showSecondSize = false
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(shot.secondSize == .none ? "Select size" : shot.secondSize.displayName)
-                                            .foregroundStyle(shot.secondSize == .none ? .secondary : .primary)
-                                        Image(systemName: "chevron.up.chevron.down")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(minWidth: 60)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                
-                                // Remove button for second size
-                                Button {
-                                    shot.secondSize = .none
-                                    showSecondSize = false
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.gray)
-                                }
-                                .buttonStyle(.plain)
+                    // Side by side when the details pane is wide enough for both,
+                    // stacked when it isn't.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            shotSetupCard
+                            // Shot setup is the taller card, so coverage fills the
+                            // space beneath camera information rather than leaving a gap.
+                            VStack(alignment: .leading, spacing: 16) {
+                                cameraInformationCard
+                                scriptCoverageCard
                             }
                         }
-                    }
-                    
-                    HStack {
-                        Text("Type")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-                        
-                        HStack(spacing: 8) {
-                            Menu {
-                                ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                                    if typeCategory == .topShot || typeCategory == .pushIn {
-                                        Divider()
-                                    }
-                                    Button(typeCategory.displayName) {
-                                        shot.typeCategory = typeCategory
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Text(shot.typeCategory == .none ? "Select type" : shot.typeCategory.displayName)
-                                        .foregroundStyle(shot.typeCategory == .none ? .secondary : .primary)
-                                    Image(systemName: "chevron.up.chevron.down")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(minWidth: 60)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(6)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            
-                            // Plus button (only show when first type is selected and second dropdown is hidden)
-                            if shot.typeCategory != .none && !showSecondType {
-                                Button {
-                                    showSecondType = true
-                                } label: {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.blue)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            
-                            // Second type dropdown (only show when showSecondType is true)
-                            if showSecondType {
-                                Menu {
-                                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                                        if typeCategory == .topShot || typeCategory == .pushIn {
-                                            Divider()
-                                        }
-                                        Button(typeCategory.displayName) {
-                                            shot.secondTypeCategory = typeCategory
-                                            // Hide second dropdown if none is selected
-                                            if typeCategory == .none {
-                                                showSecondType = false
-                                                showThirdType = false
-                                                shot.thirdTypeCategory = .none
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(shot.secondTypeCategory == .none ? "Select type" : shot.secondTypeCategory.displayName)
-                                            .foregroundStyle(shot.secondTypeCategory == .none ? .secondary : .primary)
-                                        Image(systemName: "chevron.up.chevron.down")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(minWidth: 60)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                
-                                // Plus button for third type (only show when second type is selected and third is hidden)
-                                if shot.secondTypeCategory != .none && !showThirdType {
-                                    Button {
-                                        showThirdType = true
-                                    } label: {
-                                        Image(systemName: "plus.circle.fill")
-                                            .font(.title3)
-                                            .foregroundStyle(.blue)
-                                    }
-                                    .buttonStyle(.plain)
-                                } else if !showThirdType {
-                                    // Remove button for second type (only show if third type is not visible)
-                                    Button {
-                                        shot.secondTypeCategory = .none
-                                        showSecondType = false
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.title3)
-                                            .foregroundStyle(.gray)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            
-                            // Third type dropdown (only show when showThirdType is true)
-                            if showThirdType {
-                                Menu {
-                                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                                        if typeCategory == .topShot || typeCategory == .pushIn {
-                                            Divider()
-                                        }
-                                        Button(typeCategory.displayName) {
-                                            shot.thirdTypeCategory = typeCategory
-                                            // Hide third dropdown if none is selected
-                                            if typeCategory == .none {
-                                                showThirdType = false
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(shot.thirdTypeCategory == .none ? "Select type" : shot.thirdTypeCategory.displayName)
-                                            .foregroundStyle(shot.thirdTypeCategory == .none ? .secondary : .primary)
-                                        Image(systemName: "chevron.up.chevron.down")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(minWidth: 60)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.secondary.opacity(0.1))
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                
-                                // Remove button for third type
-                                Button {
-                                    shot.thirdTypeCategory = .none
-                                    showThirdType = false
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.gray)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    
-                    HStack {
-                        Text("Focal Length")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-                        
-                        HStack(spacing: 8) {
-                            // First focal length field
-                            HStack(spacing: 4) {
-                                TextField("", value: $shot.lensfocal, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 35)
-                                    .multilineTextAlignment(.leading)
-                                
-                                Text("mm")
-                                    .foregroundStyle(.secondary)
-                            }
-                            
-                            // Arrow and second field (only for zoom)
-                            if !shot.lensIsPrime {
-                                Image(systemName: "arrow.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                HStack(spacing: 4) {
-                                    TextField("", value: $shot.lensfocalEnd, format: .number)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: 35)
-                                        .multilineTextAlignment(.leading)
-
-                                    Text("mm")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            Divider()
-                                .frame(height: 16)
-                                .padding(.horizontal, 4)
-
-                            // Zoom checkbox (off = prime lens, the default)
-                            Toggle("Zoom lens", isOn: Binding(
-                                get: { !shot.lensIsPrime },
-                                set: { shot.lensIsPrime = !$0 }
-                            ))
-                            .toggleStyle(.checkbox)
-                            .controlSize(.small)
-                            .fixedSize()
-                            .help("On: zoom lens with a focal range. Off: prime lens with a single focal length.")
-                        }
-                    }
-                    
-                    HStack {
-                        Text("Grip")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-                        
-                        Menu {
-                            ForEach(ShotType.allCases, id: \.self) { type in
-                                Button(type.displayName) {
-                                    shot.type = type
-                                }
-                            }
-                        } label: {
-                            HStack {
-                                Text(shot.type == .none ? "Select grip" : shot.type.displayName)
-                                    .foregroundStyle(shot.type == .none ? .secondary : .primary)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(minWidth: 60)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    // Extra info — part of the core shot settings, right under Grip.
-                    // Vertical axis lets the field grow as the text gets longer.
-                    HStack(alignment: .top) {
-                        Text("Extra info")
-                            .font(.headline)
-                            .frame(width: 100, alignment: .leading)
-
-                        TextField("Additional information", text: $shot.extraInfo, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(1...10)
-                            .frame(width: 200)
-                    }
-
-                    }
-
-                    // Camera information — camera/format/lens metadata, visually
-                    // set apart from the core shot settings above.
-                    sectionCard("CAMERA INFORMATION") {
-                        // Camera - Always editable
-                        HStack {
-                            Text("Camera")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 92, alignment: .leading)
-
-                            HStack(spacing: 4) {
-                                TextField("Camera name", text: $shot.camera)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 200)
-
-                                // Show suggestions menu if there are previous values
-                                if !previousCameraValues.isEmpty {
-                                    Menu {
-                                        ForEach(previousCameraValues, id: \.self) { camera in
-                                            Button(camera) {
-                                                shot.camera = camera
-                                            }
-                                        }
-                                    } label: {
-                                        Image(systemName: "chevron.down.circle")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Select from previously used cameras")
-                                }
-                            }
-                        }
-
-                        // Format - Always editable
-                        HStack {
-                            Text("Format")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 92, alignment: .leading)
-
-                            HStack(spacing: 4) {
-                                TextField("Format", text: $shot.format)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 200)
-
-                                // Show suggestions menu if there are previous values
-                                if !previousFormatValues.isEmpty {
-                                    Menu {
-                                        ForEach(previousFormatValues, id: \.self) { format in
-                                            Button(format) {
-                                                shot.format = format
-                                            }
-                                        }
-                                    } label: {
-                                        Image(systemName: "chevron.down.circle")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Select from previously used formats")
-                                }
-                            }
-                        }
-
-                        // Framelines - Only show if metadata is available
-                        if !shot.framelines.isEmpty {
-                            HStack {
-                                Text("Framelines")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 92, alignment: .leading)
-
-                                Text(shot.framelines)
-                                    .font(.body)
-                            }
-                        }
-
-                        // Lens - Always editable
-                        HStack {
-                            Text("Lens")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 92, alignment: .leading)
-
-                            HStack(spacing: 4) {
-                                TextField("Lens name", text: $shot.lensPreset)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 200)
-
-                                // Show suggestions menu if there are previous values
-                                if !previousLensValues.isEmpty {
-                                    Menu {
-                                        ForEach(previousLensValues, id: \.self) { lens in
-                                            Button(lens) {
-                                                shot.lensPreset = lens
-                                            }
-                                        }
-                                    } label: {
-                                        Image(systemName: "chevron.down.circle")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Select from previously used lenses")
-                                }
-                            }
-                        }
-                    }
-
-                    sectionCard("SCRIPT COVERAGE") {
-                        HStack {
-                        Button {
-                            // Signal to enter text selection mode
-                            NotificationCenter.default.post(
-                                name: .startScriptTextSelection,
-                                object: nil,
-                                userInfo: ["shot": shot]
-                            )
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "highlighter")
-                                Text("Mark Text")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        
-                        if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-                            Text("(\(selections.count) marking\(selections.count == 1 ? "" : "s"))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            Button(role: .destructive) {
-                                shot.scriptCoverageSelections = nil
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Clear all coverage markings")
-                        }
+                        VStack(alignment: .leading, spacing: 16) {
+                            shotSetupCard
+                            cameraInformationCard
+                            scriptCoverageCard
                         }
                     }
                 }
                 .padding(.horizontal)
                 
-                // Reference Shot and Top Down Map View Sections
-                VStack(alignment: .leading, spacing: 16) {
-                    // Reference Shot Section
-                    sectionCard("REFERENCE SHOT") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            // Media first, full width
-                            VStack(alignment: .leading, spacing: 10) {
-                                PhotoSlot(
-                                    photoData: shot.photo1Data,
-                                    selectedItem: $selectedPhoto1,
-                                    title: "Shot Photo",
-                                    maxWidth: 700,
-                                    onDelete: {
-                                        print("🗑️ Deleting Photo 1 from shot \(shot.displayNumber)")
-                                        shot.photo1Data = nil
-                                        shot.photo1CameraFamily = nil
-                                        shot.photo1CameraFormat = nil
-                                        shot.photo1FocalLength = nil
-                                        shot.photo1LensPreset = nil
-                                        shot.photo1Horizon = nil
-                                        shot.photo1Tilt = nil
-                                        shot.photo1Height = nil
-                                        shot.photo1CaptureID = nil
-                                        shot.photo1CaptureType = nil
-                                        shot.photo1DateTimeOriginal = nil
-                                        shot.photo1Caption = nil
-                                        shot.photo1Framelines = nil
-                                        shot.photo1Software = nil
-                                        shot.photo1Keywords = nil
-                                        photo1Metadata = nil
-                                        selectedPhoto1 = nil
-                                    }
-                                )
+                // Reference shot and top-down map: a pair meant to be compared,
+                // so they sit side by side whenever the pane is wide enough.
+                VStack(alignment: .leading, spacing: 10) {
+                    photoMatchChip
 
-                                // Reference video (optional)
-                                if let videoData = shot.referenceVideoData {
-                                    ReferenceVideoView(
-                                        shotID: shot.id.hashValue.description,
-                                        videoData: videoData,
-                                        fileExtension: shot.referenceVideoExtension ?? "mov",
-                                        onDelete: {
-                                            shot.referenceVideoData = nil
-                                            shot.referenceVideoExtension = nil
-                                        }
-                                    )
-                                } else {
-                                    Button {
-                                        isImportingVideo = true
-                                    } label: {
-                                        Label("Add Reference Video", systemImage: "video.badge.plus")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            // Metadata sits *below* the media so the image keeps
-                            // the full width of the column
-                            if let metadata = photo1Metadata {
-                                MetadataView(metadata: metadata)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            } else if shot.photo1Data != nil {
-                                Text("No camera metadata found in this photo.")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            referenceShotCard
+                            topDownCard
                         }
-                        .fileImporter(
-                            isPresented: $isImportingVideo,
-                            allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
-                            allowsMultipleSelection: false
-                        ) { result in
-                            handleVideoImport(result)
-                        }
-                    }
-
-                    // Top Down Map View Section
-                    sectionCard("TOP DOWN MAP VIEW") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            PhotoSlot(
-                                photoData: shot.photo2Data,
-                                selectedItem: $selectedPhoto2,
-                                title: "Top Down Photo",
-                                maxWidth: 700,
-                                onDelete: {
-                                    print("🗑️ Deleting Photo 2 from shot \(shot.displayNumber)")
-                                    shot.photo2Data = nil
-                                    shot.photo2CameraFamily = nil
-                                    shot.photo2CameraFormat = nil
-                                    shot.photo2FocalLength = nil
-                                    shot.photo2LensPreset = nil
-                                    shot.photo2Horizon = nil
-                                    shot.photo2Tilt = nil
-                                    shot.photo2Height = nil
-                                    shot.photo2CaptureID = nil
-                                    shot.photo2CaptureType = nil
-                                    shot.photo2DateTimeOriginal = nil
-                                    shot.photo2Caption = nil
-                                    shot.photo2Framelines = nil
-                                    shot.photo2Software = nil
-                                    shot.photo2Keywords = nil
-                                    // Clear location metadata
-                                    shot.photo2CameraPhysicalWidth = nil
-                                    shot.photo2CameraPhysicalLength = nil
-                                    shot.photo2LocationModel = nil
-                                    shot.photo2LocationWidth = nil
-                                    shot.photo2LocationLength = nil
-                                    shot.photo2LocationHeight = nil
-                                    photo2Metadata = nil
-                                    selectedPhoto2 = nil
-                                }
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            // Metadata and matching status sit below the image
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Show matching status if both photos have capture IDs
-                                if let photo1CaptureID = photo1Metadata?.captureID,
-                                   let photo2CaptureID = photo2Metadata?.captureID,
-                                   shot.photo1Data != nil,
-                                   shot.photo2Data != nil {
-                                    let isMatch = photo1CaptureID == photo2CaptureID
-                                    Label(isMatch ? "Matches the Reference Shot" : "Doesn't match the Reference Shot",
-                                          systemImage: isMatch ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .foregroundStyle(isMatch ? Color.green : Color.orange)
-                                        .background((isMatch ? Color.green : Color.orange).opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
-
-                                // Top Down Photo Metadata
-                                if let metadata = photo2Metadata {
-                                    TopDownMetadataView(metadata: metadata)
-                                } else if shot.photo2Data != nil {
-                                    Text("No location metadata found in this photo.")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 16) {
+                            referenceShotCard
+                            topDownCard
                         }
                     }
                 }
@@ -1349,6 +1433,10 @@ struct ShotDetailView: View {
                 Spacer()
             }
             .padding(.vertical)
+        }
+        // Reuses the preview already built for the shot-list view.
+        .sheet(item: $previewPhoto) { which in
+            PhotoPreviewSheet(shot: shot, previewType: which)
         }
         .onChange(of: selectedPhoto1) { _, newValue in
             // Clear old metadata immediately
@@ -1587,9 +1675,51 @@ struct PhotoSlot: View {
     @Binding var selectedItem: PhotosPickerItem?
     let title: String
     var maxWidth: CGFloat = 700
+    /// Most shots have no photo, so an empty slot collapses to a single row
+    /// rather than reserving 200pt of placeholder.
+    var compactWhenEmpty: Bool = false
     var onDelete: (() -> Void)?
-    
+    /// Shown as a button over the image; the image itself belongs to the picker.
+    var onEnlarge: (() -> Void)?
+
+    @ViewBuilder
     var body: some View {
+        if photoData == nil && compactWhenEmpty {
+            compactAddRow
+        } else {
+            fullSlot
+        }
+    }
+
+    private var compactAddRow: some View {
+        PhotosPicker(selection: $selectedItem, matching: .images) {
+            HStack(spacing: 8) {
+                Image(systemName: "photo.badge.plus")
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text("Add")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var fullSlot: some View {
         VStack {
             ZStack(alignment: .topTrailing) {
                 PhotosPicker(selection: $selectedItem, matching: .images) {
@@ -1644,18 +1774,32 @@ struct PhotoSlot: View {
                 }
                 .buttonStyle(.plain)
                 
-                // Delete button (only shown when photo exists)
-                if photoData != nil, let onDelete = onDelete {
-                    Button {
-                        onDelete()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.white, .black)
-                            .opacity(0.7)
-                            .shadow(radius: 2)
+                // Enlarge / delete, shown only once a photo exists
+                if photoData != nil {
+                    HStack(spacing: 6) {
+                        if let onEnlarge {
+                            Button(action: onEnlarge) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white, .black)
+                                    .opacity(0.7)
+                                    .shadow(radius: 2)
+                            }
+                            .buttonStyle(.plain)
+                            .help("View full size")
+                        }
+                        if let onDelete {
+                            Button(action: onDelete) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white, .black)
+                                    .opacity(0.7)
+                                    .shadow(radius: 2)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove photo")
+                        }
                     }
-                    .buttonStyle(.plain)
                     .padding(8)
                 }
             }
