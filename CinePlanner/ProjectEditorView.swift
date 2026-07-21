@@ -1210,8 +1210,10 @@ struct ExportView: View {
             }
             .padding(.leading, 26)
             .padding(.trailing, 12)
-            .frame(height: Self.rowHeight(for: shot), alignment: .top)
+            // Padding must sit INSIDE the frame. Applied after it, the row grows
+            // past rowHeight and the frozen column drifts from the detail columns.
             .padding(.top, 12)
+            .frame(height: Self.rowHeight(for: shot), alignment: .top)
         }
     }
 
