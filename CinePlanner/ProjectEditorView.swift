@@ -1068,6 +1068,18 @@ struct ExportView: View {
     private static let headerHeight: CGFloat = 40
     private static let sceneRowHeight: CGFloat = 46
     private static let shotRowHeight: CGFloat = 76
+    private static let thumbnailHeight: CGFloat = 60
+    private static let thumbnailRowSpacing: CGFloat = 6
+
+    /// A shot's row grows with its references, since each gets its own row of
+    /// thumbnails. The frozen column uses the same value — if the two halves of
+    /// the table disagree by even a point, every row below drifts out of line.
+    static func rowHeight(for shot: Shot) -> CGFloat {
+        let rows = max(1, shot.orderedReferences.count)
+        return CGFloat(rows) * thumbnailHeight
+             + CGFloat(rows - 1) * thumbnailRowSpacing
+             + (shotRowHeight - thumbnailHeight)   // padding above and below
+    }
     private static let frozenColumnWidth: CGFloat = 240
 
     /// The table flattened into rows, honouring each scene's expanded state.
@@ -1198,7 +1210,8 @@ struct ExportView: View {
             }
             .padding(.leading, 26)
             .padding(.trailing, 12)
-            .frame(height: Self.shotRowHeight)
+            .frame(height: Self.rowHeight(for: shot), alignment: .top)
+            .padding(.top, 12)
         }
     }
 
@@ -1214,7 +1227,7 @@ struct ExportView: View {
         case .shot(let shot):
             ShotExportRow(shot: shot, showsIdentifier: false)
                 .padding(.horizontal, 16)
-                .frame(height: Self.shotRowHeight, alignment: .leading)
+                .frame(height: Self.rowHeight(for: shot), alignment: .topLeading)
         }
     }
 
@@ -1574,7 +1587,7 @@ struct ShotExportRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(alignment: .top, spacing: 16) {
             // Shot number with icon
             if showsIdentifier {
                 HStack(spacing: 6) {
@@ -1781,9 +1794,9 @@ struct ShotExportRow: View {
             Spacer()
             
             // Photo thumbnails
-            // One thumbnail per reference (and its map), so a shot with several
-            // references shows all of them rather than a single fixed pair.
-            HStack(spacing: 8) {
+            // Each reference is its own row — its media and map side by side —
+            // with the next reference beneath, matching the web export.
+            VStack(alignment: .leading, spacing: 6) {
                 if shot.orderedReferences.isEmpty {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.secondary.opacity(0.1))
@@ -1799,7 +1812,7 @@ struct ShotExportRow: View {
                     }
                 }
             }
-            .frame(minWidth: 172, alignment: .leading)
+            .frame(minWidth: 172, alignment: .topLeading)
         }
         .padding(.vertical, 8)
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
