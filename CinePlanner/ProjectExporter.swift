@@ -498,7 +498,16 @@ struct ProjectExporter {
                     body += "          </div>\n"
                 }
                 if let coverage = shot.coverageText {
-                    body += "          <div class=\"coverage\"><span class=\"coverage-label\">Coverage</span>\(esc(coverage))</div>\n"
+                    // Coverage can run long, so it collapses. <details> again, so it
+                    // still opens in previews with JavaScript disabled. Short
+                    // coverage starts open — there's nothing to gain by hiding it.
+                    let words = coverage.split(whereSeparator: { $0 == " " || $0.isNewline }).count
+                    let startsOpen = coverage.count <= 180
+                    body += "          <details class=\"coverage\"\(startsOpen ? " open" : "")>\n"
+                    body += "            <summary class=\"coverage-label\">Coverage"
+                    body += "<span class=\"coverage-count\">\(words) word\(words == 1 ? "" : "s")</span></summary>\n"
+                    body += "            <div class=\"coverage-text\">\(esc(coverage))</div>\n"
+                    body += "          </details>\n"
                 }
                 body += "        </div>\n"
                 // Thumbnail strip on the right — small on purpose, so the shot's
@@ -706,8 +715,18 @@ struct ProjectExporter {
           .k { color: var(--muted); }
           .v { font-weight: 600; overflow-wrap: anywhere; }
           .coverage { margin-top: 12px; font-size: 13px; background: var(--chip); border-radius: 9px; padding: 10px 12px; }
-          .coverage-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
-                            color: var(--faint); margin-bottom: 4px; }
+          .coverage > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+                                -webkit-tap-highlight-color: transparent; }
+          .coverage > summary::-webkit-details-marker { display: none; }
+          .coverage > summary::marker { content: ""; }
+          .coverage > summary::before { content: "▾"; font-size: 10px; color: var(--faint);
+                                        transition: transform 0.15s ease; }
+          .coverage:not([open]) > summary::before { transform: rotate(-90deg); }
+          .coverage-count { margin-left: auto; font-size: 10px; color: var(--faint);
+                            text-transform: none; letter-spacing: 0; font-weight: 500; }
+          .coverage-text { margin-top: 8px; }
+          .coverage-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+                            color: var(--faint); font-weight: 600; }
           .empty { color: var(--faint); font-size: 13px; font-style: italic; }
 
           .page-note { max-width: 1240px; margin: 0 auto; padding: 11px 16px; font-size: 13px; color: var(--muted);
@@ -727,6 +746,7 @@ struct ProjectExporter {
             .toolbar, .toc, .totop, .disclose, .page-note { display: none !important; }
             .layout { grid-template-columns: 1fr; padding: 0; }
             .shot { break-inside: avoid; box-shadow: none; }
+            .coverage > div { display: block !important; }   /* print collapsed coverage too */
             .scene { break-inside: avoid-page; }
             body { background: #fff; }
           }
