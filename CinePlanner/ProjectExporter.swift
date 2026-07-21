@@ -2324,9 +2324,18 @@ struct ProjectExporter {
                                 drawHeight = size.height
                                 drawWidth = drawHeight * aspect
                             }
-                            nsImage.draw(in: CGRect(x: origin.x + (size.width - drawWidth) / 2,
-                                                    y: boxY + (size.height - drawHeight) / 2,
-                                                    width: drawWidth, height: drawHeight))
+                            // The page context is flipped so text reads the right way
+                            // up; images must be drawn inside an un-flip or they
+                            // come out inverted and in the wrong place.
+                            let imageRect = CGRect(x: origin.x + (size.width - drawWidth) / 2,
+                                                   y: boxY + (size.height - drawHeight) / 2,
+                                                   width: drawWidth, height: drawHeight)
+                            context.saveGState()
+                            context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
+                            context.scaleBy(x: 1.0, y: -1.0)
+                            context.translateBy(x: 0, y: -imageRect.origin.y)
+                            nsImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                            context.restoreGState()
 
                             NSColor.separatorColor.setStroke()
                             let border = NSBezierPath(rect: CGRect(x: origin.x, y: boxY,
