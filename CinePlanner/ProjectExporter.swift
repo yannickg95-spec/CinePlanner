@@ -520,11 +520,6 @@ struct ProjectExporter {
             body += "</section>\n"
         }
 
-        let hasVideo = scenes.contains { $0.shots.contains { media[$0.slug]?.videoPath != nil } }
-        let iosNote = hasVideo
-            ? "<div class=\"ios-note\">📱 <b>iPhone / iPad &amp; videos:</b> photos always display. Apple’s built-in file preview can’t play local video — to watch the clips, open this folder in the free <b>Documents by Readdle</b> app (or view on a computer). The videos are also in the <code>media</code> folder and can be tapped there directly.</div>"
-            : ""
-
         return """
         <!DOCTYPE html>
         <html lang="en">
@@ -607,9 +602,9 @@ struct ProjectExporter {
           @media (max-width: 980px) { .layout { grid-template-columns: minmax(0,1fr); } .toc { display: none; } }
 
           /* Scenes */
-          .scene { margin-bottom: 30px; scroll-margin-top: calc(var(--sticky) + 16px); }
+          .scene { margin-bottom: 46px; scroll-margin-top: calc(var(--sticky) + 16px); }
           .scene-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; cursor: pointer;
-                        padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--line-strong);
+                        padding-bottom: 10px; margin-bottom: 16px; border-bottom: 1px solid var(--line-strong);
                         list-style: none; -webkit-tap-highlight-color: transparent; }
           .scene-head::-webkit-details-marker { display: none; }
           .scene-head::marker { content: ""; }
@@ -687,10 +682,10 @@ struct ProjectExporter {
                             color: var(--faint); margin-bottom: 4px; }
           .empty { color: var(--faint); font-size: 13px; font-style: italic; }
 
-          .ios-note { max-width: 1240px; margin: 0 auto; padding: 11px 16px; font-size: 13px; color: var(--muted);
+          .page-note { max-width: 1240px; margin: 0 auto; padding: 11px 16px; font-size: 13px; color: var(--muted);
                  background: rgba(10,132,255,0.08);
                  border: 1px solid rgba(10,132,255,0.22); border-radius: 9px; }
-          .ios-wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px; }
+          .page-note-wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px; }
 
           .noresults { text-align: center; color: var(--muted); padding: 60px 20px; }
           .noresults b { color: var(--text); }
@@ -701,7 +696,7 @@ struct ProjectExporter {
           [hidden] { display: none !important; }
 
           @media print {
-            .toolbar, .toc, .totop, .disclose, .ios-note { display: none !important; }
+            .toolbar, .toc, .totop, .disclose, .page-note { display: none !important; }
             .layout { grid-template-columns: 1fr; padding: 0; }
             .shot { break-inside: avoid; box-shadow: none; }
             .scene { break-inside: avoid-page; }
@@ -716,7 +711,7 @@ struct ProjectExporter {
         </div>
 
         <noscript>
-          <div class="ios-wrap"><div class="ios-note">
+          <div class="page-note-wrap"><div class="page-note">
             <b>Tip:</b> tap a thumbnail to enlarge it, and tap a scene heading to collapse it.
             Search and filtering need a full browser — open this file in Safari or Documents
             by Readdle rather than the Files preview.
@@ -748,7 +743,6 @@ struct ProjectExporter {
           </div>
         </div>
 
-        \(iosNote.isEmpty ? "" : "<div class=\"ios-wrap\">\(iosNote)</div>")
 
         <div class="layout">
           <nav class="toc" id="toc">
