@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Xcode build output
+DerivedData/
+build/
+*.xcuserstate
+
+# Leftovers from cloud-sync conflicts (".git 2", ".git 3", …)
+.git [0-9]/

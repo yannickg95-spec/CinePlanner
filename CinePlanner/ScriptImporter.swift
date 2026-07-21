@@ -1,0 +1,2081 @@
+//
+//  ScriptImporter.swift
+//  CinePlanner
+//
+//  Created by Yannick Giraud on 17/12/2025.
+//
+//  Imports screenplay scenes from PDF files
+
+import Foundation
+import PDFKit
+import SwiftUI
+import SwiftData
+import UniformTypeIdentifiers
+
+/// Result of a script import: how many scenes were created plus any
+/// parser diagnostics worth showing to the user.
+struct ScriptImportResult {
+    let sceneCount: Int
+    let warnings: [String]
+}
+
+struct ScriptImporter {
+
+    /// Imports scenes from a PDF screenplay into a specific script version.
+    /// Runs on the main actor because it mutates SwiftData models.
+    @MainActor
+    static func importScenes(from url: URL, into version: ScriptVersion, project: Project) async throws -> ScriptImportResult {
+        guard let pdfDocument = PDFDocument(url: url) else {
+            print("❌ Failed to create PDFDocument from URL")
+            throw ScriptImportError.invalidPDF
+        }
+
+        print("✅ PDF loaded successfully with \(pdfDocument.pageCount) pages")
+
+        // Store PDF data in the version for later viewing
+        if let pdfData = try? Data(contentsOf: url) {
+            version.pdfData = pdfData
+        }
+
+        // Extract text from all pages with page mapping
+        var fullText = ""
+        var lineToPageMap: [Int: Int] = [:] // Maps line index to PDF page index
+        var currentLineNumber = 0
+
+        for pageIndex in 0..<pdfDocument.pageCount {
+            if let page = pdfDocument.page(at: pageIndex),
+               let pageContent = page.string {
+                let pageLines = pageContent.components(separatedBy: .newlines)
+
+                // Map each line to its page number
+                for _ in pageLines {
+                    lineToPageMap[currentLineNumber] = pageIndex
+                    currentLineNumber += 1
+                }
+
+                fullText += pageContent + "\n"
+            }
+        }
+
+        print("📝 Extracted \(fullText.count) characters from PDF")
+
+        // Detect failed extraction: no text at all, or a large share of U+FFFD
+        // replacement characters (what text extraction emits for undecodable glyphs).
+        let scalarCount = fullText.unicodeScalars.count
+        let replacementCount = fullText.unicodeScalars.lazy.filter { $0.value == 0xFFFD }.count
+        let replacementRatio = scalarCount > 0 ? Double(replacementCount) / Double(scalarCount) : 0
+        let hasNoText = fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if hasNoText || replacementRatio > 0.2 {
+            print("⚠️ PDF text extraction failed (empty: \(hasNoText), replacement ratio: \(Int(replacementRatio * 100))%)")
+            throw ScriptImportError.textExtractionFailed
+        }
+
+        // Parse scenes from the text
+        let lines = fullText.components(separatedBy: .newlines)
+        let parseResult = ScreenplayParser.parse(lines: lines, lineToPageMap: lineToPageMap)
+        let scenes = parseResult.scenes
+
+        print("🎬 Found \(scenes.count) scenes (\(parseResult.skippedLines.count) candidate lines skipped)")
+
+        // Separate this version's existing scenes into those with shots and those without
+        let scenesWithShots = version.scenes.filter { !$0.shots.isEmpty }
+        let scenesWithoutShots = version.scenes.filter { $0.shots.isEmpty }
+
+        // Remove scenes without shots
+        if !scenesWithoutShots.isEmpty {
+            print("🗑️ Removing \(scenesWithoutShots.count) scene\(scenesWithoutShots.count == 1 ? "" : "s") without shots")
+            for scene in scenesWithoutShots {
+                if let index = project.scenes.firstIndex(where: { $0 === scene }) {
+                    project.scenes.remove(at: index)
+                }
+                if let index = version.scenes.firstIndex(where: { $0 === scene }) {
+                    version.scenes.remove(at: index)
+                }
+            }
+        }
+
+        // Keep scenes that have shots, flagged as archived so they list separately
+        if !scenesWithShots.isEmpty {
+            print("📦 Preserving \(scenesWithShots.count) scene\(scenesWithShots.count == 1 ? "" : "s") with shots")
+            for scene in scenesWithShots {
+                scene.isArchived = true
+            }
+        }
+
+        // Find the first scene's absolute PDF page number to use as the offset
+        let firstScenePDFPage = scenes.first?.pageNumber ?? 0
+        version.pdfPageOffset = firstScenePDFPage
+
+        // Add new scenes to the version at the beginning
+        var newSceneObjects: [Scene] = []
+
+        for (index, sceneInfo) in scenes.enumerated() {
+            let scene = Scene(sceneNumber: sceneInfo.number)
+            scene.project = project
+            scene.scriptVersion = version
+            scene.nickname = sceneInfo.name
+            scene.isInterior = sceneInfo.isInterior
+            scene.isDay = sceneInfo.isDay
+            scene.suffix = sceneInfo.suffix
+            scene.scriptTimeOfDay = sceneInfo.timeOfDay
+            scene.sortOrder = index  // Set sortOrder for new scenes at the top
+
+            // Store page number relative to first scene (first scene = page 1)
+            // Example: If first scene is on PDF page 5, scenes will be numbered 1, 2, 3...
+            scene.scriptPageNumber = (sceneInfo.pageNumber - firstScenePDFPage) + 1
+            scene.scriptLineNumber = sceneInfo.lineNumber
+
+            // Legacy: older builds read the PDF page offset from the first scene
+            if index == 0 {
+                scene.pdfPageOffset = firstScenePDFPage
+            }
+
+            newSceneObjects.append(scene)
+            print("  ✓ Scene \(scene.sceneNumber)\(scene.suffix): \(scene.isInterior ? "INT" : "EXT") - \(scene.nickname) - \(scene.isDay ? "DAY" : "NIGHT") [Scene Page \(scene.scriptPageNumber), PDF Page \(sceneInfo.pageNumber + 1)]")
+        }
+
+        // Update sortOrder for old scenes to place them after new scenes
+        for (index, oldScene) in scenesWithShots.enumerated() {
+            oldScene.sortOrder = newSceneObjects.count + index
+        }
+
+        // Add new scenes to the project
+        for newScene in newSceneObjects {
+            project.scenes.append(newScene)
+        }
+
+        // Persist now so the new scenes get permanent, stable persistentModelIDs.
+        // Otherwise a later autosave flips their temporary IDs to permanent ones,
+        // which breaks the ID-keyed scene matching in the shot-transfer window.
+        try? project.modelContext?.save()
+
+        // Turn parser diagnostics into user-facing warnings (capped)
+        var warnings: [String] = []
+        for skipped in parseResult.skippedLines.prefix(3) {
+            warnings.append("Line \(skipped.lineNumber): \(skipped.reason)")
+        }
+        if parseResult.skippedLines.count > 3 {
+            warnings.append("…and \(parseResult.skippedLines.count - 3) more skipped lines (see console log)")
+        }
+
+        return ScriptImportResult(sceneCount: scenes.count, warnings: warnings)
+    }
+}
+
+// MARK: - Screenplay Parser
+
+/// Pure screenplay scene-heading parser. It has no PDF, model, or UI
+/// dependencies so the detection logic can be unit tested with plain strings.
+enum ScreenplayParser {
+
+    struct ParseResult {
+        var scenes: [SceneInfo] = []
+        var skippedLines: [(lineNumber: Int, reason: String)] = []
+    }
+
+    struct HeadingMatch {
+        var number: Int?
+        var suffix: String
+        var isInterior: Bool
+        var location: String
+        var timeOfDay: String
+    }
+
+    private enum LineResult {
+        case heading(HeadingMatch)
+        case skipped(String)   // contained INT/EXT but was rejected, with the reason
+        case notAHeading
+    }
+
+    // A detected scene after the first pass, before unnumbered scenes have been
+    // assigned a number. `explicitNumber == nil` means the script did not give
+    // this scene a number (neither inline nor in a margin); the second pass fills
+    // it in from its numbered neighbours.
+    private struct PendingScene {
+        var explicitNumber: Int?
+        var explicitSuffix: String
+        let isInterior: Bool
+        let location: String
+        let timeOfDay: String
+        let pageNumber: Int
+        let lineNumber: Int
+    }
+
+    // MARK: Patterns
+
+    // INT / EXT / INT./EXT. / I/E / EST. — the trailing lookahead rejects the token
+    // inside longer words (INTERIOR, EXTERNAL, ...).
+    private static let typeTokenCore = "(INT\\s*\\.?\\s*/\\s*EXT|EXT\\s*\\.?\\s*/\\s*INT|I/E|INT|EXT|EST\\.)(?![A-Za-z])"
+
+    // Same token as a standalone word — the lookbehind additionally rejects
+    // occurrences inside words (WINTER, NEXT, BEST, ...).
+    private static let typeToken = "(?<![A-Za-z])" + typeTokenCore
+
+    // Full heading anchored at the start of the line, with an optional leading scene
+    // number: "INT. KITCHEN - DAY", "12 INT. KITCHEN - DAY", "3A EXT. STREET - NIGHT",
+    // "4.A INT. STAL, OCHTEND." — the separator between the number and its suffix
+    // letter is optional too, since some scripts write the A-scene as "4.A".
+    // The separator after the number is optional because PDF extraction often glues
+    // the margin number straight onto the heading ("3BINT. HUIS - DAG"), which is
+    // also why this uses the lookbehind-free token: the anchor and the explicit
+    // number group already constrain what can precede INT/EXT.
+    // Groups: 1 = number, 2 = number suffix, 3 = type, 4 = remainder.
+    private static let anchoredHeadingRegex = try! NSRegularExpression(
+        pattern: "^(?:(\\d{1,3})\\s*[.\\-]?\\s*([A-Za-z]{1,2})?[\\s.\\-]*)?" + typeTokenCore + "[\\s.:/]*(.*)$",
+        options: [.caseInsensitive]
+    )
+
+    // Case-sensitive variant used for the prefixed-heading path, where the
+    // whole line must be uppercase anyway.
+    private static let typeSearchRegex = try! NSRegularExpression(pattern: typeToken)
+
+    // Case-insensitive "does this line mention INT/EXT at all" pre-check.
+    private static let typeAnywhereRegex = try! NSRegularExpression(pattern: typeToken, options: [.caseInsensitive])
+
+    // Leading transition like "CUT TO: " before a heading on the same line.
+    private static let transitionPrefixRegex = try! NSRegularExpression(pattern: "^[A-Z][A-Z .']{0,18}:\\s*")
+
+    // Sentence words indicating the text before INT/EXT is prose, not a
+    // production prefix like "SCRIPTDAG 7".
+    private static let stopWordRegex = try! NSRegularExpression(pattern: "\\b(THE|AND|TO|OF|IS|ARE|WAS|WERE|IN|AT|ON|WITH|A|DE|HET|EEN|EN|VAN|NAAR)\\b")
+
+    // Scene number at the start of a production prefix ("2b SCRIPTDAG ...").
+    private static let leadingNumberRegex = try! NSRegularExpression(pattern: "^(\\d{1,3})\\s*([A-Za-z]{1,2})?(?![A-Za-z0-9])")
+
+    // Scene number repeated at the end of the heading (shooting-script margin numbers).
+    private static let trailingNumberRegex = try! NSRegularExpression(pattern: "[\\s.](\\d{1,3})([A-Za-z]{1,2})?\\.?\\s*$")
+
+    // A line that is nothing but a bare number, e.g. "42" or "7A" — margin scene
+    // numbers. Deliberately excludes "42." / "(42)": page numbers usually carry
+    // punctuation, and absorbing those as scene numbers was a real failure mode.
+    // The dot before the suffix letter is allowed only when a letter follows it,
+    // so "7.A" is a scene number while "42." stays excluded as a page number.
+    private static let numberOnlyLineRegex = try! NSRegularExpression(pattern: "^(\\d{1,3})(?:[.\\-]?([A-Za-z]{1,2}))?$")
+
+    // A margin scene number doubled by extraction when the heading row carries
+    // the number in both margins: "3 3", "17b 17b". Unlike a bare number, this
+    // form can't be a page number, so it's trusted even before the script has
+    // shown any inline scene numbers.
+    private static let doubledNumberLineRegex = try! NSRegularExpression(pattern: "^(\\d{1,3})([A-Za-z]{0,2})\\s+\\1\\2$")
+
+    // Period/comma separating location from time when no dash is used
+    // ("INT. CAFÉ. AVOND, DONKER").
+    private static let punctSeparatorRegex = try! NSRegularExpression(pattern: "[.,]\\s+")
+
+    // Dash separating location from time-of-day ("KITCHEN - DAY"). Requires a
+    // space on at least one side so hyphenated locations ("DRIVE-IN") survive.
+    private static let dashSeparatorRegex = try! NSRegularExpression(pattern: "(?:\\s+[-–—]+\\s*|\\s*[-–—]+\\s+)")
+
+    // MARK: Time-of-day keywords
+
+    // Day/night keywords across the languages the app supports. All lists are
+    // checked for every script — screenwriters routinely mix English time-of-day
+    // into non-English scripts, so gating on a detected language only loses scenes.
+    private static let nightKeywords: [String] = [
+        "NIGHT", "EVENING",                             // English
+        "NUIT", "SOIR",                                 // French
+        "NOCHE",                                        // Spanish
+        "NACHT", "ABEND",                               // German / Dutch
+        "NOTTE", "SERA",                                // Italian
+        "NOITE",                                        // Portuguese
+        "AVOND", "DONKER",                              // Dutch (donker = dark)
+        "夜", "晩", "晚上", "夜晚",                       // Japanese / Chinese
+        "밤", "저녁"                                     // Korean
+    ]
+
+    private static let dayKeywords: [String] = [
+        "DAY", "MORNING", "AFTERNOON", "DAWN", "DUSK", "SUNRISE", "SUNSET",       // English
+        "JOUR", "MATIN", "APRÈS-MIDI", "AUBE", "CRÉPUSCULE",                      // French
+        "DÍA", "DIA", "MAÑANA", "TARDE", "AMANECER", "ATARDECER",                 // Spanish
+        "TAG", "NACHMITTAG", "DÄMMERUNG", "SONNENAUFGANG", "MORGEN",              // German
+        "GIORNO", "MATTINA", "POMERIGGIO", "ALBA", "TRAMONTO",                    // Italian
+        "MANHÃ", "AMANHECER", "ANOITECER",                                        // Portuguese
+        "DAG", "OCHTEND", "MIDDAG", "DAGERAAD", "SCHEMERING", "LICHT", "SCHEMER", // Dutch (licht = light)
+        "昼", "朝", "午後", "夜明け", "夕暮れ", "白天", "早上", "下午", "黎明", "黄昏", // Japanese / Chinese
+        "낮", "아침", "오후", "새벽", "황혼"                                        // Korean
+    ]
+
+    // Time indicators that don't say day or night but still belong to the
+    // time-of-day part of a heading.
+    private static let neutralTimeKeywords: [String] = [
+        "CONTINUOUS", "LATER", "MOMENTS LATER", "SAME TIME", "SAME",
+        "MAGIC HOUR", "GOLDEN HOUR", "TWILIGHT"
+    ]
+
+    // Modifier words allowed inside a time-of-day segment ("EARLY MORNING",
+    // "LATER THAT NIGHT", "NEXT DAY", Dutch "EVEN LATER").
+    private static let timeModifierWords: Set<String> = [
+        "EARLY", "LATE", "LATER", "THAT", "NEXT", "SAME", "THE", "FOLLOWING", "MOMENTS", "PRE", "EVEN"
+    ]
+
+    // MARK: Parsing
+
+    static func parse(lines: [String], lineToPageMap: [Int: Int]) -> ParseResult {
+        var result = ParseResult()
+
+        // First pass: detect headings and read whatever scene numbers the script
+        // gives explicitly (inline or from a margin line). Unnumbered scenes are
+        // left with `explicitNumber == nil` and numbered in the second pass, so an
+        // auto-assigned number can never steal a value a later scene explicitly claims.
+        var pending: [PendingScene] = []
+        var lastExplicitNumber: Int?            // Last scene number that came from the script itself
+        var scriptUsesSceneNumbers = false      // Whether the script has shown scene numbers (inline or doubled margins)
+
+        for (index, rawLine) in lines.enumerated() {
+            let lineNumber = index + 1
+
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+            if line.isEmpty { continue }
+
+            // Strip a leading transition ("CUT TO: INT. KITCHEN - DAY") so the
+            // heading behind it is still detected.
+            if let match = transitionPrefixRegex.firstMatch(in: line, options: [], range: fullRange(line)),
+               let range = Range(match.range, in: line) {
+                let remainder = String(line[range.upperBound...])
+                if typeAnywhereRegex.firstMatch(in: remainder, options: [], range: fullRange(remainder)) != nil {
+                    line = remainder
+                }
+            }
+
+            switch evaluateLine(line) {
+            case .notAHeading:
+                continue
+
+            case .skipped(let reason):
+                print("  ⚠️ Line \(lineNumber) skipped — \(reason): '\(line.prefix(80))'")
+                result.skippedLines.append((lineNumber, reason))
+
+            case .heading(var heading):
+                if heading.number != nil {
+                    scriptUsesSceneNumbers = true
+                } else {
+                    // Margin scene numbers often land on the line just above or just
+                    // below their heading, either doubled ("3 3", both margins) or
+                    // bare ("17b"). Doubled numbers are unambiguous and always
+                    // trusted. Bare numbers are only trusted once the script has
+                    // shown it numbers its scenes, so stray numbers (like bare page
+                    // numbers) aren't absorbed. Both must plausibly continue the
+                    // scene sequence.
+                    for neighborIndex in [index - 1, index + 1] where neighborIndex >= 0 && neighborIndex < lines.count {
+                        let neighbor = lines[neighborIndex].trimmingCharacters(in: .whitespaces)
+
+                        let match: NSTextCheckingResult?
+                        var isDoubled = false
+                        if let doubled = doubledNumberLineRegex.firstMatch(in: neighbor, options: [], range: fullRange(neighbor)) {
+                            match = doubled
+                            isDoubled = true
+                        } else if scriptUsesSceneNumbers {
+                            match = numberOnlyLineRegex.firstMatch(in: neighbor, options: [], range: fullRange(neighbor))
+                        } else {
+                            match = nil
+                        }
+
+                        guard let match,
+                              let validated = validatedSceneNumber(digits: group(match, 1, in: neighbor),
+                                                                   suffix: group(match, 2, in: neighbor)),
+                              isPlausibleNextNumber(validated.0, suffix: validated.1, after: lastExplicitNumber) else {
+                            continue
+                        }
+                        heading.number = validated.0
+                        if heading.suffix.isEmpty { heading.suffix = validated.1 }
+                        if isDoubled { scriptUsesSceneNumbers = true }
+                        print("  🔗 Line \(lineNumber): took scene number \(validated.0)\(validated.1) from line \(neighborIndex + 1)")
+                        break
+                    }
+                }
+
+                if let explicit = heading.number {
+                    lastExplicitNumber = explicit
+                }
+
+                pending.append(PendingScene(
+                    explicitNumber: heading.number,
+                    explicitSuffix: heading.suffix,
+                    isInterior: heading.isInterior,
+                    location: heading.location,
+                    timeOfDay: heading.timeOfDay,
+                    pageNumber: lineToPageMap[index] ?? 0,
+                    lineNumber: index
+                ))
+            }
+        }
+
+        // Second pass: assign a number to every scene, filling unnumbered runs
+        // from their explicit neighbours.
+        result.scenes = assignSceneNumbers(pending)
+        return result
+    }
+
+    /// Assigns a final number + suffix to every detected scene.
+    ///
+    /// Scenes the script numbered explicitly keep their number. An unnumbered run
+    /// is resolved from the explicit numbers bracketing it:
+    /// - Between explicit `P` and `N`: if there is numeric room (`N - P - 1 >=`
+    ///   the run length) the scenes fill the gap (`P+1, P+2, …`) — the common
+    ///   "extraction missed a number" case. If there is no room, they are treated
+    ///   as inserts and lettered off `P` (`PA`, `PB`, …) — the "6, 6A, 7" case —
+    ///   so they never collide with `N`.
+    /// - After the last explicit number (trailing): the sequence simply continues
+    ///   (`P+1, P+2, …`).
+    /// - Before the first explicit number, or when the script has no numbers at
+    ///   all: numbered sequentially from 1 by reading position, which leaves later
+    ///   explicit numbers (and any gaps they imply) untouched.
+    /// A final pass guarantees every (number, suffix) pair is unique.
+    private static func assignSceneNumbers(_ pending: [PendingScene]) -> [SceneInfo] {
+        guard !pending.isEmpty else { return [] }
+
+        var numbers = [Int](repeating: 0, count: pending.count)
+        var suffixes = [String](repeating: "", count: pending.count)
+
+        var i = 0
+        var prevAnchor: Int?
+        while i < pending.count {
+            if let explicit = pending[i].explicitNumber {
+                numbers[i] = explicit
+                suffixes[i] = pending[i].explicitSuffix.uppercased()
+                prevAnchor = explicit
+                i += 1
+                continue
+            }
+
+            // An unnumbered run [i, j)
+            var j = i
+            while j < pending.count && pending[j].explicitNumber == nil { j += 1 }
+            let count = j - i
+            let nextAnchor = j < pending.count ? pending[j].explicitNumber : nil
+            fillRun(start: i, count: count, prev: prevAnchor, next: nextAnchor,
+                    numbers: &numbers, suffixes: &suffixes)
+            i = j
+        }
+
+        // Guarantee uniqueness: any repeated (number, suffix) — a genuine duplicate
+        // heading, or a rare fill collision — gets the next free letter suffix.
+        var used: Set<String> = []
+        for k in 0..<pending.count {
+            var suffix = suffixes[k]
+            if used.contains("\(numbers[k])\(suffix)") {
+                var letterIndex = 0
+                while used.contains("\(numbers[k])\(letterSuffix(letterIndex))") {
+                    letterIndex += 1
+                }
+                suffix = letterSuffix(letterIndex)
+                suffixes[k] = suffix
+            }
+            used.insert("\(numbers[k])\(suffix)")
+        }
+
+        return pending.indices.map { k in
+            SceneInfo(
+                number: numbers[k],
+                suffix: suffixes[k],
+                name: pending[k].location,
+                isInterior: pending[k].isInterior,
+                isDay: classifyTime(pending[k].timeOfDay) ?? true,
+                timeOfDay: pending[k].timeOfDay,
+                pageNumber: pending[k].pageNumber,
+                lineNumber: pending[k].lineNumber
+            )
+        }
+    }
+
+    private static func fillRun(start: Int, count: Int, prev: Int?, next: Int?,
+                                numbers: inout [Int], suffixes: inout [String]) {
+        guard let prev = prev else {
+            // Leading run (nothing numbered precedes it) or a script with no
+            // numbers at all: number sequentially from 1 by reading position.
+            for k in 0..<count { numbers[start + k] = start + 1 + k }
+            return
+        }
+
+        // `next == nil` (trailing run) leaves unlimited room, so the sequence
+        // simply continues past the last explicit number.
+        let slots = (next ?? Int.max) - prev - 1
+        if slots >= count {
+            for k in 0..<count { numbers[start + k] = prev + 1 + k }
+        } else {
+            // No numeric room before the next scene → inserts lettered off `prev`.
+            for k in 0..<count {
+                numbers[start + k] = prev
+                suffixes[start + k] = letterSuffix(k)
+            }
+        }
+    }
+
+    // MARK: Line evaluation
+
+    /// The location a heading line yields — the very value the importer stored as
+    /// the scene's nickname. The PDF viewer uses this to match a scene to its
+    /// heading by *exact* location, because substring matching confuses a location
+    /// with its own sub-locations ("NORTHUP HOUSE" vs "NORTHUP HOUSE - BEDROOM").
+    static func headingLocation(of line: String) -> String? {
+        if case .heading(let match) = evaluateLine(line) { return match.location }
+        return nil
+    }
+
+    private static func evaluateLine(_ line: String) -> LineResult {
+        // Path 1: heading anchored at the start of the line (any casing) —
+        // "INT. KITCHEN - DAY", "12 INT. KITCHEN - DAY", "3BINT. HUIS - DAG", ...
+        // Tried before the standalone-token check because a glued margin number
+        // ("3BINT.") puts a letter directly before INT.
+        if let match = anchoredHeadingRegex.firstMatch(in: line, options: [], range: fullRange(line)) {
+            let numberAndSuffix = validatedSceneNumber(digits: group(match, 1, in: line),
+                                                       suffix: group(match, 2, in: line))
+            let typeText = group(match, 3, in: line) ?? ""
+            let rest = trimGluedProse(group(match, 4, in: line) ?? "")
+            return makeHeading(
+                number: numberAndSuffix?.0,
+                suffix: numberAndSuffix?.1 ?? "",
+                typeToken: typeText,
+                rest: rest,
+                uppercaseProbe: typeText + " " + rest
+            )
+        }
+
+        // Quick reject: no standalone INT/EXT-style token anywhere
+        guard typeAnywhereRegex.firstMatch(in: line, options: [], range: fullRange(line)) != nil else {
+            return .notAHeading
+        }
+
+        // Path 2: prefixed heading ("SCRIPTDAG 7 EXT. STREET - DAY",
+        // "2b SCRIPTDAG 2 EXT. STREET - DAY").
+        guard let typeMatch = typeSearchRegex.firstMatch(in: line, options: [], range: fullRange(line)),
+              let typeRange = Range(typeMatch.range, in: line) else {
+            return .skipped("INT/EXT is not at the start of the line and the line is not an uppercase heading")
+        }
+
+        let prefix = String(line[..<typeRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+
+        if prefix.count > 30 {
+            return .skipped("text before INT/EXT is too long (\(prefix.count) characters)")
+        }
+
+        let upperPrefix = prefix.uppercased()
+        if stopWordRegex.firstMatch(in: upperPrefix, options: [], range: fullRange(upperPrefix)) != nil {
+            return .skipped("text before INT/EXT reads like a sentence")
+        }
+
+        var rest = String(line[typeRange.upperBound...])
+        rest = trimGluedProse(rest.trimmingCharacters(in: CharacterSet(charactersIn: " ./:")))
+
+        // Scene headings are uppercase in every standard screenplay format, which
+        // filters out dialogue and action lines that merely mention INT or EXT.
+        // Only the heading portion is checked, because PDF extraction often glues
+        // the (lowercase) action text that follows a heading onto the same line.
+        let headingText = prefix + " " + String(line[typeRange]) + " " + rest
+        guard isMostlyUppercase(headingText) else {
+            return .skipped("looks like prose, not an uppercase scene heading")
+        }
+
+        var number: Int?
+        var suffix = ""
+        if let match = leadingNumberRegex.firstMatch(in: prefix, options: [], range: fullRange(prefix)),
+           let validated = validatedSceneNumber(digits: group(match, 1, in: prefix),
+                                                suffix: group(match, 2, in: prefix)) {
+            number = validated.0
+            suffix = validated.1
+        }
+
+        return makeHeading(number: number, suffix: suffix,
+                           typeToken: String(line[typeRange]), rest: rest,
+                           uppercaseProbe: headingText)
+    }
+
+    /// Cuts action text that PDF extraction glued onto a heading line. Headings
+    /// are uppercase, so cut at the first word containing a lowercase letter.
+    /// Falls back to the full text when everything is mixed/lower case (e.g. a
+    /// Fountain-style "int. kitchen - day" heading).
+    private static func trimGluedProse(_ rest: String) -> String {
+        var kept: [String] = []
+        for word in rest.components(separatedBy: " ") {
+            if word.unicodeScalars.contains(where: { CharacterSet.lowercaseLetters.contains($0) }) {
+                break
+            }
+            kept.append(word)
+        }
+        let trimmed = kept.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? rest : trimmed
+    }
+
+    private static func makeHeading(number: Int?, suffix: String,
+                                    typeToken: String, rest: String,
+                                    uppercaseProbe: String) -> LineResult {
+        let normalizedType = typeToken.uppercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: ".", with: "")
+
+        // "EST." (establishing shot) is only trusted on uppercase headings — the
+        // case-insensitive anchored match would otherwise fire on prose like "Est. 1892".
+        if normalizedType == "EST" && !isMostlyUppercase(uppercaseProbe) {
+            return .skipped("'EST.' outside an uppercase heading")
+        }
+
+        let isInterior: Bool
+        switch normalizedType {
+        case "INT/EXT", "I/E", "INT":
+            isInterior = true   // Default to interior for combined INT/EXT
+        default:                // "EXT", "EXT/INT", "EST"
+            isInterior = false
+        }
+
+        let (location, timeOfDay) = splitLocationAndTime(rest, leadingNumber: number)
+
+        guard !location.isEmpty else {
+            return .skipped("no location name after INT/EXT")
+        }
+
+        return .heading(HeadingMatch(
+            number: number,
+            suffix: suffix,
+            isInterior: isInterior,
+            location: location,
+            timeOfDay: timeOfDay
+        ))
+    }
+
+    /// Splits the text after INT/EXT into location and time-of-day, and strips a
+    /// shooting-script margin number from the end when it duplicates the leading one.
+    private static func splitLocationAndTime(_ rest: String, leadingNumber: Int?) -> (location: String, timeOfDay: String) {
+        var seg = rest.trimmingCharacters(in: .whitespaces)
+
+        // Right-margin scene number ("12 INT. KITCHEN - DAY 12"): strip only when
+        // it matches the leading number, so story-day notation ("- DAY 2") and
+        // locations ending in digits ("ROOM 101") are left alone.
+        if let leadingNumber,
+           let match = trailingNumberRegex.firstMatch(in: seg, options: [], range: fullRange(seg)),
+           let digits = group(match, 1, in: seg),
+           Int(digits) == leadingNumber,
+           let matchRange = Range(match.range, in: seg) {
+            seg = String(seg[..<matchRange.lowerBound])
+        }
+
+        // Peel time indicators off the end, dash by dash, so compound headings
+        // like "KITCHEN - DAY - CONTINUOUS" keep multi-part locations intact.
+        var segments = splitOnDashes(seg)
+        var timeSegments: [String] = []
+        while segments.count > 1, let last = segments.last, isTimeIndicator(last) {
+            timeSegments.insert(segments.removeLast(), at: 0)
+        }
+
+        // Fallback for time segments with extra words ("DAY (FLASHBACK)",
+        // "NACHT, DONKER (FEBRUARI) SCRIPTDAG 2"): if the strict pass found
+        // nothing but the last segment mentions day or night, use it.
+        if timeSegments.isEmpty, segments.count > 1, let last = segments.last, classifyTime(last) != nil {
+            timeSegments.append(segments.removeLast())
+        }
+
+        // Some scripts separate location and time with a period or comma instead
+        // of a dash ("INT. AMSTERDAMS CAFÉ. AVOND, DONKER"). If no time was found
+        // yet, split the last segment at the leftmost period/comma followed by a
+        // word from the time vocabulary.
+        if timeSegments.isEmpty, let lastSegment = segments.last {
+            let punctMatches = punctSeparatorRegex.matches(in: lastSegment, options: [], range: fullRange(lastSegment))
+            for match in punctMatches {
+                guard let range = Range(match.range, in: lastSegment) else { continue }
+                let candidate = String(lastSegment[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                guard classifyTime(candidate) != nil,
+                      let firstWord = candidate.components(separatedBy: " ").first,
+                      isTimeVocabularyWord(firstWord.uppercased()) else { continue }
+                segments[segments.count - 1] = String(lastSegment[..<range.lowerBound])
+                timeSegments = [candidate]
+                break
+            }
+        }
+
+        let location = segments.joined(separator: " - ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " .,-–—"))
+        let timeOfDay = timeSegments.joined(separator: " - ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " .,"))
+
+        return (location, timeOfDay)
+    }
+
+    // MARK: Time-of-day classification
+
+    /// true = day, false = night, nil = no recognizable day/night keyword.
+    static func classifyTime(_ timeOfDay: String) -> Bool? {
+        guard !timeOfDay.isEmpty else { return nil }
+        let upper = timeOfDay.uppercased()
+        for keyword in nightKeywords where upper.contains(keyword) { return false }
+        for keyword in dayKeywords where upper.contains(keyword) { return true }
+        return nil
+    }
+
+    /// Whether a dash-separated segment is purely a time indicator ("DAY",
+    /// "NIGHT 3", "EARLY MORNING", "CONTINUOUS") rather than part of the location
+    /// ("SUNSET BOULEVARD").
+    private static func isTimeIndicator(_ segment: String) -> Bool {
+        let upper = segment.uppercased().trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        if upper.isEmpty { return false }
+        if neutralTimeKeywords.contains(upper) { return true }   // exact phrase ("MOMENTS LATER")
+
+        // Otherwise every word must be a known time keyword, a modifier, or a
+        // story-day number ("DAY 2").
+        let words = upper.components(separatedBy: " ")
+        return words.allSatisfy { word in
+            let cleaned = word.trimmingCharacters(in: CharacterSet(charactersIn: ".,()"))
+            if cleaned.isEmpty { return true }
+            if Int(cleaned) != nil { return true }
+            return isTimeVocabularyWord(cleaned)
+        }
+    }
+
+    /// Whether a single (already uppercased) word belongs to the time-of-day
+    /// vocabulary: a day/night/neutral keyword or a modifier like "EARLY".
+    private static func isTimeVocabularyWord(_ word: String) -> Bool {
+        let cleaned = word.trimmingCharacters(in: CharacterSet(charactersIn: ".,()"))
+        guard !cleaned.isEmpty else { return false }
+        return timeModifierWords.contains(cleaned)
+            || nightKeywords.contains(cleaned)
+            || dayKeywords.contains(cleaned)
+            || neutralTimeKeywords.contains(cleaned)
+    }
+
+    // MARK: Helpers
+
+    /// Validates a potential scene number + suffix. Rejects ordinals ("2ND", "3RD")
+    /// that are street addresses rather than scene numbers.
+    private static func validatedSceneNumber(digits: String?, suffix: String?) -> (Int, String)? {
+        guard let digits, let number = Int(digits), number > 0, number <= 999 else { return nil }
+        let cleanSuffix = (suffix ?? "").uppercased()
+        if ["ST", "ND", "RD", "TH"].contains(cleanSuffix) { return nil }
+        return (number, cleanSuffix)
+    }
+
+    private static func isPlausibleNextNumber(_ number: Int, suffix: String, after last: Int?) -> Bool {
+        guard let last else { return (1...20).contains(number) }
+        // A lettered scene shares its base number with the previous scene ("3" → "3A"),
+        // so equality is plausible when there is a suffix.
+        if suffix.isEmpty {
+            return number > last && number <= last + 20
+        }
+        return number >= last && number <= last + 20
+    }
+
+    /// Scene headings are uppercase in standard screenplay formats. Requires ≥ 90%
+    /// of cased letters to be uppercase (leaves room for a stray lowercase suffix).
+    private static func isMostlyUppercase(_ line: String) -> Bool {
+        var upper = 0
+        var cased = 0
+        for scalar in line.unicodeScalars {
+            if CharacterSet.uppercaseLetters.contains(scalar) {
+                upper += 1
+                cased += 1
+            } else if CharacterSet.lowercaseLetters.contains(scalar) {
+                cased += 1
+            }
+        }
+        guard cased > 0 else { return false }
+        return Double(upper) / Double(cased) >= 0.9
+    }
+
+    private static func splitOnDashes(_ text: String) -> [String] {
+        let matches = dashSeparatorRegex.matches(in: text, options: [], range: fullRange(text))
+        guard !matches.isEmpty else { return [text.trimmingCharacters(in: .whitespaces)] }
+
+        var segments: [String] = []
+        var start = text.startIndex
+        for match in matches {
+            guard let range = Range(match.range, in: text), range.lowerBound >= start else { continue }
+            segments.append(String(text[start..<range.lowerBound]))
+            start = range.upperBound
+        }
+        segments.append(String(text[start...]))
+        return segments.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// 0 → "A", 1 → "B", ... 25 → "Z", 26 → "AA", ...
+    private static func letterSuffix(_ index: Int) -> String {
+        var i = index
+        var result = ""
+        repeat {
+            result = String(UnicodeScalar(UInt8(65 + i % 26))) + result
+            i = i / 26 - 1
+        } while i >= 0
+        return result
+    }
+
+    private static func fullRange(_ string: String) -> NSRange {
+        NSRange(string.startIndex..., in: string)
+    }
+
+    private static func group(_ match: NSTextCheckingResult, _ index: Int, in string: String) -> String? {
+        guard index < match.numberOfRanges, let range = Range(match.range(at: index), in: string) else { return nil }
+        return String(string[range])
+    }
+}
+
+// MARK: - Supporting Types
+
+struct SceneInfo {
+    let number: Int
+    let suffix: String
+    let name: String
+    let isInterior: Bool
+    let isDay: Bool
+    let timeOfDay: String    // Raw time-of-day text from the heading ("DAY", "NIGHT - CONTINUOUS", ...)
+    let pageNumber: Int      // PDF page index (0-based)
+    let lineNumber: Int      // Line number in extracted text
+}
+
+enum ScriptImportError: LocalizedError {
+    case invalidPDF
+    case parsingFailed
+    case noScenesFound
+    case textExtractionFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidPDF:
+            return "The selected file is not a valid PDF."
+        case .parsingFailed:
+            return "Failed to parse the screenplay. Make sure it follows standard screenplay formatting."
+        case .noScenesFound:
+            return "No scenes were found in the screenplay."
+        case .textExtractionFailed:
+            return """
+            Unable to extract text from this PDF.
+            
+            This PDF may be copy-protected, use custom fonts, or be a scanned image.
+            
+            The PDF has been imported for viewing, but scenes could not be automatically detected. You can manually add scenes and specify their page numbers in the scene editor.
+            """
+        }
+    }
+    
+    var recoverySuggestion: String? {
+        switch self {
+        case .textExtractionFailed:
+            return "You can still view the PDF and manually add scenes with page numbers."
+        default:
+            return nil
+        }
+    }
+}
+
+// MARK: - PDF Viewer View
+
+struct ScriptPDFViewer: View {
+    let project: Project
+    let version: ScriptVersion?
+    let selectedScenePage: Int? // Page to jump to when scene is selected
+    var selectedScene: Scene? = nil // Used to scroll the scene heading to the top
+    let selectedShot: Shot? // Currently selected shot for coverage display
+    var onScenesImported: ((ScriptImportResult) -> Void)? = nil
+    var requestImport: Binding<Bool>? = nil // Parent sets true to auto-open the import prompt
+
+    @State private var isImporting = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var cachedPDFDocument: PDFDocument? = nil
+    @State private var showImportOptions = false
+    @State private var autoLoadScenes = false
+    @State private var showRemoveConfirmation = false
+
+    private var currentPDFData: Data? {
+        version?.pdfData ?? project.scriptPDFData
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with import button
+            if currentPDFData == nil {
+                VStack(spacing: 20) {
+                    Spacer()
+                    
+                    Image(systemName: "doc.text.viewfinder")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.secondary)
+                    
+                    Text("No Script Imported")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    Text("Import a screenplay PDF to view it here")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    
+                    Button {
+                        showImportOptions = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.badge.plus")
+                            Text("Import Script PDF")
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .textBackgroundColor))
+            } else {
+                // PDF Viewer
+                VStack(spacing: 0) {
+                    // Toolbar
+                    HStack {
+                        Text("Script")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        
+                        Spacer()
+                        
+                        Button(role: .destructive) {
+                            showRemoveConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(12)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    
+                    Divider()
+                    
+                    // PDF Content
+                    PDFContentView(
+                        pdfData: currentPDFData,
+                        pageToDisplay: selectedScenePage,
+                        sceneToAlign: selectedScene,
+                        selectedShot: selectedShot,
+                        project: project,
+                        version: version,
+                        cachedDocument: $cachedPDFDocument
+                    )
+                }
+            }
+        }
+        .onChange(of: version) {
+            cachedPDFDocument = nil
+        }
+        .onChange(of: requestImport?.wrappedValue ?? false) { _, shouldImport in
+            if shouldImport {
+                showImportOptions = true
+                requestImport?.wrappedValue = false
+            }
+        }
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { @MainActor in
+                await handlePDFImport(result: result)
+            }
+        }
+        .sheet(isPresented: $showImportOptions) {
+            ScriptImportOptionsSheet(
+                isPresented: $showImportOptions,
+                onAutoLoad: {
+                    autoLoadScenes = true
+                    showImportOptions = false
+                    isImporting = true
+                },
+                onSkip: {
+                    autoLoadScenes = false
+                    showImportOptions = false
+                    isImporting = true
+                }
+            )
+        }
+        .alert("Import Failed", isPresented: $showError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+        .alert("Remove Script?", isPresented: $showRemoveConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) {
+                version?.pdfData = nil
+                project.scriptPDFData = nil
+                cachedPDFDocument = nil
+            }
+        } message: {
+            Text("Are you sure you want to remove the script? The PDF will be deleted from this script version.")
+        }
+    }
+
+    @MainActor
+    private func handlePDFImport(result: Result<[URL], Error>) async {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+
+            // Request security-scoped access to the file
+            guard url.startAccessingSecurityScopedResource() else {
+                errorMessage = "Unable to access the selected file."
+                showError = true
+                return
+            }
+
+            defer {
+                url.stopAccessingSecurityScopedResource()
+            }
+
+            if autoLoadScenes, let version {
+                let importResult = try await ScriptImporter.importScenes(from: url, into: version, project: project)
+                cachedPDFDocument = nil
+                print("✅ Imported PDF and \(importResult.sceneCount) scene\(importResult.sceneCount == 1 ? "" : "s")")
+                if importResult.sceneCount > 0 {
+                    onScenesImported?(importResult)
+                }
+                return
+            }
+
+            // Validate it's a PDF
+            guard PDFDocument(url: url) != nil else {
+                errorMessage = "The selected file is not a valid PDF."
+                showError = true
+                return
+            }
+
+            // Read PDF data
+            guard let pdfData = try? Data(contentsOf: url) else {
+                errorMessage = "Unable to read the PDF file."
+                showError = true
+                return
+            }
+
+            // Save to the script version
+            if let version {
+                version.pdfData = pdfData
+            } else {
+                project.scriptPDFData = pdfData
+            }
+            cachedPDFDocument = nil // Clear cache so it gets recreated
+            print("✅ Imported PDF (\(pdfData.count) bytes) for viewing")
+
+        } catch {
+            errorMessage = "Import failed: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
+// MARK: - Script Import Options Sheet
+
+struct ScriptImportOptionsSheet: View {
+    @Binding var isPresented: Bool
+    let onAutoLoad: () -> Void
+    let onSkip: () -> Void
+
+    // Matches the script step of NewProjectSheet — same frame, header, card rows
+    // and footer — so importing a script reads the same whether it happens on a
+    // new project or a new version.
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(title: "Import Script",
+                        subtitle: "Import a screenplay PDF to create scenes automatically, or bring in the PDF for reading only.")
+
+            Divider()
+
+            VStack(spacing: 10) {
+                SheetActionCard(
+                    icon: "sparkles",
+                    title: "Auto-Load Scenes from Script",
+                    detail: "Pick a screenplay PDF. Every scene heading becomes a scene, ready for shots.",
+                    isProminent: true,
+                    action: onAutoLoad
+                )
+
+                SheetActionCard(
+                    icon: "doc.text",
+                    title: "Import PDF Only",
+                    detail: "Show the script alongside your shots without detecting any scenes.",
+                    action: onSkip
+                )
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(16)
+
+            Divider()
+
+            HStack {
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+            }
+            .padding(16)
+        }
+        .frame(width: 520, height: 400)
+    }
+}
+
+// Separate view to handle PDF document caching
+private struct PDFContentView: View {
+    let pdfData: Data?
+    let pageToDisplay: Int?
+    let sceneToAlign: Scene?
+    let selectedShot: Shot?
+    let project: Project
+    let version: ScriptVersion?
+    @Binding var cachedDocument: PDFDocument?
+
+    var body: some View {
+        Group {
+            if let pdfData = pdfData {
+                if let document = cachedDocument {
+                    PDFViewerWithCoverageRepresentable(
+                        document: document,
+                        pageToDisplay: pageToDisplay,
+                        sceneToAlign: sceneToAlign,
+                        selectedShot: selectedShot,
+                        project: project,
+                        version: version
+                    )
+                } else {
+                    Color.clear
+                        .onAppear {
+                            if let newDocument = PDFDocument(data: pdfData) {
+                                cachedDocument = newDocument
+                            }
+                        }
+                }
+            } else {
+                ContentUnavailableView(
+                    "Unable to Display PDF",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("The PDF data is corrupted or invalid")
+                )
+            }
+        }
+    }
+}
+
+#if canImport(AppKit)
+import AppKit
+
+struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
+    let document: PDFDocument
+    let pageToDisplay: Int? // 0-based page index
+    let sceneToAlign: Scene? // Scroll so this scene's heading sits at the top
+    let selectedShot: Shot? // Currently selected shot
+    let project: Project // Need project to get all shots for vertical lines
+    let version: ScriptVersion? // Scope coverage lines to this script version's scenes
+
+    /// Scrolls so the scene's heading is at the top of the visible area, rather
+    /// than just showing the page it happens to be on. Falls back to the top of
+    /// the page when the heading can't be located in the page text.
+    private func scroll(_ pdfView: PDFView, to page: PDFPage, scene: Scene?) {
+        if let scene, let headingTop = headingTopY(for: scene, on: page) {
+            // PDFDestination's point becomes the top-left of the visible area.
+            // The margin (page coords, y grows upward) keeps the heading clearly
+            // below the top edge rather than flush against it.
+            let destination = PDFDestination(page: page, at: CGPoint(x: 0, y: headingTop + 14))
+            pdfView.go(to: destination)
+        } else {
+            pdfView.go(to: page)
+        }
+    }
+
+    /// A line that reads as a scene heading. INT/EXT must be a standalone word,
+    /// otherwise "POINT", "WINTER" and friends match.
+    private func isHeadingLine(_ line: String) -> Bool {
+        line.uppercased().range(of: "(?<![A-Z])(INT|EXT|I/E)(?![A-Z])",
+                                options: .regularExpression) != nil
+    }
+
+    /// Top edge (in page coordinates) of this scene's heading line.
+    ///
+    /// Locations repeat constantly in a script ("APPARTEMENT ANNA" many times over),
+    /// so matching on the name alone lands on the wrong heading. Instead this finds
+    /// the *nth* heading on the page, where n is this scene's position among the
+    /// scenes that live on that page — then sanity-checks it against the location.
+    private func headingTopY(for scene: Scene, on page: PDFPage) -> CGFloat? {
+        let targetPage = scene.absolutePDFPage
+        let scenesOnPage = (version?.orderedScenes ?? project.scenes.sorted { $0.sortOrder < $1.sortOrder })
+            .filter { $0.absolutePDFPage == targetPage }
+        let occurrence = scenesOnPage.firstIndex(where: { $0 === scene }) ?? 0
+
+        let location = scene.nickname.trimmingCharacters(in: .whitespaces).uppercased()
+
+        // Ask PDFKit for the page's lines as selections and read each line's bounds
+        // directly, rather than mapping an offset in `page.string` onto
+        // `characterBounds(at:)`. Those two index spaces are *not* interchangeable:
+        // even when their lengths match exactly, a page whose content stream isn't
+        // in reading order maps an offset onto a character one or two lines away,
+        // putting the anchor below the real heading. Measured on 12 Years a Slave,
+        // most headings were off by a harmless 3pt but some by a full 29pt (two
+        // lines), and one resolved to y=0 — which is what made this look random.
+        guard let wholePage = page.selection(for: page.bounds(for: .mediaBox)) else { return nil }
+
+        var headings: [(location: String, top: CGFloat)] = []
+        for line in wholePage.selectionsByLine() {
+            guard let raw = line.string?.trimmingCharacters(in: .whitespaces),
+                  isHeadingLine(raw) else { continue }
+            // Re-parse through the importer's own heading parser so the location
+            // reads identically to the one stored on the scene.
+            let parsed = ScreenplayParser.headingLocation(of: raw) ?? raw
+            headings.append((parsed.trimmingCharacters(in: .whitespaces).uppercased(),
+                             line.bounds(for: page).maxY))
+        }
+        guard !headings.isEmpty else { return nil }
+
+        // Position is the primary signal: the nth scene on a page is the nth
+        // heading on it. That holds whenever the page mapping is right, which is
+        // the overwhelming majority of the time.
+        let positional = headings[min(occurrence, headings.count - 1)]
+
+        // Location is only a *check* on that, never the lead. Confirming the
+        // positional pick names the right location catches the case where a
+        // scene's stored page number is off by one; searching by location first
+        // would instead break the common case, since consecutive scenes routinely
+        // share a location stem ("ORLEANS" and "ORLEANS - GALLEY").
+        if location.isEmpty || positional.location == location {
+            return positional.top
+        }
+
+        let named = headings.filter { $0.location == location }
+        guard !named.isEmpty else { return positional.top }
+
+        // One location can legitimately repeat on a page, so pick by this scene's
+        // position among the same-location scenes on it.
+        let sameLocation = scenesOnPage.filter {
+            $0.nickname.trimmingCharacters(in: .whitespaces).uppercased() == location
+        }
+        let index = sameLocation.firstIndex(where: { $0 === scene }) ?? 0
+        return named[min(index, named.count - 1)].top
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let containerView = NSView()
+        
+        let pdfView = PDFView()
+        pdfView.document = document
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        
+        // Configure selection appearance
+        pdfView.highlightedSelections = []
+        
+        // Store reference in coordinator
+        context.coordinator.pdfView = pdfView
+        context.coordinator.containerView = containerView
+        
+        // Add PDF view to container
+        containerView.addSubview(pdfView)
+        pdfView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            pdfView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            pdfView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            pdfView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            pdfView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+        ])
+        
+        // Create overlay view for coverage indicators
+        let overlayView = PDFCoverageOverlayView()
+        overlayView.pdfView = pdfView
+        context.coordinator.overlayView = overlayView
+        containerView.addSubview(overlayView)
+        overlayView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            overlayView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            overlayView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            overlayView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            overlayView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+        ])
+        
+        // Listen for PDF view changes to update overlay
+        context.coordinator.pageChangeObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name.PDFViewPageChanged,
+            object: pdfView,
+            queue: .main
+        ) { _ in
+            overlayView.needsDisplay = true
+        }
+        
+        // Enable scroll notifications
+        // Find the scroll view in the PDF view's subviews
+        if let scrollView = pdfView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            context.coordinator.scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { _ in
+                overlayView.needsDisplay = true
+            }
+        }
+        
+        // Also listen for scale changes
+        context.coordinator.scaleChangeObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name.PDFViewScaleChanged,
+            object: pdfView,
+            queue: .main
+        ) { _ in
+            overlayView.needsDisplay = true
+        }
+        
+        // Listen for selection mode notifications
+        context.coordinator.setupNotifications()
+
+        // Navigate to initial page if specified
+        if let pageIndex = pageToDisplay,
+           let page = document.page(at: pageIndex) {
+            // Layout isn't settled on first appearance, so align on the next tick
+            let scene = sceneToAlign
+            DispatchQueue.main.async {
+                scroll(pdfView, to: page, scene: scene)
+            }
+            context.coordinator.lastDisplayedPage = pageIndex
+            context.coordinator.lastAlignedScene = scene?.persistentModelID
+            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+        }
+        
+        return containerView
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let pdfView = context.coordinator.pdfView else { return }
+        
+        // Update document if it changed
+        if pdfView.document !== document {
+            pdfView.document = document
+        }
+        
+        // Navigate when the target scene (or its page) changes. Keyed on the scene
+        // as well, so picking another scene on the same page still re-aligns.
+        let sceneID = sceneToAlign?.persistentModelID
+        if let pageIndex = pageToDisplay,
+           pageIndex != context.coordinator.lastDisplayedPage || sceneID != context.coordinator.lastAlignedScene,
+           let page = document.page(at: pageIndex) {
+            // Scroll on the next tick so PDFView has finished laying out; going
+            // immediately can land short of the target.
+            let scene = sceneToAlign
+            DispatchQueue.main.async {
+                scroll(pdfView, to: page, scene: scene)
+            }
+            context.coordinator.lastDisplayedPage = pageIndex
+            context.coordinator.lastAlignedScene = sceneID
+            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+        }
+        
+        // Update overlay with current shot and all shots from project
+        if let overlayView = context.coordinator.overlayView {
+            overlayView.selectedShot = selectedShot
+            
+            // Collect all shots with coverage from all scenes
+            var allShotsWithCoverage: [Shot] = []
+            for scene in (version?.scenes ?? project.scenes) {
+                for shot in scene.shots {
+                    if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
+                        allShotsWithCoverage.append(shot)
+                    }
+                }
+            }
+            overlayView.allShotsWithCoverage = allShotsWithCoverage
+            overlayView.needsDisplay = true
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator {
+        var lastDisplayedPage: Int? = nil
+        var lastAlignedScene: PersistentIdentifier? = nil
+        var pdfView: PDFView?
+        var containerView: NSView?
+        var overlayView: PDFCoverageOverlayView?
+        var selectionModeObserver: NSObjectProtocol?
+        var scrollObserver: NSObjectProtocol?
+        var pageChangeObserver: NSObjectProtocol?
+        var scaleChangeObserver: NSObjectProtocol?
+        var displayTimer: Timer?
+        var isInSelectionMode = false
+        var currentSelectionShot: Shot?
+        var selectionStartPage: PDFPage?
+        
+        func setupNotifications() {
+            selectionModeObserver = NotificationCenter.default.addObserver(
+                forName: .startScriptTextSelection,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self = self,
+                      let shot = notification.userInfo?["shot"] as? Shot else { return }
+                
+                self.enterSelectionMode(for: shot)
+            }
+            
+            // Start a timer to update the overlay - using 30fps instead of 60 to be gentler on the system
+            displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                self.overlayView?.needsDisplay = true
+            }
+        }
+        
+        func enterSelectionMode(for shot: Shot) {
+            print("🎯 Entering text selection mode for shot \(shot.displayNumber)")
+            isInSelectionMode = true
+            currentSelectionShot = shot
+            
+            // Show instruction overlay
+            if let pdfView = pdfView {
+                let instructionView = SelectionInstructionView(coordinator: self, shot: shot)
+                instructionView.translatesAutoresizingMaskIntoConstraints = false
+                pdfView.addSubview(instructionView)
+                
+                NSLayoutConstraint.activate([
+                    instructionView.centerXAnchor.constraint(equalTo: pdfView.centerXAnchor),
+                    instructionView.topAnchor.constraint(equalTo: pdfView.topAnchor, constant: 20)
+                ])
+                
+                // Track mouse for text selection
+                self.startTrackingSelection()
+            }
+        }
+        
+        func startTrackingSelection() {
+            guard let pdfView = pdfView else { return }
+            
+            // Monitor selection changes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self else { return }
+                
+                if self.isInSelectionMode {
+                    // Continue tracking
+                    self.startTrackingSelection()
+                }
+            }
+        }
+        
+        func captureSelection() {
+            guard let pdfView = pdfView,
+                  let selection = pdfView.currentSelection,
+                  let shot = currentSelectionShot,
+                  !(selection.string?.isEmpty ?? true) else {
+                print("⚠️ No text selected or selection is empty")
+                exitSelectionMode()
+                return
+            }
+            
+            print("📝 Capturing selection for shot \(shot.displayNumber)")
+            print("   Selected text: '\(selection.string?.prefix(50) ?? "")'...")
+            
+            // Convert selection to our data model
+            var pageRanges: [PageTextRange] = []
+            
+            // Get all pages that have selections
+            let pages = selection.pages
+            
+            for page in pages {
+                guard let pageIndex = pdfView.document?.index(for: page) else { continue }
+                
+                // Get all line selections for better accuracy
+                var boundsForPage: [PDFSelectionBounds] = []
+                
+                let lineSelections = selection.selectionsByLine()
+                for lineSelection in lineSelections {
+                    if lineSelection.pages.contains(page) {
+                        // Get bounds in page coordinates (these are what we need to store)
+                        let lineBounds = lineSelection.bounds(for: page)
+                        if !lineBounds.isEmpty {
+                            boundsForPage.append(PDFSelectionBounds(from: lineBounds))
+                            print("   ✓ Stored bounds in page coords: \(lineBounds)")
+                        }
+                    }
+                }
+                
+                // Fallback: if no line selections, use the whole selection bounds
+                if boundsForPage.isEmpty {
+                    let bounds = selection.bounds(for: page)
+                    if !bounds.isEmpty {
+                        boundsForPage.append(PDFSelectionBounds(from: bounds))
+                        print("   ✓ Stored fallback bounds: \(bounds)")
+                    }
+                }
+                
+                if !boundsForPage.isEmpty {
+                    pageRanges.append(PageTextRange(pageIndex: pageIndex, selections: boundsForPage))
+                    print("   ✓ Page \(pageIndex + 1): \(boundsForPage.count) selection(s)")
+                }
+            }
+            
+            if !pageRanges.isEmpty {
+                // Extract the selected text
+                let selectedText = selection.string ?? ""
+                let textSelection = ScriptTextSelection(pageRanges: pageRanges, fullText: selectedText)
+                
+                // Update shot (create array if needed)
+                if shot.scriptCoverageSelections == nil {
+                    shot.scriptCoverageSelections = []
+                }
+                shot.scriptCoverageSelections?.append(textSelection)
+                
+                print("✅ Saved coverage with \(pageRanges.count) page(s)")
+                print("   📝 Text: \"\(selectedText.prefix(50))...\"")
+                
+                // Update overlay
+                overlayView?.needsDisplay = true
+            } else {
+                print("⚠️ No valid page ranges found in selection")
+            }
+            
+            // Exit selection mode
+            exitSelectionMode()
+        }
+        
+        func cancelSelection() {
+            print("❌ Selection cancelled")
+            exitSelectionMode()
+        }
+        
+        func exitSelectionMode() {
+            isInSelectionMode = false
+            currentSelectionShot = nil
+            
+            // Clear selection
+            pdfView?.clearSelection()
+            
+            // Remove instruction view
+            if let pdfView = pdfView {
+                for subview in pdfView.subviews {
+                    if subview is SelectionInstructionView {
+                        subview.removeFromSuperview()
+                    }
+                }
+            }
+        }
+        
+        deinit {
+            displayTimer?.invalidate()
+            displayTimer = nil
+            
+            if let observer = selectionModeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = scrollObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = pageChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = scaleChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+    }
+}
+
+// MARK: - Selection Instruction View
+
+class SelectionInstructionView: NSView {
+    weak var coordinator: PDFViewerWithCoverageRepresentable.Coordinator?
+    let shot: Shot
+    
+    init(coordinator: PDFViewerWithCoverageRepresentable.Coordinator, shot: Shot) {
+        self.coordinator = coordinator
+        self.shot = shot
+        super.init(frame: .zero)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        layer?.cornerRadius = 8
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        
+        let stackView = NSStackView()
+        stackView.orientation = .horizontal
+        stackView.spacing = 12
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        
+        let shotLabel = NSTextField(labelWithString: "Shot \(shot.displayNumber):")
+        shotLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        shotLabel.textColor = .systemBlue
+        
+        let instructionLabel = NSTextField(labelWithString: "Select text in the PDF, then:")
+        instructionLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        
+        let doneButton = NSButton(title: "Done", target: self, action: #selector(doneClicked))
+        doneButton.bezelStyle = .rounded
+        
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
+        cancelButton.bezelStyle = .rounded
+        
+        stackView.addArrangedSubview(shotLabel)
+        stackView.addArrangedSubview(instructionLabel)
+        stackView.addArrangedSubview(doneButton)
+        stackView.addArrangedSubview(cancelButton)
+        
+        addSubview(stackView)
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+    
+    @objc private func doneClicked() {
+        coordinator?.captureSelection()
+    }
+    
+    @objc private func cancelClicked() {
+        coordinator?.cancelSelection()
+    }
+}
+
+// MARK: - Coverage Overlay View
+
+class PDFCoverageOverlayView: NSView {
+    weak var pdfView: PDFView?
+    var selectedShot: Shot?
+    var allShotsWithCoverage: [Shot] = []
+    
+    // Color palette for different shots within the same scene
+    private let shotColors: [NSColor] = [
+        .systemBlue,
+        .systemGreen,
+        .systemOrange,
+        .systemPurple,
+        .systemPink,
+        .systemTeal,
+        .systemIndigo,
+        .systemRed,
+        .systemYellow,
+        .systemBrown
+    ]
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = .clear
+        print("🎨 [EDITOR COLOR] PDFCoverageOverlayView initialized with \(shotColors.count) colors")
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override var isFlipped: Bool {
+        return false // Don't flip - we'll handle coordinate conversion manually
+    }
+    
+    // Allow mouse events to pass through to the PDF view below
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+    
+    // Get color for a shot based on its position within its scene
+    // Prefers unused colors on the visible portion of the page
+    private func color(for shot: Shot, usedColors: inout Set<Int>) -> NSColor {
+        guard let scene = shot.scene else {
+            print("🎨 [EDITOR COLOR] Shot \(shot.displayNumber) has no scene - returning systemBlue")
+            return .systemBlue
+        }
+        
+        // Find the default index based on shot position within its scene
+        var defaultColorIndex = 0
+        if let shotIndex = scene.shots.firstIndex(where: { $0 === shot }) {
+            defaultColorIndex = shotIndex % shotColors.count
+            print("🎨 [EDITOR COLOR] Shot \(shot.displayNumber) in scene \(scene.sceneNumber)\(scene.suffix)")
+            print("   - Shot index in scene.shots: \(shotIndex)")
+            print("   - Default color index: \(defaultColorIndex) (color: \(shotColors[defaultColorIndex]))")
+            print("   - Used colors on page: \(usedColors)")
+        } else {
+            print("⚠️ [EDITOR COLOR] Shot \(shot.displayNumber) not found in scene.shots array")
+        }
+        
+        // Check if the default color is already used
+        if usedColors.contains(defaultColorIndex) {
+            print("   ⚠️ Default color \(defaultColorIndex) already used, finding alternative...")
+            // Try to find an unused color
+            for (index, _) in shotColors.enumerated() {
+                if !usedColors.contains(index) {
+                    usedColors.insert(index)
+                    print("   ✅ Found unused color: \(index) (\(shotColors[index]))")
+                    return shotColors[index]
+                }
+            }
+            // All colors are used, use default anyway
+            print("   ⚠️ All colors used, using default \(defaultColorIndex) anyway")
+        } else {
+            // Default color is available
+            usedColors.insert(defaultColorIndex)
+            print("   ✅ Using default color \(defaultColorIndex)")
+        }
+        
+        let finalColor = shotColors[defaultColorIndex]
+        print("   🎨 Final color: \(finalColor)")
+        return finalColor
+    }
+    
+    // Place overlapping lines across the left page margin before stacking them.
+    private func calculateLineX(
+        for shot: Shot,
+        at verticalRange: ClosedRange<CGFloat>,
+        within xRange: ClosedRange<CGFloat>,
+        minimumCenterSpacing: CGFloat,
+        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)]
+    ) -> CGFloat {
+        let usableWidth = xRange.upperBound - xRange.lowerBound
+        guard usableWidth > 0 else {
+            return xRange.lowerBound
+        }
+
+        let targetSlotCount = 8
+        let targetSpacing = targetSlotCount > 1 ? usableWidth / CGFloat(targetSlotCount - 1) : usableWidth
+        let minimumSpacing = max(6, min(minimumCenterSpacing, targetSpacing))
+        let slotCount = max(1, Int(floor(usableWidth / minimumSpacing)) + 1)
+        let actualSpacing = slotCount > 1 ? usableWidth / CGFloat(slotCount - 1) : 0
+
+        for slotIndex in 0..<slotCount {
+            let candidateX = xRange.upperBound - (CGFloat(slotIndex) * actualSpacing)
+            let conflicts = existingLines.contains { existing in
+                existing.range.overlaps(verticalRange) && abs(existing.offset - candidateX) < max(minimumSpacing - 1, actualSpacing * 0.75)
+            }
+
+            if !conflicts {
+                existingLines.append((range: verticalRange, offset: candidateX, shot: shot))
+                return candidateX
+            }
+        }
+
+        let fallbackX = xRange.lowerBound
+        existingLines.append((range: verticalRange, offset: fallbackX, shot: shot))
+        return fallbackX
+    }
+
+    private func pageBoundsInOverlay(for pageRange: PageTextRange, document: PDFDocument, pdfView: PDFView) -> CGRect? {
+        guard let page = document.page(at: pageRange.pageIndex) else {
+            return nil
+        }
+
+        let pageBoundsInView = pdfView.convert(page.bounds(for: .mediaBox), from: page)
+        let pageBoundsInOverlay = convert(pageBoundsInView, from: pdfView)
+        return pageBoundsInOverlay.isEmpty ? nil : pageBoundsInOverlay
+    }
+
+    private func lineCollisionRects(
+        from lines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)],
+        horizontalPadding: CGFloat = 5,
+        verticalPadding: CGFloat = 2
+    ) -> [CGRect] {
+        lines.map { line in
+            CGRect(
+                x: line.offset - horizontalPadding,
+                y: line.range.lowerBound - verticalPadding,
+                width: horizontalPadding * 2,
+                height: (line.range.upperBound - line.range.lowerBound) + (verticalPadding * 2)
+            )
+        }
+    }
+
+    private func resolvedLabelRect(
+        for desiredRect: CGRect,
+        lineX: CGFloat,
+        lineTopY: CGFloat,
+        pageBounds: CGRect,
+        existingLineRects: [CGRect],
+        placedLabelRects: [CGRect]
+    ) -> CGRect {
+        let topGap: CGFloat = 4
+        let sideGap: CGFloat = 8
+        let verticalStep: CGFloat = desiredRect.height + 3
+        let halfHeight = desiredRect.height / 2
+
+        func clampedX(_ originX: CGFloat) -> CGFloat {
+            min(max(originX, pageBounds.minX), max(pageBounds.minX, pageBounds.maxX - desiredRect.width))
+        }
+
+        func candidate(_ originX: CGFloat, _ originY: CGFloat) -> CGRect {
+            CGRect(x: clampedX(originX), y: originY, width: desiredRect.width, height: desiredRect.height)
+        }
+
+        var candidates: [CGRect] = []
+        for step in 0..<8 {
+            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
+            candidates.append(candidate(lineX - (desiredRect.width / 2), y))
+        }
+
+        candidates.append(candidate(lineX + sideGap, lineTopY - halfHeight))
+        candidates.append(candidate(lineX - desiredRect.width - sideGap, lineTopY - halfHeight))
+
+        for step in 1..<8 {
+            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
+            candidates.append(candidate(lineX + sideGap, y))
+            candidates.append(candidate(lineX - desiredRect.width - sideGap, y))
+        }
+
+        for rect in candidates {
+            let overlapsLine = existingLineRects.contains { $0.intersects(rect) }
+            let overlapsLabel = placedLabelRects.contains { $0.intersects(rect.insetBy(dx: -2, dy: -1)) }
+            if !overlapsLine && !overlapsLabel {
+                return rect
+            }
+        }
+
+        return candidates.last ?? desiredRect
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        guard let pdfView = pdfView,
+              let document = pdfView.document,
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        
+        // Track existing lines to prevent overlap
+        var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)] = []
+        var placedLabelRects: [CGRect] = []
+        
+        // Track which colors are used on the visible portion of the page
+        var usedColorIndices: Set<Int> = []
+        
+        // Draw vertical lines for all shots with coverage (always visible)
+        for shot in allShotsWithCoverage {
+            guard let selections = shot.scriptCoverageSelections else { continue }
+            
+            for selection in selections {
+                drawVerticalLine(
+                    for: selection,
+                    shot: shot,
+                    in: context,
+                    pdfView: pdfView,
+                    document: document,
+                    existingLines: &existingLines,
+                    placedLabelRects: &placedLabelRects,
+                    usedColors: &usedColorIndices
+                )
+            }
+        }
+        
+        // Draw highlighted text for selected shot only
+        if let shot = selectedShot,
+           let selections = shot.scriptCoverageSelections {
+            for selection in selections {
+                drawHighlightedText(for: selection, in: context, pdfView: pdfView, document: document)
+            }
+        }
+    }
+    
+    private func drawVerticalLine(
+        for selection: ScriptTextSelection,
+        shot: Shot,
+        in context: CGContext,
+        pdfView: PDFView,
+        document: PDFDocument,
+        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)],
+        placedLabelRects: inout [CGRect],
+        usedColors: inout Set<Int>
+    ) {
+        print("📏 [EDITOR DRAW] Drawing vertical line for shot \(shot.displayNumber)")
+        
+        // Calculate the overall vertical extent of the selection across all pages
+        var minY: CGFloat = .infinity
+        var maxY: CGFloat = -.infinity
+        var textMinX: CGFloat = .infinity
+        var pageMinX: CGFloat = .infinity
+        var pageMaxX: CGFloat = -.infinity
+        var foundAnyBounds = false
+        
+        for pageRange in selection.pageRanges {
+            guard let page = document.page(at: pageRange.pageIndex) else {
+                continue
+            }
+
+            if let pageBoundsInOverlay = pageBoundsInOverlay(for: pageRange, document: document, pdfView: pdfView) {
+                pageMinX = min(pageMinX, pageBoundsInOverlay.minX)
+                pageMaxX = max(pageMaxX, pageBoundsInOverlay.maxX)
+            }
+            
+            for selectionBounds in pageRange.selections {
+                let boundsInPage = selectionBounds.cgRect
+                
+                // Convert from PDF page coordinates to view coordinates
+                // PDFView.convert handles the coordinate system transformation
+                let boundsInView = pdfView.convert(boundsInPage, from: page)
+                
+                // Convert to overlay view's coordinate system
+                let boundsInOverlay = convert(boundsInView, from: pdfView)
+                
+                // Check if bounds are valid and visible
+                guard !boundsInOverlay.isEmpty else {
+                    continue
+                }
+                
+                minY = min(minY, boundsInOverlay.minY)
+                maxY = max(maxY, boundsInOverlay.maxY)
+                textMinX = min(textMinX, boundsInOverlay.minX)
+                
+                foundAnyBounds = true
+            }
+        }
+        
+        if foundAnyBounds && minY != .infinity && maxY != -.infinity && minY < maxY {
+            // Calculate line position with overlap prevention
+            let verticalRange = minY...maxY
+            let horizontalInset: CGFloat = 6
+            let minimumPageX = pageMinX.isFinite ? pageMinX + horizontalInset : horizontalInset
+            let maximumPageX = pageMaxX.isFinite ? pageMaxX - horizontalInset : bounds.maxX - horizontalInset
+            let pageWidth = max(0, pageMaxX - pageMinX)
+            let marginLimitX = pageMinX + (pageWidth * 0.15)
+            let lineRangeUpperBound = min(maximumPageX, marginLimitX)
+            let lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
+            
+            // Get color for this shot (with color collision avoidance)
+            let lineColor = color(for: shot, usedColors: &usedColors)
+            print("   ✏️ [EDITOR DRAW] Using color \(lineColor) for shot \(shot.displayNumber)")
+
+            // Draw shot number at the top
+            let shotLabel = shot.displayNumber
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.boldSystemFont(ofSize: 11),
+                .foregroundColor: lineColor
+            ]
+            
+            let attributedString = NSAttributedString(string: shotLabel, attributes: attributes)
+            let textSize = attributedString.size()
+            let padding: CGFloat = 4
+            let labelWidth = textSize.width
+            let pageX = calculateLineX(
+                for: shot,
+                at: verticalRange,
+                within: lineRangeLowerBound...lineRangeUpperBound,
+                minimumCenterSpacing: labelWidth + 6,
+                existingLines: &existingLines
+            )
+            
+            // Draw vertical line
+            context.setStrokeColor(lineColor.cgColor)
+            context.setLineWidth(3)
+            context.move(to: CGPoint(x: pageX, y: minY))
+            context.addLine(to: CGPoint(x: pageX, y: maxY))
+            context.strokePath()
+            
+            // Draw background rectangle for text at the top of the line
+            let labelY = max(minY, maxY) // Use the larger Y value (top in view coordinates)
+            let unconstrainedLabelRect = CGRect(
+                x: pageX - textSize.width / 2,
+                y: labelY + padding,
+                width: labelWidth,
+                height: textSize.height
+            )
+            let pageBounds = CGRect(
+                x: minimumPageX,
+                y: minY,
+                width: max(0, maximumPageX - minimumPageX),
+                height: max(0, maxY - minY) + 400
+            )
+            let labelRect = resolvedLabelRect(
+                for: unconstrainedLabelRect,
+                lineX: pageX,
+                lineTopY: labelY,
+                pageBounds: pageBounds,
+                existingLineRects: lineCollisionRects(from: existingLines),
+                placedLabelRects: placedLabelRects
+            )
+            
+            // Draw text
+            attributedString.draw(at: CGPoint(
+                x: labelRect.minX,
+                y: labelRect.minY
+            ))
+            placedLabelRects.append(labelRect)
+            
+            print("   ✅ [EDITOR DRAW] Drew line from (\(pageX), \(minY)) to (\(pageX), \(maxY))")
+        } else {
+            print("   ⚠️ [EDITOR DRAW] No valid bounds found for shot \(shot.displayNumber)")
+        }
+    }
+    
+    private func drawHighlightedText(for selection: ScriptTextSelection, in context: CGContext, pdfView: PDFView, document: PDFDocument) {
+        // Draw yellow highlight for each selection bounds
+        context.setFillColor(NSColor.systemYellow.withAlphaComponent(0.3).cgColor)
+        
+        for pageRange in selection.pageRanges {
+            guard let page = document.page(at: pageRange.pageIndex) else { continue }
+            
+            for selectionBounds in pageRange.selections {
+                let boundsInPage = selectionBounds.cgRect
+                
+                // Convert from PDF page coordinates to view coordinates
+                let boundsInView = pdfView.convert(boundsInPage, from: page)
+                
+                // Convert to overlay view's coordinate system
+                let boundsInOverlay = convert(boundsInView, from: pdfView)
+                
+                // Only draw if valid
+                guard !boundsInOverlay.isEmpty else {
+                    continue
+                }
+                
+                // Fill the rectangle with highlight color
+                context.fill(boundsInOverlay)
+            }
+        }
+    }
+}
+
+// Old simple implementation kept for reference
+struct PDFViewerRepresentable: NSViewRepresentable {
+    let document: PDFDocument
+    let pageToDisplay: Int? // 0-based page index
+    
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.document = document
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        
+        // Navigate to initial page if specified
+        if let pageIndex = pageToDisplay,
+           let page = document.page(at: pageIndex) {
+            pdfView.go(to: page)
+            context.coordinator.lastDisplayedPage = pageIndex
+            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+        }
+        
+        return pdfView
+    }
+    
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        // Update document if it changed
+        if nsView.document !== document {
+            nsView.document = document
+        }
+        
+        // Navigate to page when it changes, but only if it's different from what we last set
+        if let pageIndex = pageToDisplay,
+           pageIndex != context.coordinator.lastDisplayedPage,
+           let page = document.page(at: pageIndex) {
+            // Check if we're not already on this page (user might have scrolled)
+            if nsView.currentPage != page {
+                nsView.go(to: page)
+                print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+            }
+            context.coordinator.lastDisplayedPage = pageIndex
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator {
+        var lastDisplayedPage: Int? = nil
+    }
+}
+
+#endif
