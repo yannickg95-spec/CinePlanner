@@ -517,7 +517,7 @@ struct ProjectExporter {
                 body += "    </article>\n"
             }
             body += "  </div>\n"
-            body += "</section>\n"
+            body += "</details>\n"
         }
 
         return """
