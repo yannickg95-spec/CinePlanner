@@ -152,7 +152,7 @@ struct ProjectExporter {
         // Tested via the extension, not the Data: the two are always written and
         // cleared together, and reading the blob just to see whether it exists
         // would pull every video in the project into memory.
-        exportScenes.contains { $0.shots.contains { $0.referenceVideoExtension != nil } }
+        exportScenes.contains { $0.shots.contains { $0.references.contains { $0.videoExtension != nil } } }
     }
 
     /// The name the exported page is saved under, in both the single-file and the
@@ -993,11 +993,21 @@ struct ProjectExporter {
                 try data.write(to: url)
 
             case .htmlWithMedia:
+                // Derive the extension from the very snapshot that gets written,
+                // so a .html file can never end up containing a zip.
+                let mediaScenes = snapshotScenesForMedia()
+                let needsFolder = mediaScenes.contains {
+                    $0.shots.contains { $0.references.contains { $0.videoData != nil } }
+                }
+                let webURL = folder.appendingPathComponent(
+                    "\(project.filmName) - Shot List.\(needsFolder ? "zip" : "html")")
                 try writeWebExport(filmName: project.filmName,
                                    episodeName: episodeName,
                                    versionName: version?.name,
-                                   scenes: snapshotScenesForMedia(),
-                                   to: url)
+                                   scenes: mediaScenes,
+                                   to: webURL)
+                written.append(webURL)
+                continue
 
             }
             written.append(url)
@@ -2143,7 +2153,7 @@ struct ProjectExporter {
                     
                     // Add height for photos if present
                     // Every reference draws its own row (image + map side by side),
-                    // so the shot's photo block grows with the number of references.
+                    // so the photo block grows with the number of references.
                     let referenceRows = shot.orderedReferences.filter { $0.imageData != nil || $0.mapData != nil }
                     if !referenceRows.isEmpty {
                         let availableWidth = textWidth - 10
@@ -2286,21 +2296,20 @@ struct ProjectExporter {
                         yPosition += boundingRect.height
                     }
                     
-                    // Draw photos if present (using hasPhoto1 and hasPhoto2 declared earlier)
-                    // One row per reference: its photo (or video poster) and its
-                    // map side by side, with the next reference below.
+                    // One row per reference: its photo and its map side by side,
+                    // with the next reference below.
                     if !referenceRows.isEmpty {
                         yPosition += 5
 
                         let availableWidth = textWidth - 10
                         let photoSpacing: CGFloat = 12
 
-                        /// Draws one image inside `box`, preserving aspect ratio, with a caption above.
+                        /// Draws one image with a caption above it, fitted to `size`.
                         func drawFramed(_ data: Data, caption: String, at origin: CGPoint, size: CGSize) {
                             guard let nsImage = NSImage(data: data) else { return }
-                            let labelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
                             let labelAttr: [NSAttributedString.Key: Any] = [
-                                .font: labelFont, .foregroundColor: NSColor.secondaryLabelColor
+                                .font: NSFont.systemFont(ofSize: 8, weight: .medium),
+                                .foregroundColor: NSColor.secondaryLabelColor
                             ]
                             NSAttributedString(string: caption, attributes: labelAttr)
                                 .draw(at: CGPoint(x: origin.x, y: origin.y))
@@ -2315,9 +2324,8 @@ struct ProjectExporter {
                                 drawHeight = size.height
                                 drawWidth = drawHeight * aspect
                             }
-                            let xOffset = (size.width - drawWidth) / 2
-                            let yOffset = (size.height - drawHeight) / 2
-                            nsImage.draw(in: CGRect(x: origin.x + xOffset, y: boxY + yOffset,
+                            nsImage.draw(in: CGRect(x: origin.x + (size.width - drawWidth) / 2,
+                                                    y: boxY + (size.height - drawHeight) / 2,
                                                     width: drawWidth, height: drawHeight))
 
                             NSColor.separatorColor.setStroke()
