@@ -32,15 +32,11 @@ struct ReferenceCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 16) {
-                    mediaColumn
-                    mapColumn
-                }
-                VStack(alignment: .leading, spacing: 16) {
-                    mediaColumn
-                    mapColumn
-                }
+            // Photo and map side by side: the pair is what the card is for.
+            // Each column carries its own metadata directly beneath its picture.
+            HStack(alignment: .top, spacing: 16) {
+                mediaColumn
+                mapColumn
             }
         }
         .padding(12)
@@ -78,6 +74,8 @@ struct ReferenceCardView: View {
                 .foregroundStyle(.secondary)
                 .kerning(0.5)
 
+            matchChip
+
             if reference.isVideo {
                 Text("VIDEO")
                     .font(.caption2)
@@ -97,6 +95,28 @@ struct ReferenceCardView: View {
             }
             .buttonStyle(.borderless)
             .help("Remove this reference")
+        }
+    }
+
+    /// Whether this reference's photo and its map came from the same capture.
+    /// It describes this pair, so it belongs in this card rather than above them all.
+    @ViewBuilder
+    private var matchChip: some View {
+        if let photoID = reference.captureID, let mapID = reference.mapCaptureID,
+           reference.imageData != nil, reference.mapData != nil {
+            let isMatch = photoID == mapID
+            Label(isMatch ? "Matched" : "Not matched",
+                  systemImage: isMatch ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .fontWeight(.medium)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .foregroundStyle(isMatch ? Color.green : Color.orange)
+                .background((isMatch ? Color.green : Color.orange).opacity(0.12))
+                .clipShape(Capsule())
+                .help(isMatch
+                      ? "The photo and map were captured together"
+                      : "The photo and map come from different captures")
         }
     }
 
@@ -199,42 +219,37 @@ struct ReferenceCardView: View {
 
     private func imageView(_ image: NSImage, data: Data, title: String, isMap: Bool = false) -> some View {
         ZStack(alignment: .topTrailing) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: Self.mediaMaxWidth)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                }
-
-            HStack(spacing: 6) {
-                Button {
-                    previewTitle = title
-                    previewImage = image
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white, .black)
-                        .opacity(0.7)
-                        .shadow(radius: 2)
-                }
-                .buttonStyle(.plain)
-                .help("View full size")
-
-                Button {
-                    if isMap { clearMap() } else { clearImage() }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white, .black)
-                        .opacity(0.7)
-                        .shadow(radius: 2)
-                }
-                .buttonStyle(.plain)
-                .help(isMap ? "Remove map" : "Remove photo")
+            // The picture is the button — clicking it opens the full size view,
+            // so no separate enlarge control is needed.
+            Button {
+                previewTitle = title
+                previewImage = image
+            } label: {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: Self.mediaMaxWidth)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
             }
+            .buttonStyle(.plain)
+            .help("Click to view full size")
+
+            Button {
+                if isMap { clearMap() } else { clearImage() }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white, .black)
+                    .opacity(0.7)
+                    .shadow(radius: 2)
+            }
+            .buttonStyle(.plain)
+            .help(isMap ? "Remove map" : "Remove photo")
             .padding(8)
         }
     }
