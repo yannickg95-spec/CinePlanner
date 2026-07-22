@@ -1605,7 +1605,11 @@ struct MetadataView: View {
                         MetadataRow(label: item.label, value: item.value)
                     }
                 }
-                .frame(minWidth: 200, alignment: .leading)
+                // Matches the map metadata's minimum so, side by side in the
+                // reference card, the two columns split evenly and their image
+                // boxes come out the same size. ViewThatFits still uses this to
+                // drop to fewer columns as the pane narrows.
+                .frame(minWidth: 130, alignment: .leading)
             }
         }
     }
@@ -1625,7 +1629,7 @@ struct MetadataRow: View {
             Text(value)
                 .font(.caption)
                 .fontWeight(.medium)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)   // wrap, don't clip, when narrow
             Spacer(minLength: 0)
         }
     }
