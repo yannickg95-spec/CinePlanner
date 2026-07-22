@@ -2246,6 +2246,27 @@ struct ProjectExporter {
         }
     }
     
+    // Chip colours mirror the web export: neutral INT/EXT, blue DAY, orange
+    // NIGHT. The text label lives inside each chip, so it still reads in B&W.
+    private static let pdfChipNeutral = (fill: NSColor(white: 0.90, alpha: 1), text: NSColor(white: 0.30, alpha: 1))
+    private static let pdfChipDay = (fill: NSColor(red: 0.85, green: 0.92, blue: 1.0, alpha: 1), text: NSColor(red: 0.0, green: 0.40, blue: 0.85, alpha: 1))
+    private static let pdfChipNight = (fill: NSColor(red: 1.0, green: 0.90, blue: 0.76, alpha: 1), text: NSColor(red: 0.70, green: 0.42, blue: 0.0, alpha: 1))
+
+    /// Draws a small rounded chip (INT/EXT/DAY/NIGHT). Returns the x just past it.
+    @discardableResult
+    private func drawPDFChip(_ text: String, fill: NSColor, textColor: NSColor,
+                             at point: CGPoint) -> CGFloat {
+        let font = NSFont.boldSystemFont(ofSize: 8)
+        let size = (text as NSString).size(withAttributes: [.font: font])
+        let padX: CGFloat = 5
+        let rect = CGRect(x: point.x, y: point.y, width: size.width + padX * 2, height: size.height + 4)
+        fill.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+        (text as NSString).draw(at: CGPoint(x: point.x + padX, y: point.y + 2),
+                                withAttributes: [.font: font, .foregroundColor: textColor])
+        return rect.maxX
+    }
+
     private func drawSceneAcrossPages(
         scene: Scene,
         in context: CGContext,
@@ -2275,38 +2296,52 @@ struct ProjectExporter {
             
             // Draw scene header only on first page of scene
             if isFirstPageOfScene {
-                let sceneHeaderFont = NSFont.boldSystemFont(ofSize: 18)
-                var sceneTitle = "SCENE \(scene.sceneNumber)\(scene.suffix)"
-                if !scene.nickname.isEmpty {
-                    sceneTitle += " - \(scene.nickname)"
+                // "Scene 5" + INT/EXT and DAY/NIGHT chips + location, with the
+                // script page and shot count on the right — like the web export.
+                let titleFont = NSFont.boldSystemFont(ofSize: 16)
+                let title = "Scene \(scene.sceneNumber)\(scene.suffix)"
+                NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: NSColor.black])
+                    .draw(at: CGPoint(x: margin, y: yPosition + 2))
+
+                var cx = margin + (title as NSString).size(withAttributes: [.font: titleFont]).width + 12
+                let chipY = yPosition + 2
+                cx = drawPDFChip(scene.isInterior ? "INT" : "EXT",
+                                 fill: Self.pdfChipNeutral.fill, textColor: Self.pdfChipNeutral.text,
+                                 at: CGPoint(x: cx, y: chipY)) + 5
+                let day = scene.isDay
+                cx = drawPDFChip(day ? "DAY" : "NIGHT",
+                                 fill: day ? Self.pdfChipDay.fill : Self.pdfChipNight.fill,
+                                 textColor: day ? Self.pdfChipDay.text : Self.pdfChipNight.text,
+                                 at: CGPoint(x: cx, y: chipY)) + 8
+
+                let location = scene.nickname.trimmingCharacters(in: .whitespaces)
+                if !location.isEmpty {
+                    NSAttributedString(string: location.uppercased(),
+                                       attributes: [.font: NSFont.systemFont(ofSize: 12),
+                                                    .foregroundColor: NSColor(white: 0.45, alpha: 1)])
+                        .draw(at: CGPoint(x: cx, y: yPosition + 3))
                 }
-                let sceneHeaderAttr: [NSAttributedString.Key: Any] = [
-                    .font: sceneHeaderFont,
-                    .foregroundColor: NSColor.textColor
-                ]
-                NSAttributedString(string: sceneTitle, attributes: sceneHeaderAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += 30
-                
-                // Scene metadata
-                let metaFont = NSFont.systemFont(ofSize: 10)
-                let metaAttr: [NSAttributedString.Key: Any] = [.font: metaFont, .foregroundColor: NSColor.secondaryLabelColor]
-                
-                var sceneMeta = "Location: \(scene.isInterior ? "INT" : "EXT")   Time: \(scene.isDay ? "DAY" : "NIGHT")"
-                if scene.scriptPageNumber > 0 {
-                    sceneMeta += "   Script Page: \(scene.scriptPageNumber)"
-                }
-                sceneMeta += "   Total Shots: \(scene.shots.count)"
-                NSAttributedString(string: sceneMeta, attributes: metaAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += 20
-                
+
+                var rightBits: [String] = []
+                if scene.scriptPageNumber > 0 { rightBits.append("Script p.\(scene.scriptPageNumber)") }
+                rightBits.append("\(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s")")
+                let rightText = rightBits.joined(separator: " · ")
+                let rightAttr: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9),
+                                                                .foregroundColor: NSColor(white: 0.5, alpha: 1)]
+                let rw = (rightText as NSString).size(withAttributes: rightAttr).width
+                NSAttributedString(string: rightText, attributes: rightAttr)
+                    .draw(at: CGPoint(x: pageWidth - margin - rw, y: yPosition + 5))
+
+                yPosition += 26
+
                 // Separator line
-                context.setStrokeColor(NSColor.gray.cgColor)
+                context.setStrokeColor(NSColor(white: 0.8, alpha: 1).cgColor)
                 context.setLineWidth(1)
                 context.move(to: CGPoint(x: margin, y: yPosition))
                 context.addLine(to: CGPoint(x: pageWidth - margin, y: yPosition))
                 context.strokePath()
-                yPosition += 15
-                
+                yPosition += 16
+
                 isFirstPageOfScene = false
             } else {
                 // Continuation header on subsequent pages
@@ -2331,272 +2366,203 @@ struct ProjectExporter {
                 
                 while shotIndex < orderedShots.count {
                     let shot = orderedShots[shotIndex]
-                    
-                    // Check for photos (used for height calculation and rendering)
-                    let hasPhoto1 = shot.primaryImageData != nil
-                    let hasPhoto2 = shot.primaryMapData != nil
-                    
-                    // Calculate shot height
-                    var shotHeight: CGFloat = 15 // Header
-                    
-                    var details: [String] = []
+
+                    // Colours
+                    let ink = NSColor.black
+                    let grey = NSColor(white: 0.45, alpha: 1)
+                    let cardFill = NSColor(white: 0.97, alpha: 1)
+                    let cardStroke = NSColor(white: 0.88, alpha: 1)
+
+                    // Short label/value pairs shown in two columns.
+                    var pairs: [(String, String)] = []
                     if shot.size != .none {
-                        details.append("Size")
+                        var v = shot.size.shortVersion
+                        if shot.secondSize != .none { v += " → " + shot.secondSize.shortVersion }
+                        pairs.append(("Size", v))
                     }
                     if shot.typeCategory != .none {
-                        details.append("Type")
-                    }
-                    if shot.type != .none {
-                        details.append("Grip")
+                        var v = shot.typeCategory.shortDisplayName
+                        if shot.secondTypeCategory != .none { v += " + " + shot.secondTypeCategory.shortDisplayName }
+                        if shot.thirdTypeCategory != .none { v += " + " + shot.thirdTypeCategory.shortDisplayName }
+                        pairs.append(("Type", v))
                     }
                     if shot.lensfocal > 0 {
-                        details.append("Focal")
+                        pairs.append(("Focal Length", shot.lensIsPrime ? "\(shot.lensfocal)mm" : "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"))
                     }
-                    if !shot.camera.isEmpty {
-                        details.append("Camera")
+                    if shot.type != .none { pairs.append(("Grip", shot.type.displayName)) }
+                    if !shot.camera.isEmpty { pairs.append(("Camera", shot.camera)) }
+                    if !shot.format.isEmpty { pairs.append(("Format", shot.format)) }
+                    if !shot.framelines.isEmpty { pairs.append(("Framelines", shot.framelines)) }
+                    if !shot.lensPreset.isEmpty { pairs.append(("Lens", shot.lensPreset)) }
+
+                    // Long fields go full width below the grid.
+                    let extraInfo = shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    var coverageLines: [String] = []
+                    if let selections = shot.scriptCoverageSelections {
+                        coverageLines = selections.map { formatCoverageSummary($0) }
                     }
-                    if !shot.format.isEmpty {
-                        details.append("Format")
-                    }
-                    if !shot.framelines.isEmpty {
-                        details.append("Framelines")
-                    }
-                    if !shot.lensPreset.isEmpty {
-                        details.append("Lens")
-                    }
-                    if !shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        details.append("Extra")
-                    }
-                    if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-                        details.append("Coverage")
-                        // Add extra lines for each coverage selection
-                        for _ in selections {
-                            details.append("CoverageDetail")
-                        }
-                    }
-                    
-                    let detailCount = max(details.count, 1) // At least "(No details specified)"
-                    shotHeight += CGFloat(detailCount) * 12 + 8 // Each detail line + spacing
-                    
-                    // Add height for photos if present
-                    // Every reference draws its own row (image + map side by side),
-                    // so the photo block grows with the number of references.
+
+                    // Reference photo rows (image + map side by side per reference).
                     let referenceRows = shot.orderedReferences.filter { $0.imageData != nil || $0.mapData != nil }
-                    if !referenceRows.isEmpty {
-                        let availableWidth = textWidth - 10
-                        let photoSpacing: CGFloat = 12
-                        for reference in referenceRows {
-                            let pairWidth = (reference.imageData != nil && reference.mapData != nil)
-                                ? (availableWidth - photoSpacing) / 2
-                                : min(availableWidth * 0.6, 360)
-                            shotHeight += pairWidth * 0.75 + 25
-                        }
+
+                    // --- Height ---
+                    let innerX = margin + 12
+                    let innerWidth = textWidth - 24
+                    let colGap: CGFloat = 16
+                    let colWidth = (innerWidth - colGap) / 2
+                    let labelColWidth: CGFloat = 78
+                    let rowH: CGFloat = 15
+                    let bodyFont = NSFont.systemFont(ofSize: 9.5)
+                    let bodyBold = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+                    let labelFont = NSFont.systemFont(ofSize: 9)
+
+                    let gridRows = Int(ceil(Double(pairs.count) / 2.0))
+                    var contentHeight: CGFloat = 22 // header (badge + nickname)
+                    contentHeight += CGFloat(gridRows) * rowH
+
+                    func fullWidthHeight(_ text: String, font: NSFont) -> CGFloat {
+                        NSAttributedString(string: text, attributes: [.font: font]).boundingRect(
+                            with: CGSize(width: innerWidth, height: .greatestFiniteMagnitude),
+                            options: [.usesLineFragmentOrigin, .usesFontLeading]).height
                     }
-                    
-                    // Check if shot fits on current page
-                    if yPosition + shotHeight > pageHeight - margin {
-                        // Shot doesn't fit, end this page and continue on next
-                        let contFont = NSFont.systemFont(ofSize: 9)
-                        let contAttr: [NSAttributedString.Key: Any] = [.font: contFont, .foregroundColor: NSColor.secondaryLabelColor]
-                        NSAttributedString(string: "(Continued on next page...)", attributes: contAttr).draw(at: CGPoint(x: margin, y: yPosition))
+                    if !extraInfo.isEmpty {
+                        contentHeight += 4 + 12 + fullWidthHeight(extraInfo, font: bodyFont)
+                    }
+                    for line in coverageLines {
+                        contentHeight += 4 + 12 + fullWidthHeight(line, font: bodyFont)
+                    }
+
+                    var photoBlockHeight: CGFloat = 0
+                    let photoSpacing: CGFloat = 12
+                    let photoAreaWidth = innerWidth
+                    for reference in referenceRows {
+                        let pairWidth = (reference.imageData != nil && reference.mapData != nil)
+                            ? (photoAreaWidth - photoSpacing) / 2
+                            : min(photoAreaWidth * 0.6, 320)
+                        photoBlockHeight += pairWidth * 0.75 + 24
+                    }
+                    if photoBlockHeight > 0 { contentHeight += 8 + photoBlockHeight }
+
+                    let cardHeight = contentHeight + 22 // top + bottom padding
+
+                    // --- Page break ---
+                    if yPosition + cardHeight > pageHeight - margin && shotIndex > 0 {
+                        NSAttributedString(string: "(Continued on next page…)",
+                                           attributes: [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: grey])
+                            .draw(at: CGPoint(x: margin, y: yPosition))
                         break
                     }
-                    
-                    // Shot header
-                    let shotHeaderAttr: [NSAttributedString.Key: Any] = [.font: shotBoldFont, .foregroundColor: NSColor.textColor]
-                    var shotHeader = "SHOT \(shot.displayNumber)"
+
+                    // --- Card ---
+                    let cardTop = yPosition
+                    let cardRect = CGRect(x: margin, y: cardTop, width: textWidth, height: cardHeight)
+                    cardFill.setFill()
+                    NSBezierPath(roundedRect: cardRect, xRadius: 7, yRadius: 7).fill()
+                    cardStroke.setStroke()
+                    let cardBorder = NSBezierPath(roundedRect: cardRect, xRadius: 7, yRadius: 7)
+                    cardBorder.lineWidth = 0.5
+                    cardBorder.stroke()
+
+                    var cy = cardTop + 11
+
+                    // Shot number badge + nickname
+                    let badgeFont = NSFont.boldSystemFont(ofSize: 9)
+                    let badgeText = shot.displayNumber
+                    let badgeTextW = (badgeText as NSString).size(withAttributes: [.font: badgeFont]).width
+                    let badgeRect = CGRect(x: innerX, y: cy, width: badgeTextW + 12, height: 15)
+                    NSColor(white: 0.90, alpha: 1).setFill()
+                    NSBezierPath(roundedRect: badgeRect, xRadius: 4, yRadius: 4).fill()
+                    (badgeText as NSString).draw(at: CGPoint(x: innerX + 6, y: cy + 2),
+                                                 withAttributes: [.font: badgeFont, .foregroundColor: ink])
                     if !shot.nickname.isEmpty {
-                        shotHeader += " - \(shot.nickname)"
+                        NSAttributedString(string: shot.nickname,
+                                           attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: grey])
+                            .draw(at: CGPoint(x: badgeRect.maxX + 8, y: cy + 1))
                     }
-                    NSAttributedString(string: shotHeader, attributes: shotHeaderAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                    yPosition += 15
-                    
-                    // Shot details
-                    let detailAttrFont = shotFont
-                    let detailColor = NSColor.textColor
-                    
-                    // *** Updated detail line drawing with label-value alignment ***
-                    // For each detail line, we split at first colon ':' to separate label and value.
-                    // The label is drawn flush left (firstLineHeadIndent = 0),
-                    // and the value is indented (headIndent) to align under the start of values,
-                    // so that multi-line values line up properly under the value, not the label.
-                    
-                    var detailLines: [String] = []
-                    
-                    if shot.size != .none {
-                        var sizeText = shot.size.shortVersion
-                        if shot.secondSize != .none {
-                            sizeText += " → " + shot.secondSize.shortVersion
+                    cy += 22
+
+                    // Two-column details
+                    for (i, pair) in pairs.enumerated() {
+                        let col = i / gridRows
+                        let row = i % gridRows
+                        let px = innerX + CGFloat(col) * (colWidth + colGap)
+                        let py = cy + CGFloat(row) * rowH
+                        NSAttributedString(string: pair.0, attributes: [.font: labelFont, .foregroundColor: grey])
+                            .draw(at: CGPoint(x: px, y: py))
+                        NSAttributedString(string: pair.1, attributes: [.font: bodyBold, .foregroundColor: ink])
+                            .draw(in: CGRect(x: px + labelColWidth, y: py, width: colWidth - labelColWidth, height: rowH))
+                    }
+                    cy += CGFloat(gridRows) * rowH
+
+                    // Extra info (full width)
+                    if !extraInfo.isEmpty {
+                        cy += 4
+                        NSAttributedString(string: "Extra Info", attributes: [.font: labelFont, .foregroundColor: grey])
+                            .draw(at: CGPoint(x: innerX, y: cy))
+                        cy += 12
+                        let h = fullWidthHeight(extraInfo, font: bodyFont)
+                        NSAttributedString(string: extraInfo, attributes: [.font: bodyFont, .foregroundColor: ink])
+                            .draw(in: CGRect(x: innerX, y: cy, width: innerWidth, height: h))
+                        cy += h
+                    }
+
+                    // Coverage (full width, one line per selection)
+                    for (idx, line) in coverageLines.enumerated() {
+                        cy += 4
+                        if idx == 0 {
+                            NSAttributedString(string: "Coverage", attributes: [.font: labelFont, .foregroundColor: grey])
+                                .draw(at: CGPoint(x: innerX, y: cy))
+                            cy += 12
                         }
-                        detailLines.append("  Size:         \(sizeText)")
+                        let h = fullWidthHeight(line, font: bodyFont)
+                        NSAttributedString(string: line, attributes: [.font: bodyFont, .foregroundColor: ink])
+                            .draw(in: CGRect(x: innerX, y: cy, width: innerWidth, height: h))
+                        cy += h
                     }
-                    
-                    if shot.typeCategory != .none {
-                        var typeText = shot.typeCategory.shortDisplayName
-                        if shot.secondTypeCategory != .none {
-                            typeText += " + " + shot.secondTypeCategory.shortDisplayName
-                        }
-                        if shot.thirdTypeCategory != .none {
-                            typeText += " + " + shot.thirdTypeCategory.shortDisplayName
-                        }
-                        detailLines.append("  Type:         \(typeText)")
-                    }
-                    
-                    if shot.lensfocal > 0 {
-                        if shot.lensIsPrime {
-                            detailLines.append("  Focal Length: \(shot.lensfocal)mm")
-                        } else {
-                            detailLines.append("  Focal Length: \(shot.lensfocal)→\(shot.lensfocalEnd)mm")
-                        }
-                    }
-                    
-                    if shot.type != .none {
-                        detailLines.append("  Grip:         \(shot.type.displayName)")
-                    }
-                    
-                    if !shot.camera.isEmpty {
-                        detailLines.append("  Camera:       \(shot.camera)")
-                    }
-                    
-                    if !shot.format.isEmpty {
-                        detailLines.append("  Format:       \(shot.format)")
-                    }
-                    
-                    if !shot.framelines.isEmpty {
-                        detailLines.append("  Framelines:   \(shot.framelines)")
-                    }
-                    
-                    if !shot.lensPreset.isEmpty {
-                        detailLines.append("  Lens Preset:  \(shot.lensPreset)")
-                    }
-                    
-                    if !shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        detailLines.append("  Extra Info:   \(shot.extraInfo)")
-                    }
-                    
-                    if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-                        for (index, selection) in selections.enumerated() {
-                            let label = index == 0 ? "  Coverage:     " : "                "
-                            detailLines.append("\(label)\(formatCoverageSummary(selection))")
-                        }
-                    }
-                    
-                    if detailLines.isEmpty {
-                        detailLines.append("  (No details specified)")
-                    }
-                    
-                    for detail in detailLines {
-                        // Split the detail line at the first colon ':' to separate label and value
-                        let colonIndex = detail.firstIndex(of: ":")
-                        let paragraphStyle = NSMutableParagraphStyle()
-                        paragraphStyle.firstLineHeadIndent = 0 // Label starts at left margin
-                        
-                        if let colonIndex = colonIndex {
-                            // Calculate width of label + colon + 3 spaces padding
-                            let labelEndIndex = detail.index(after: colonIndex)
-                            let labelPart = String(detail[..<labelEndIndex]) + "   " // colon + 3 spaces
-                            
-                            let labelAttrString = NSAttributedString(string: labelPart, attributes: [.font: detailAttrFont])
-                            let labelWidth = labelAttrString.size().width
-                            
-                            // Set headIndent so that value lines align vertically under the value text, not the label
-                            paragraphStyle.headIndent = labelWidth
-                        } else {
-                            // No colon found, no indent needed
-                            paragraphStyle.headIndent = 0
-                        }
-                        
-                        let attrString = NSAttributedString(string: detail, attributes: [
-                            .font: detailAttrFont,
-                            .foregroundColor: detailColor,
-                            .paragraphStyle: paragraphStyle
-                        ])
-                        
-                        // Calculate bounding rect for wrapping text, allowing multi-line if needed
-                        let boundingRect = attrString.boundingRect(
-                            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
-                            options: [.usesLineFragmentOrigin, .usesFontLeading],
-                            context: nil
-                        )
-                        
-                        attrString.draw(in: CGRect(x: margin, y: yPosition, width: textWidth, height: boundingRect.height))
-                        yPosition += boundingRect.height
-                    }
-                    
-                    // One row per reference: its photo and its map side by side,
-                    // with the next reference below.
+
+                    // Reference photos
                     if !referenceRows.isEmpty {
-                        yPosition += 5
-
-                        let availableWidth = textWidth - 10
-                        let photoSpacing: CGFloat = 12
-
-                        /// Draws one image with a caption above it, fitted to `size`.
+                        cy += 8
                         func drawFramed(_ data: Data, caption: String, at origin: CGPoint, size: CGSize) {
                             guard let nsImage = NSImage(data: data) else { return }
-                            let labelAttr: [NSAttributedString.Key: Any] = [
-                                .font: NSFont.systemFont(ofSize: 8, weight: .medium),
-                                .foregroundColor: NSColor.secondaryLabelColor
-                            ]
-                            NSAttributedString(string: caption, attributes: labelAttr)
+                            NSAttributedString(string: caption, attributes: [.font: NSFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey])
                                 .draw(at: CGPoint(x: origin.x, y: origin.y))
-
                             let boxY = origin.y + 12
-                            let imageSize = nsImage.size
-                            guard imageSize.width > 0, imageSize.height > 0 else { return }
-                            let aspect = imageSize.width / imageSize.height
-                            var drawWidth = size.width
-                            var drawHeight = drawWidth / aspect
-                            if drawHeight > size.height {
-                                drawHeight = size.height
-                                drawWidth = drawHeight * aspect
-                            }
-                            // The page context is flipped so text reads the right way
-                            // up; images must be drawn inside an un-flip or they
-                            // come out inverted and in the wrong place.
-                            let imageRect = CGRect(x: origin.x + (size.width - drawWidth) / 2,
-                                                   y: boxY + (size.height - drawHeight) / 2,
-                                                   width: drawWidth, height: drawHeight)
+                            let imgSize = nsImage.size
+                            guard imgSize.width > 0, imgSize.height > 0 else { return }
+                            let aspect = imgSize.width / imgSize.height
+                            var dw = size.width, dh = size.width / aspect
+                            if dh > size.height { dh = size.height; dw = dh * aspect }
+                            let imageRect = CGRect(x: origin.x + (size.width - dw) / 2, y: boxY + (size.height - dh) / 2, width: dw, height: dh)
                             context.saveGState()
                             context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
                             context.scaleBy(x: 1.0, y: -1.0)
                             context.translateBy(x: 0, y: -imageRect.origin.y)
                             nsImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
                             context.restoreGState()
-
-                            NSColor.separatorColor.setStroke()
-                            let border = NSBezierPath(rect: CGRect(x: origin.x, y: boxY,
-                                                                   width: size.width, height: size.height))
-                            border.lineWidth = 0.5
-                            border.stroke()
+                            cardStroke.setStroke()
+                            let b = NSBezierPath(rect: CGRect(x: origin.x, y: boxY, width: size.width, height: size.height))
+                            b.lineWidth = 0.5
+                            b.stroke()
                         }
-
                         for (offset, reference) in referenceRows.enumerated() {
-                            let hasImage = reference.imageData != nil
-                            let hasMap = reference.mapData != nil
-                            let pairWidth = (hasImage && hasMap)
-                                ? (availableWidth - photoSpacing) / 2
-                                : min(availableWidth * 0.6, 360)
+                            let both = reference.imageData != nil && reference.mapData != nil
+                            let pairWidth = both ? (photoAreaWidth - photoSpacing) / 2 : min(photoAreaWidth * 0.6, 320)
                             let pairHeight = pairWidth * 0.75
                             let suffix = referenceRows.count > 1 ? " \(offset + 1)" : ""
-                            var x = margin + 10
-
+                            var px = innerX
                             if let data = reference.imageData {
-                                drawFramed(data, caption: "Reference Shot\(suffix)",
-                                           at: CGPoint(x: x, y: yPosition),
-                                           size: CGSize(width: pairWidth, height: pairHeight))
-                                x += pairWidth + photoSpacing
+                                drawFramed(data, caption: "Reference\(suffix)", at: CGPoint(x: px, y: cy), size: CGSize(width: pairWidth, height: pairHeight))
+                                px += pairWidth + photoSpacing
                             }
                             if let data = reference.mapData {
-                                drawFramed(data, caption: "Top Down Map\(suffix)",
-                                           at: CGPoint(x: x, y: yPosition),
-                                           size: CGSize(width: pairWidth, height: pairHeight))
+                                drawFramed(data, caption: "Top Down Map\(suffix)", at: CGPoint(x: px, y: cy), size: CGSize(width: pairWidth, height: pairHeight))
                             }
-                            yPosition += pairHeight + 25
+                            cy += pairHeight + 24
                         }
                     }
-                    
-                    yPosition += 8 // Extra space between shots
+
+                    yPosition = cardTop + cardHeight + 12
                     shotIndex += 1
                 }
             }
@@ -2611,157 +2577,6 @@ struct ProjectExporter {
         }
         
         return currentPage
-    }
-    
-    private func drawScenePage(scene: Scene, in context: CGContext, pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, textWidth: CGFloat, textHeight: CGFloat) {
-        var yPosition: CGFloat = margin
-        
-        // Scene Header
-        let sceneHeaderFont = NSFont.boldSystemFont(ofSize: 18)
-        var sceneTitle = "SCENE \(scene.sceneNumber)\(scene.suffix)"
-        if !scene.nickname.isEmpty {
-            sceneTitle += " - \(scene.nickname)"
-        }
-        let sceneHeaderAttr: [NSAttributedString.Key: Any] = [
-            .font: sceneHeaderFont,
-            .foregroundColor: NSColor.textColor
-        ]
-        NSAttributedString(string: sceneTitle, attributes: sceneHeaderAttr).draw(at: CGPoint(x: margin, y: yPosition))
-        yPosition += 30
-        
-        // Scene metadata
-        let metaFont = NSFont.systemFont(ofSize: 10)
-        let metaAttr: [NSAttributedString.Key: Any] = [.font: metaFont, .foregroundColor: NSColor.secondaryLabelColor]
-        
-        var sceneMeta = "Location: \(scene.isInterior ? "INT" : "EXT")   Time: \(scene.isDay ? "DAY" : "NIGHT")"
-        if scene.scriptPageNumber > 0 {
-            sceneMeta += "   Script Page: \(scene.scriptPageNumber)"
-        }
-        sceneMeta += "   Total Shots: \(scene.shots.count)"
-        NSAttributedString(string: sceneMeta, attributes: metaAttr).draw(at: CGPoint(x: margin, y: yPosition))
-        yPosition += 20
-        
-        // Separator line
-        context.setStrokeColor(NSColor.gray.cgColor)
-        context.setLineWidth(1)
-        context.move(to: CGPoint(x: margin, y: yPosition))
-        context.addLine(to: CGPoint(x: pageWidth - margin, y: yPosition))
-        context.strokePath()
-        yPosition += 15
-        
-        // Draw shots
-        let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
-        
-        if orderedShots.isEmpty {
-            let emptyFont = NSFont.systemFont(ofSize: 10)
-            let emptyAttr: [NSAttributedString.Key: Any] = [.font: emptyFont, .foregroundColor: NSColor.secondaryLabelColor]
-            NSAttributedString(string: "(No shots in this scene)", attributes: emptyAttr).draw(at: CGPoint(x: margin, y: yPosition))
-        } else {
-            let shotFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
-            let shotBoldFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .semibold)
-            
-            for shot in orderedShots {
-                // Check if shot will fit on current page
-                let estimatedShotHeight: CGFloat = 120 // Rough estimate
-                if yPosition + estimatedShotHeight > pageHeight - margin {
-                    // Draw "continued..." text
-                    let contFont = NSFont.systemFont(ofSize: 9)
-                    let contAttr: [NSAttributedString.Key: Any] = [.font: contFont, .foregroundColor: NSColor.secondaryLabelColor]
-                    NSAttributedString(string: "(Continued on next page...)", attributes: contAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                    break // Stop drawing shots on this page
-                }
-                
-                // Shot header
-                let shotHeaderAttr: [NSAttributedString.Key: Any] = [.font: shotBoldFont, .foregroundColor: NSColor.textColor]
-                var shotHeader = "SHOT \(shot.displayNumber)"
-                if !shot.nickname.isEmpty {
-                    shotHeader += " - \(shot.nickname)"
-                }
-                NSAttributedString(string: shotHeader, attributes: shotHeaderAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += 15
-                
-                // Shot details
-                let detailAttr: [NSAttributedString.Key: Any] = [.font: shotFont, .foregroundColor: NSColor.textColor]
-                
-                var details: [String] = []
-                
-                if shot.size != .none {
-                    var sizeText = shot.size.shortVersion
-                    if shot.secondSize != .none {
-                        sizeText += " → " + shot.secondSize.shortVersion
-                    }
-                    details.append("  Size:         \(sizeText)")
-                }
-                
-                if shot.typeCategory != .none {
-                    var typeText = shot.typeCategory.shortDisplayName
-                    if shot.secondTypeCategory != .none {
-                        typeText += " + " + shot.secondTypeCategory.shortDisplayName
-                    }
-                    if shot.thirdTypeCategory != .none {
-                        typeText += " + " + shot.thirdTypeCategory.shortDisplayName
-                    }
-                    details.append("  Type:         \(typeText)")
-                }
-                
-                if shot.lensfocal > 0 {
-                    if shot.lensIsPrime {
-                        details.append("  Focal Length: \(shot.lensfocal)mm")
-                    } else {
-                        details.append("  Focal Length: \(shot.lensfocal)→\(shot.lensfocalEnd)mm")
-                    }
-                }
-                
-                if shot.type != .none {
-                    details.append("  Grip:         \(shot.type.displayName)")
-                }
-                
-                if !shot.camera.isEmpty {
-                    details.append("  Camera:       \(shot.camera)")
-                }
-                
-                if !shot.format.isEmpty {
-                    details.append("  Format:       \(shot.format)")
-                }
-                
-                if !shot.framelines.isEmpty {
-                    details.append("  Framelines:   \(shot.framelines)")
-                }
-                
-                if !shot.lensPreset.isEmpty {
-                    details.append("  Lens Preset:  \(shot.lensPreset)")
-                }
-                
-                if !shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    details.append("  Extra Info:   \(shot.extraInfo)")
-                }
-                
-                let hasPhoto1 = shot.primaryImageData != nil
-                let hasPhoto2 = shot.primaryMapData != nil
-                if hasPhoto1 || hasPhoto2 {
-                    var photoStatus = ""
-                    if hasPhoto1 { photoStatus += "Reference Shot" }
-                    if hasPhoto1 && hasPhoto2 { photoStatus += ", " }
-                    if hasPhoto2 { photoStatus += "Top Down Map" }
-                    details.append("  Photos:       \(photoStatus)")
-                }
-                
-                if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-                    details.append("  Coverage:     \(selections.count) selection\(selections.count == 1 ? "" : "s")")
-                }
-                
-                if details.isEmpty {
-                    details.append("  (No details specified)")
-                }
-                
-                for detail in details {
-                    NSAttributedString(string: detail, attributes: detailAttr).draw(at: CGPoint(x: margin, y: yPosition))
-                    yPosition += 12
-                }
-                
-                yPosition += 8 // Extra space between shots
-            }
-        }
     }
     
     private func formatCoverageSummary(_ selection: ScriptTextSelection) -> String {
