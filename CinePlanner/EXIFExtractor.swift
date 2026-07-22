@@ -138,20 +138,30 @@ class EXIFExtractor {
                 print("    TIFF[\(key)] = \(value)")
             }
             
-            // Camera make and model
-            if let make = tiffDict[kCGImagePropertyTIFFMake as String] as? String {
-                metadata.cameraFamily = make
-                print("  ✅ Camera Make: \(make)")
-            }
-            
-            if let model = tiffDict[kCGImagePropertyTIFFModel as String] as? String {
-                metadata.cameraFormat = model
-                print("  ✅ Camera Model: \(model)")
-            }
-            
-            if let software = tiffDict[kCGImagePropertyTIFFSoftware as String] as? String {
+            let make = tiffDict[kCGImagePropertyTIFFMake as String] as? String
+            let model = tiffDict[kCGImagePropertyTIFFModel as String] as? String
+            let software = tiffDict[kCGImagePropertyTIFFSoftware as String] as? String
+
+            if let software {
                 metadata.tiffSoftware = software
                 print("  ✅ TIFF Software: \(software)")
+            }
+
+            // Cadrage packs its data differently from CineStager: the camera,
+            // sensor mode and aspect are pipe-separated inside Make, and the
+            // focal length sits in Model. Detect it by the Software tag and parse
+            // accordingly; otherwise use the standard Make=camera / Model=format.
+            if let software, software.localizedCaseInsensitiveContains("cadrage") {
+                parseCadrageTIFF(make: make, model: model, into: &metadata)
+            } else {
+                if let make {
+                    metadata.cameraFamily = make
+                    print("  ✅ Camera Make: \(make)")
+                }
+                if let model {
+                    metadata.cameraFormat = model
+                    print("  ✅ Camera Model: \(model)")
+                }
             }
         } else {
             print("⚠️ No TIFF dictionary found")
@@ -196,6 +206,37 @@ class EXIFExtractor {
     
     /// Parse CinemaAR pipe-delimited UserComment format
     /// Format: "Yaw:45.23° | Pitch:12.50° | Roll:0.15° | Height:150.0cm | Preset:Wide Primes | CaptureID:UUID | Type:Photo"
+    /// Cadrage Director's Viewfinder stores its data in the TIFF fields:
+    ///   Make  = "ARRI Alexa Mini  |  4:3 2.8K  |  2.39:1"  (camera | sensor | aspect)
+    ///   Model = "35mm"                                      (focal length)
+    /// so the camera goes to cameraFamily, the sensor+aspect to cameraFormat, and
+    /// the focal length is read off Model rather than EXIF FocalLength.
+    private static func parseCadrageTIFF(make: String?, model: String?, into metadata: inout PhotoMetadata) {
+        if let make {
+            let parts = make.components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if let camera = parts.first {
+                metadata.cameraFamily = camera
+                print("  ✅ [Cadrage] Camera: \(camera)")
+            }
+            if parts.count > 1 {
+                // e.g. "4:3 2.8K" + "2.39:1"  ->  "4:3 2.8K · 2.39:1"
+                let format = parts.dropFirst().joined(separator: " · ")
+                metadata.cameraFormat = format
+                print("  ✅ [Cadrage] Format: \(format)")
+            }
+        }
+
+        // "35mm", "35 mm", "35.0mm" -> 35.0
+        if let model,
+           let match = model.range(of: #"[0-9]+(\.[0-9]+)?"#, options: .regularExpression),
+           let focal = Double(model[match]) {
+            metadata.focalLength = focal
+            print("  ✅ [Cadrage] Focal Length: \(focal)mm")
+        }
+    }
+
     private static func parseCinemaARUserComment(_ userComment: Any, into metadata: inout PhotoMetadata) {
         // UserComment can be String, Data, or Array
         var commentString: String?
