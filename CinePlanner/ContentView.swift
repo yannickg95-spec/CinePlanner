@@ -670,6 +670,14 @@ struct ShotDetailView: View {
     /// so a data block is never wider than the picture it describes.
     private static let mediaMaxWidth: CGFloat = 700
 
+    private var addReferenceLabel: some View {
+        Label(shot.references.isEmpty ? "Add Reference Image" : "Add Another Reference Image",
+              systemImage: "plus.circle.fill")
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+    }
+
     private func addReference() {
         let next = (shot.references.map(\.sortOrder).max() ?? -1) + 1
         let reference = ShotReference(sortOrder: next)
@@ -1250,14 +1258,10 @@ struct ShotDetailView: View {
                         )
                     }
 
-                    Button {
-                        addReference()
-                    } label: {
-                        Label(shot.references.isEmpty ? "Add Reference" : "Add Another Reference",
-                              systemImage: "plus.circle")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    // Full-width and large so it can't be overlooked.
+                    Button(action: addReference) { addReferenceLabel }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
                 }
                 .padding(.horizontal)
                 
