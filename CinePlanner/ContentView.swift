@@ -1643,23 +1643,23 @@ struct TopDownMetadataView: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
 
-            // Rows flow across the full width so the box stays short
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 18, alignment: .topLeading)],
-                      alignment: .leading, spacing: 4) {
+            // Label above value, and the rows wrap into as many columns as fit —
+            // so nothing runs off the edge when the box is narrow (these labels
+            // are long) and they sit side by side when there's room.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 18, alignment: .topLeading)],
+                      alignment: .leading, spacing: 8) {
                 // Camera Physical Size (width x length)
                 if let width = metadata.cameraPhysicalWidth, let length = metadata.cameraPhysicalLength {
-                    let sizeString = String(format: "%.1fcm × %.1fcm", width, length)
-                    MetadataRow(label: "Camera Size", value: sizeString, labelWidth: 132)
+                    stackedPair("Camera Size", String(format: "%.1fcm × %.1fcm", width, length))
                 } else if let width = metadata.cameraPhysicalWidth {
-                    MetadataRow(label: "Camera Width", value: String(format: "%.1fcm", width), labelWidth: 132)
+                    stackedPair("Camera Width", String(format: "%.1fcm", width))
                 } else if let length = metadata.cameraPhysicalLength {
-                    MetadataRow(label: "Camera Length", value: String(format: "%.1fcm", length), labelWidth: 132)
+                    stackedPair("Camera Length", String(format: "%.1fcm", length))
                 }
 
                 // Location Dimensions (width x length only)
                 if let width = metadata.locationWidth, let length = metadata.locationLength {
-                    let dimensionsString = String(format: "%.2fm × %.2fm", width, length)
-                    MetadataRow(label: "Location Dimensions", value: dimensionsString, labelWidth: 132)
+                    stackedPair("Location Dimensions", String(format: "%.2fm × %.2fm", width, length))
                 }
             }
         }
@@ -1671,5 +1671,20 @@ struct TopDownMetadataView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
         )
+    }
+
+    /// Label above value, so a long label never has to share a line with its
+    /// value and get clipped in a narrow column.
+    private func stackedPair(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(value)
+                .font(.caption)
+                .fontWeight(.medium)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

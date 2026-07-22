@@ -32,11 +32,11 @@ struct ReferenceCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
-            // Photo and map side by side: the pair is what the card is for.
-            // Each column carries its own metadata directly beneath its picture.
+            // Photo and map side by side in equal columns, so both image boxes
+            // are the same size and each metadata block is as wide as its picture.
             HStack(alignment: .top, spacing: 16) {
-                mediaColumn
-                mapColumn
+                mediaColumn.frame(maxWidth: .infinity, alignment: .leading)
+                mapColumn.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(12)
@@ -135,13 +135,12 @@ struct ReferenceCardView: View {
                         reference.videoExtension = nil
                     }
                 )
-                .frame(maxWidth: Self.mediaMaxWidth)
+                .frame(maxWidth: .infinity)
             } else if let data = reference.imageData, let image = NSImage(data: data) {
                 imageView(image, data: data, title: "Reference")
                 if reference.imageMetadata.hasContent {
-                    Divider().frame(maxWidth: Self.mediaMaxWidth)
                     MetadataView(metadata: reference.imageMetadata)
-                        .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 emptyMediaRow
@@ -181,9 +180,8 @@ struct ReferenceCardView: View {
             if let data = reference.mapData, let image = NSImage(data: data) {
                 imageView(image, data: data, title: "Top Down Map", isMap: true)
                 if reference.mapMetadata.hasContent {
-                    Divider().frame(maxWidth: Self.mediaMaxWidth)
                     TopDownMetadataView(metadata: reference.mapMetadata)
-                        .frame(maxWidth: Self.mediaMaxWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 PhotosPicker(selection: $selectedMap, matching: .images) {
@@ -220,15 +218,22 @@ struct ReferenceCardView: View {
     private func imageView(_ image: NSImage, data: Data, title: String, isMap: Bool = false) -> some View {
         ZStack(alignment: .topTrailing) {
             // The picture is the button — clicking it opens the full size view,
-            // so no separate enlarge control is needed.
+            // so no separate enlarge control is needed. A fixed 4:3 box means the
+            // reference and map boxes are identical regardless of the images'
+            // own shapes; each image sits inside, scaled to fit.
             Button {
                 previewTitle = title
                 previewImage = image
             } label: {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: Self.mediaMaxWidth)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.black.opacity(0.04))
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .overlay {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(3)
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
