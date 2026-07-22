@@ -865,12 +865,13 @@ struct ProjectExporter {
           .mi-video[open] > summary img { display: none; }
           .mi-video[open] > video { display: block; position: relative; z-index: 1;
                                     max-width: 96vw; max-height: 92vh; border-radius: 6px; }
-          /* Coverage thumbnail: the top of the first script page. The image and
+          /* Coverage thumbnail: a small portrait script page showing its top, so
+             it reads as the script (not a cropped landscape strip). The image and
              its aspect ratio come from a per-scene rule (.cov-N) so the JPEG is
              embedded once, not per covered shot. */
-          .cover-thumb { display: block; width: 94px; height: 66px; border-radius: 8px;
+          .cover-thumb { display: block; width: 60px; height: 84px; border-radius: 6px;
                          border: 1px solid var(--line); background-color: #fff;
-                         background-size: cover; background-repeat: no-repeat; background-position: top center; }
+                         background-size: 100% auto; background-repeat: no-repeat; background-position: top center; }
           /* Open: a scrollable dark overlay showing the pages at a readable width;
              the element's aspect-ratio (from .cov-N) gives it its full height, so
              a tall multi-page image scrolls rather than shrinking to fit. */
