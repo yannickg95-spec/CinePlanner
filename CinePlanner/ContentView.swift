@@ -1067,7 +1067,7 @@ struct ShotDetailView: View {
                 Image(systemName: "highlighter")
                     .foregroundStyle(.blue)
                 Text("Select text in the PDF, then:")
-                    .font(.subheadline)
+                    .font(.body)
                 Spacer(minLength: 0)
                 Button("Cancel") {
                     NotificationCenter.default.post(name: .cancelScriptSelection, object: nil)
