@@ -47,23 +47,6 @@ struct ReferenceCardView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
         )
-        .fileImporter(isPresented: $isImportingVideo,
-                      allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
-                      allowsMultipleSelection: false) { result in
-            handleVideoImport(result)
-        }
-        // Finder file pickers, not the Photos library: the Photos picker
-        // re-encodes and drops the EXIF that carries the camera/lens metadata.
-        .fileImporter(isPresented: $isImportingImage,
-                      allowedContentTypes: [.image],
-                      allowsMultipleSelection: false) { result in
-            if let data = readPickedFile(result) { loadImage(data: data) }
-        }
-        .fileImporter(isPresented: $isImportingMap,
-                      allowedContentTypes: [.image],
-                      allowsMultipleSelection: false) { result in
-            if let data = readPickedFile(result) { loadMap(data: data) }
-        }
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
                              set: { if $0 == nil { previewImage = nil } })) { preview in
             ImagePreviewSheet(preview: preview)
@@ -165,6 +148,13 @@ struct ReferenceCardView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            // Finder, not the Photos library: the Photos picker re-encodes the
+            // image and drops the EXIF that carries the camera/lens metadata.
+            .fileImporter(isPresented: $isImportingImage,
+                          allowedContentTypes: [.image],
+                          allowsMultipleSelection: false) { result in
+                if let data = readPickedFile(result) { loadImage(data: data) }
+            }
 
             Button {
                 isImportingVideo = true
@@ -174,6 +164,11 @@ struct ReferenceCardView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .fileImporter(isPresented: $isImportingVideo,
+                          allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
+                          allowsMultipleSelection: false) { result in
+                handleVideoImport(result)
+            }
 
             Spacer(minLength: 0)
         }
@@ -219,6 +214,11 @@ struct ReferenceCardView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .fileImporter(isPresented: $isImportingMap,
+                              allowedContentTypes: [.image],
+                              allowsMultipleSelection: false) { result in
+                    if let data = readPickedFile(result) { loadMap(data: data) }
+                }
             }
         }
     }
