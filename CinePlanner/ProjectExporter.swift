@@ -645,19 +645,30 @@ struct ProjectExporter {
                     }
                     body += "          </div>\n"
                 }
-                if let coverage = shot.coverageText {
-                    // Coverage can run long, so it collapses. <details> again, so it
-                    // still opens in previews with JavaScript disabled. Short
-                    // coverage starts open — there's nothing to gain by hiding it.
-                    let startsOpen = coverage.count <= 180
-                    body += "          <details class=\"coverage\"\(startsOpen ? " open" : "")>\n"
-                    body += "            <summary class=\"coverage-label\">Coverage"
-                    if let preview = shot.coveragePreview {
-                        body += "<span class=\"coverage-preview\">\(esc(preview))</span>"
+                if shot.coverageText != nil || (shot.hasCoverage && coverageClass != nil) {
+                    // Coverage text and the script-coverage thumbnail sit side by
+                    // side, so the thumbnail is next to what it illustrates.
+                    body += "          <div class=\"coverage-row\">\n"
+                    if let coverage = shot.coverageText {
+                        // Coverage can run long, so it collapses. <details> again, so
+                        // it still opens in previews with JavaScript disabled. Short
+                        // coverage starts open — nothing to gain by hiding one line.
+                        let startsOpen = coverage.count <= 180
+                        body += "            <details class=\"coverage\"\(startsOpen ? " open" : "")>\n"
+                        body += "              <summary class=\"coverage-label\">Coverage"
+                        if let preview = shot.coveragePreview {
+                            body += "<span class=\"coverage-preview\">\(esc(preview))</span>"
+                        }
+                        body += "</summary>\n"
+                        body += "              <div class=\"coverage-text\">\(esc(coverage))</div>\n"
+                        body += "            </details>\n"
                     }
-                    body += "</summary>\n"
-                    body += "            <div class=\"coverage-text\">\(esc(coverage))</div>\n"
-                    body += "          </details>\n"
+                    if shot.hasCoverage, let cls = coverageClass {
+                        // Opens the scene's script pages with every shot's coverage
+                        // marked — the same image for each covered shot.
+                        body += "            <details class=\"mi mi-doc\"><summary title=\"Script coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
+                    }
+                    body += "          </div>\n"
                 }
                 body += "        </div>\n"
                 // Thumbnail strip on the right — small on purpose, so the shot's
@@ -694,14 +705,7 @@ struct ProjectExporter {
                     }
                     body += "          </div>\n"
                 }
-                if shot.hasCoverage, let cls = coverageClass {
-                    // Opens the scene's script pages with every shot's coverage
-                    // highlighted — the same image for each covered shot.
-                    body += "          <div class=\"mi-pair\">\n"
-                    body += "          <details class=\"mi mi-doc\"><summary title=\"Script coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
-                    body += "          </div>\n"
-                }
-                if !hasMedia && !(shot.hasCoverage && coverageClass != nil) {
+                if !hasMedia {
                     body += "          <div class=\"nomedia\" title=\"No reference media\">—</div>\n"
                 }
                 body += "        </div>\n"
@@ -894,6 +898,10 @@ struct ProjectExporter {
           .coverage > summary::before { content: "▾"; font-size: 10px; color: var(--faint);
                                         transition: transform 0.15s ease; }
           .coverage:not([open]) > summary::before { transform: rotate(-90deg); }
+          /* Coverage text and its thumbnail side by side. */
+          .coverage-row { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; }
+          .coverage-row .coverage { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+          .coverage-row .mi-doc { flex: none; }
           .coverage-preview { font-size: 12px; color: var(--muted); font-weight: 400;
                               text-transform: none; letter-spacing: 0; min-width: 0;
                               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
