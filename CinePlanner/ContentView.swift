@@ -1453,9 +1453,12 @@ struct ReferenceVideoView: View {
         ZStack(alignment: .topTrailing) {
             Group {
                 if let player {
-                    VideoPlayer(player: player)
-                        .frame(height: 260)
-                        .frame(maxWidth: 700)
+                    // A 4:3 box on black, so the video reference matches the
+                    // reference-image and map boxes beside it. The clip letterboxes
+                    // inside rather than dictating the box's shape.
+                    Color.black
+                        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                        .overlay { VideoPlayer(player: player) }
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
@@ -1464,8 +1467,7 @@ struct ReferenceVideoView: View {
                 } else {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.black.opacity(0.85))
-                        .frame(height: 260)
-                        .frame(maxWidth: 700)
+                        .aspectRatio(4.0 / 3.0, contentMode: .fit)
                         .overlay(ProgressView().tint(.white))
                 }
             }
