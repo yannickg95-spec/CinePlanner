@@ -830,7 +830,7 @@ struct ProjectExporter {
           .pill { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; padding: 3px 7px; border-radius: 5px;
                   background: rgba(10,132,255,0.15); color: var(--accent); }
           /* Thumbnails sit in a narrow column so the details carry the row. */
-          .shot-body { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: start; }
+          .shot-body { display: grid; grid-template-columns: minmax(0,1fr) 196px; gap: 16px; align-items: start; }
           @media (max-width: 700px) { .shot-body { grid-template-columns: minmax(0,1fr); } }
           .media { display: flex; flex-direction: column; gap: 10px; flex: none; }
           /* One reference: its photo/video and map side by side. */
@@ -880,6 +880,7 @@ struct ProjectExporter {
           .mi-doc[open] > summary .cover-thumb { width: min(1000px, 94vw); height: auto;
                                     margin: 0 auto; border: 0; border-radius: 4px;
                                     background-size: 100% auto; background-position: top center; }
+          .mi-doc > summary { width: 60px; }
           .mi-doc[open] > summary .thumb-label { display: none; }
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
