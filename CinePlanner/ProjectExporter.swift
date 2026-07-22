@@ -629,8 +629,22 @@ struct ProjectExporter {
                 body += "    <article class=\"shot\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
                 body += "      <div class=\"shot-head\"><span class=\"shot-num\">\(esc(shot.displayNumber))</span>"
                 if !shot.nickname.isEmpty { body += "<span class=\"shot-nick\">\(esc(shot.nickname))</span>" }
-                if refs.contains(where: { $0.1?.videoPath != nil }) { body += "<span class=\"pill pill-video\">Video</span>" }
                 body += "</div>\n"
+
+                // One-line summary shown only in the compact view. Values only —
+                // "WS→MS · Static · 32mm" reads at a glance — plus a coverage marker.
+                // It's cheap (no images) so it can live in the markup alongside the
+                // full body and swap in via a body class.
+                body += "      <div class=\"shot-inline\">\n"
+                if shot.details.isEmpty {
+                    body += "        <span class=\"si-vals si-empty\">No details</span>\n"
+                } else {
+                    let inlineVals = shot.details.map { esc($0.value) }.joined(separator: " · ")
+                    let inlineTitle = shot.details.map { "\($0.label): \($0.value)" }.joined(separator: " · ")
+                    body += "        <span class=\"si-vals\" title=\"\(esc(inlineTitle))\">\(inlineVals)</span>\n"
+                }
+                if shot.hasCoverage { body += "        <span class=\"si-cov\" title=\"Has script coverage\">Coverage</span>\n" }
+                body += "      </div>\n"
 
                 body += "      <div class=\"shot-body\">\n"
                 // Details first in the markup as well as on screen, so the reading
@@ -827,8 +841,6 @@ struct ProjectExporter {
           .shot-num { font-weight: 700; font-size: 13px; padding: 3px 9px; border-radius: 6px;
                       background: var(--chip); font-variant-numeric: tabular-nums; }
           .shot-nick { color: var(--muted); font-size: 14px; }
-          .pill { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; padding: 3px 7px; border-radius: 5px;
-                  background: rgba(10,132,255,0.15); color: var(--accent); }
           /* Thumbnails sit in a narrow column so the details carry the row. */
           .shot-body { display: grid; grid-template-columns: minmax(0,1fr) 196px; gap: 16px; align-items: start; }
           @media (max-width: 700px) { .shot-body { grid-template-columns: minmax(0,1fr); } }
@@ -927,6 +939,56 @@ struct ProjectExporter {
                    color: var(--text); font-size: 15px; cursor: pointer; box-shadow: var(--shadow); }
           [hidden] { display: none !important; }
 
+          /* View toggle (segmented control) */
+          .viewtoggle { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; }
+          .vt { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 11px; border: 0;
+                background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
+          .vt:hover { color: var(--text); }
+          .vt[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+
+          /* The compact summary line only exists for the compact view. */
+          .shot-inline { display: none; }
+
+          /* ── Compact view ─────────────────────────────────────────────────
+             One dense row per shot for fast scrolling. JS-only (the toggle needs
+             script), so the no-JS preview always keeps the comfortable layout. */
+          body.compact .shot { display: flex; flex-wrap: wrap; align-items: center;
+                               gap: 7px 14px; padding: 9px 14px; }
+          body.compact .shot + .shot { margin-top: 6px; }
+          body.compact .shot-head { margin-bottom: 0; flex: none; }
+          /* Expose .details and .media as direct flex items of the row. */
+          body.compact .shot-body { display: contents; }
+          body.compact .details { display: none; }
+          body.compact .shot-inline { display: flex; align-items: center; gap: 8px;
+                                      flex: 1 1 220px; min-width: 0; }
+          body.compact .si-vals { color: var(--muted); font-size: 12.5px; white-space: nowrap;
+                                  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+          body.compact .si-empty { font-style: italic; color: var(--faint); }
+          body.compact .si-cov { flex: none; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+                                 padding: 2px 6px; border-radius: 5px; background: rgba(10,132,255,0.14);
+                                 color: var(--accent); white-space: nowrap; }
+          body.compact .media { flex: none; flex-direction: row; flex-wrap: wrap; gap: 6px;
+                                margin-left: auto; }
+          body.compact .mi-pair { flex-direction: row; gap: 6px; }
+          body.compact .media .thumb-label { display: none; }
+          /* Shrink only the closed thumbnails; the fullscreen open state is untouched. */
+          body.compact .mi:not([open]) > summary,
+          body.compact .mi:not([open]) > summary img,
+          body.compact .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
+          body.compact .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
+          body.compact .nomedia { width: 46px; height: 32px; font-size: 11px; }
+
+          @media print {
+            /* Print always uses the full layout so nothing is lost. */
+            body.compact .shot { display: block; }
+            body.compact .shot-body { display: grid; }
+            body.compact .details { display: block; }
+            body.compact .shot-inline { display: none; }
+            body.compact .media { flex-direction: column; margin-left: 0; }
+            body.compact .mi:not([open]) > summary,
+            body.compact .mi:not([open]) > summary img { width: 94px; height: 66px; }
+          }
+
           @media print {
             .toolbar, .toc, .totop, .disclose, .page-note { display: none !important; }
             .layout { grid-template-columns: 1fr; padding: 0; }
@@ -969,6 +1031,10 @@ struct ProjectExporter {
               <button class="chip" data-group="media" data-value="media" type="button">Has media</button>
             </div>
             <div class="tools">
+              <div class="viewtoggle" role="group" aria-label="View density">
+                <button class="vt" id="view-comfortable" data-view="comfortable" type="button" aria-pressed="true" title="Full cards">Comfortable</button>
+                <button class="vt" id="view-compact" data-view="compact" type="button" aria-pressed="false" title="Dense one-line rows">Compact</button>
+              </div>
               <span class="count" id="count"></span>
               <button class="linkbtn" id="reset" type="button" hidden>Reset</button>
               <button class="linkbtn" id="toggleall" type="button">Collapse all</button>
@@ -1005,6 +1071,23 @@ struct ProjectExporter {
 
           // Reveal the filter bar only now that we know scripting is available.
           document.getElementById('toolbar').hidden = false;
+
+          // View toggle: comfortable cards (default) vs a compact one-row-per-shot
+          // list. Choice is remembered across opens.
+          var viewButtons = Array.prototype.slice.call(document.querySelectorAll('.vt'));
+          function setView(view) {
+            document.body.classList.toggle('compact', view === 'compact');
+            viewButtons.forEach(function (b) {
+              b.setAttribute('aria-pressed', b.getAttribute('data-view') === view ? 'true' : 'false');
+            });
+            try { localStorage.setItem('cineplanner-view', view); } catch (e) {}
+          }
+          viewButtons.forEach(function (b) {
+            b.addEventListener('click', function () { setView(b.getAttribute('data-view')); });
+          });
+          var savedView = 'comfortable';
+          try { savedView = localStorage.getItem('cineplanner-view') || 'comfortable'; } catch (e) {}
+          setView(savedView);
 
           function tocFor(id) {
             for (var i = 0; i < tocItems.length; i++) {
@@ -1248,85 +1331,89 @@ struct ProjectExporter {
 
     private func generateFullTextContent() -> String {
         print("🔵 [CONTENT] Starting content generation...")
-        print("🔵 [CONTENT] Thread: \(Thread.current), Main: \(Thread.isMainThread)")
-        
-        var output = ""
-        
-        // Header Section
-        print("🔵 [CONTENT] Building header...")
-        output += String(repeating: "=", count: 80) + "\n"
-        
-        print("🔵 [CONTENT] Accessing project.filmName...")
-        output += "\(project.filmName.uppercased()) - COMPLETE SHOT LIST\n"
-        
-        output += String(repeating: "=", count: 80) + "\n\n"
-        
-        // Metadata Section
-        print("🔵 [CONTENT] Building metadata section...")
+
+        let rule = String(repeating: "=", count: 80)
         let formatter = DateFormatter()
         formatter.dateStyle = .long
-        formatter.timeStyle = .medium
-        
-        output += "PROJECT INFORMATION\n"
-        output += String(repeating: "-", count: 80) + "\n"
-        
-        print("🔵 [CONTENT] Accessing project properties...")
-        output += "Film Name:        \(project.filmName)\n"
-        output += "Created:          \(formatter.string(from: project.createdDate))\n"
-        output += "Exported:         \(formatter.string(from: Date()))\n"
-        
-        print("🔵 [CONTENT] Accessing exportScenes...")
-        let sceneCount = exportScenes.count
-        print("🔵 [CONTENT] Scene count: \(sceneCount)")
-        
-        output += "Total Scenes:     \(sceneCount)\n"
-        
-        print("🔵 [CONTENT] Calculating total shots...")
-        let totalShots = exportScenes.reduce(0) { $0 + $1.shots.count }
-        print("🔵 [CONTENT] Total shots: \(totalShots)")
-        
-        output += "Total Shots:      \(totalShots)\n"
-        
-        // Script info
-        print("🔵 [CONTENT] Checking script PDF...")
-        if (version?.pdfData ?? project.scriptPDFData) != nil {
-            output += "Script PDF:       Attached (imported)\n"
-        } else {
-            output += "Script PDF:       None\n"
+        formatter.timeStyle = .short
+
+        let orderedScenes = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
+        let totalShots = orderedScenes.reduce(0) { $0 + $1.shots.count }
+
+        var output = ""
+
+        // ── Header ──────────────────────────────────────────────────────────
+        output += rule + "\n"
+        output += "\(project.filmName.uppercased()) — SHOT LIST\n"
+        if !textContextLine.isEmpty {
+            output += textContextLine + "\n"
         }
-        
-        output += "\n"
-        
-        // Statistics Section
-        print("🔵 [CONTENT] Calculating statistics...")
+        output += "Exported \(formatter.string(from: Date()))\n"
+        output += rule + "\n\n"
+
+        // ── Contents (only worth it for longer lists) ───────────────────────
+        if orderedScenes.count > 1 {
+            output += "CONTENTS\n"
+            for scene in orderedScenes {
+                let label = "\(scene.sceneNumber)\(scene.suffix)"
+                let count = scene.shots.count
+                let countText = "\(count) shot\(count == 1 ? "" : "s")"
+                output += "  " + padRight(label, 6) + padRight(sceneSlug(scene), 48) + countText + "\n"
+            }
+            output += "\n"
+        }
+
+        // ── Statistics ──────────────────────────────────────────────────────
         let stats = calculateStatistics()
-        print("✅ [CONTENT] Statistics calculated")
-        
         output += "STATISTICS\n"
-        output += String(repeating: "-", count: 80) + "\n"
-        output += "Shots with Photos:      \(stats.shotsWithPhotos)\n"
-        output += "Shots with Coverage:    \(stats.shotsWithCoverage)\n"
-        output += "Complete Shots:         \(stats.completeShots) (\(stats.completionPercentage)%)\n"
-        output += "INT/DAY Scenes:         \(stats.intDayCount)\n"
-        output += "INT/NIGHT Scenes:       \(stats.intNightCount)\n"
-        output += "EXT/DAY Scenes:         \(stats.extDayCount)\n"
-        output += "EXT/NIGHT Scenes:       \(stats.extNightCount)\n"
-        output += "\n\n"
-        
-        // Shot List
-        print("🔵 [CONTENT] Generating shot list details...")
-        output += generateExportText()
-        print("✅ [CONTENT] Shot list details generated")
-        
-        // Footer
-        print("🔵 [CONTENT] Adding footer...")
-        output += "\n" + String(repeating: "=", count: 80) + "\n"
-        output += "END OF SHOT LIST\n"
-        output += "Generated by CinePlanner on \(formatter.string(from: Date()))\n"
-        output += String(repeating: "=", count: 80) + "\n"
-        
+        output += "  " + padRight("Shots with photos", 22) + "\(stats.shotsWithPhotos) / \(totalShots)\n"
+        output += "  " + padRight("Shots with coverage", 22) + "\(stats.shotsWithCoverage) / \(totalShots)\n"
+        output += "  " + padRight("Complete (both)", 22) + "\(stats.completeShots) / \(totalShots)  (\(stats.completionPercentage)%)\n"
+        output += "  " + padRight("Scene types", 22)
+        output += "INT/DAY \(stats.intDayCount) · INT/NIGHT \(stats.intNightCount) · EXT/DAY \(stats.extDayCount) · EXT/NIGHT \(stats.extNightCount)\n"
+        let hasScript = (version?.pdfData ?? project.scriptPDFData) != nil
+        output += "  " + padRight("Script PDF", 22) + (hasScript ? "Attached" : "None") + "\n"
+        output += "\n"
+
+        // ── Scene breakdown ─────────────────────────────────────────────────
+        output += generateExportText(orderedScenes: orderedScenes)
+
+        // ── Footer ──────────────────────────────────────────────────────────
+        output += "\n" + rule + "\n"
+        output += "End of shot list · generated by CinePlanner\n"
+        output += rule + "\n"
+
         print("✅ [CONTENT] Content generation complete!")
         return output
+    }
+
+    /// "Episode 2 · Version 3 · 14 scenes · 42 shots" — mirrors the export
+    /// window's context line, minus the film name (already the title above).
+    private var textContextLine: String {
+        var parts: [String] = []
+        if project.isSeries, let episode = version?.episode?.title { parts.append(episode) }
+        if let versionName = version?.name { parts.append(versionName) }
+        let sceneCount = exportScenes.count
+        let shotCount = exportScenes.reduce(0) { $0 + $1.shots.count }
+        parts.append("\(sceneCount) scene\(sceneCount == 1 ? "" : "s")")
+        parts.append("\(shotCount) shot\(shotCount == 1 ? "" : "s")")
+        return parts.joined(separator: " · ")
+    }
+
+    /// Screenplay-style slugline: "EXT. COTTON FIELD – DAY".
+    private func sceneSlug(_ scene: Scene) -> String {
+        let intExt = scene.isInterior ? "INT." : "EXT."
+        let time = scene.isDay ? "DAY" : "NIGHT"
+        let place = scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if place.isEmpty {
+            return "\(intExt) – \(time)"
+        }
+        return "\(intExt) \(place.uppercased()) – \(time)"
+    }
+
+    /// Pads `s` with trailing spaces to `width`; never truncates.
+    private func padRight(_ s: String, _ width: Int) -> String {
+        s.count >= width ? s + " " : s + String(repeating: " ", count: width - s.count)
     }
     
     // Calculate project statistics
@@ -1391,153 +1478,124 @@ struct ProjectExporter {
         )
     }
     
-    private func generateExportText() -> String {
+    private func generateExportText(orderedScenes: [Scene]) -> String {
         print("🔵 [EXPORT_TEXT] Starting scene breakdown...")
+
+        // Aligns detail values into a column; survives proportional fonts far
+        // better than the old box-drawing frame did.
+        let sceneRule = String(repeating: "─", count: 72)
+        let valueIndent = "      "                       // under "  SHOT"
+        let contIndent = valueIndent + String(repeating: " ", count: 12)
+        func detailRow(_ label: String, _ value: String) -> String {
+            valueIndent + padRight(label, 12) + value + "\n"
+        }
+
         var output = ""
-        
-        output += String(repeating: "=", count: 80) + "\n"
-        output += "SCENE BREAKDOWN\n"
-        output += String(repeating: "=", count: 80) + "\n"
-        
-        print("🔵 [EXPORT_TEXT] Sorting scenes by sortOrder...")
-        let orderedScenes = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
-        print("🔵 [EXPORT_TEXT] Processing \(orderedScenes.count) scenes...")
-        
-        for (sceneIndex, scene) in orderedScenes.enumerated() {
-            print("🔵 [EXPORT_TEXT] Scene \(sceneIndex + 1)/\(orderedScenes.count): \(scene.sceneNumber)\(scene.suffix)")
-            
-            output += "\n"
-            output += String(repeating: "━", count: 80) + "\n"
-            output += "SCENE \(scene.sceneNumber)\(scene.suffix)"
-            if !scene.nickname.isEmpty {
-                output += " - \(scene.nickname)"
-            }
-            output += "\n"
-            output += "Location: \(scene.isInterior ? "INT" : "EXT")   Time: \(scene.isDay ? "DAY" : "NIGHT")"
-            
-            // Add script page info if available
-            if scene.scriptPageNumber > 0 {
-                output += "   Script Page: \(scene.scriptPageNumber)"
-            }
-            
-            output += "\n"
-            
-            print("🔵 [EXPORT_TEXT] Accessing scene.shots for scene \(scene.sceneNumber)...")
+
+        for scene in orderedScenes {
             let shotCount = scene.shots.count
-            print("🔵 [EXPORT_TEXT] Scene \(scene.sceneNumber) has \(shotCount) shots")
-            
-            output += "Total Shots: \(shotCount)\n"
-            output += String(repeating: "━", count: 80) + "\n\n"
-            
-            print("🔵 [EXPORT_TEXT] Sorting shots for scene \(scene.sceneNumber)...")
+            let countText = "\(shotCount) shot\(shotCount == 1 ? "" : "s")"
+
+            var header = "SCENE \(scene.sceneNumber)\(scene.suffix) — \(sceneSlug(scene))"
+            if scene.scriptPageNumber > 0 {
+                header += "  (p.\(scene.scriptPageNumber))"
+            }
+            header += " · \(countText)"
+
+            output += sceneRule + "\n"
+            output += header + "\n"
+            output += sceneRule + "\n\n"
+
             let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
-            
             if orderedShots.isEmpty {
                 output += "  (No shots in this scene)\n\n"
-            } else {
-                for (shotIndex, shot) in orderedShots.enumerated() {
-                    print("🔵 [EXPORT_TEXT]   Shot \(shotIndex + 1)/\(orderedShots.count): \(shot.displayNumber)")
-                    
-                    output += "  ┌─ SHOT \(shot.displayNumber)"
-                    if !shot.nickname.isEmpty {
-                        output += " - \(shot.nickname)"
-                    }
-                    output += "\n"
-                    
-                    // Shot details
-                    var hasDetails = false
-                    
-                    if shot.size != .none {
-                        var sizeText = ""
-                        if shot.size != .none {
-                            sizeText = shot.size.shortVersion
-                            if shot.secondSize != .none {
-                                sizeText += " → " + shot.secondSize.shortVersion
-                            }
-                        }
-                        output += "  │  Size:         \(sizeText)\n"
-                        hasDetails = true
-                    }
-                    
-                    if shot.typeCategory != .none {
-                        var typeText = shot.typeCategory.shortDisplayName
-                        if shot.secondTypeCategory != .none {
-                            typeText += " + " + shot.secondTypeCategory.shortDisplayName
-                        }
-                        if shot.thirdTypeCategory != .none {
-                            typeText += " + " + shot.thirdTypeCategory.shortDisplayName
-                        }
-                        output += "  │  Type:         \(typeText)\n"
-                        hasDetails = true
-                    }
-                    
-                    if shot.lensfocal > 0 {
-                        if shot.lensIsPrime {
-                            output += "  │  Focal Length: \(shot.lensfocal)mm\n"
-                        } else {
-                            output += "  │  Focal Length: \(shot.lensfocal)→\(shot.lensfocalEnd)mm\n"
-                        }
-                        hasDetails = true
-                    }
-                    
-                    if shot.type != .none {
-                        output += "  │  Grip:         \(shot.type.displayName)\n"
-                        hasDetails = true
-                    }
-                    
-                    if !shot.camera.isEmpty {
-                        output += "  │  Camera:       \(shot.camera)\n"
-                        hasDetails = true
-                    }
-                    
-                    if !shot.format.isEmpty {
-                        output += "  │  Format:       \(shot.format)\n"
-                        hasDetails = true
-                    }
-                    
-                    if !shot.framelines.isEmpty {
-                        output += "  │  Framelines:   \(shot.framelines)\n"
-                        hasDetails = true
-                    }
-                    
-                    if !shot.lensPreset.isEmpty {
-                        output += "  │  Lens Preset:  \(shot.lensPreset)\n"
-                        hasDetails = true
-                    }
-                    
-                    if !shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        output += "  │  Extra Info:   \(shot.extraInfo)\n"
-                        hasDetails = true
-                    }
-                    
-                    // Script coverage
-                    print("🔵 [EXPORT_TEXT]   Checking script coverage for shot \(shot.displayNumber)...")
-                    if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-                        print("🔵 [EXPORT_TEXT]   Shot has \(selections.count) coverage selection(s)")
-                        output += "  │  Coverage:     \(selections.count) selection\(selections.count == 1 ? "" : "s")\n"
-                        for (index, selection) in selections.enumerated() {
-                            let prefix = index == selections.count - 1 ? "  │               └─" : "  │               ├─"
-                            output += "\(prefix) \(formatCoverageSummary(selection))\n"
-                        }
-                        hasDetails = true
-                    }
-                    
-                    if !hasDetails {
-                        output += "  │  (No details specified)\n"
-                    }
-                    
-                    output += "  └─\(String(repeating: "─", count: 74))\n\n"
-                }
+                continue
             }
-            
-            // Add spacing between scenes (except after last scene)
-            if sceneIndex < orderedScenes.count - 1 {
+
+            for shot in orderedShots {
+                var line = "  SHOT \(shot.displayNumber)"
+                if !shot.nickname.isEmpty {
+                    line += " — \(shot.nickname)"
+                }
+                output += line + "\n"
+
+                if shot.size != .none {
+                    var sizeText = shot.size.shortVersion
+                    if shot.secondSize != .none {
+                        sizeText += " → " + shot.secondSize.shortVersion
+                    }
+                    output += detailRow("Size", sizeText)
+                }
+
+                if shot.typeCategory != .none {
+                    var typeText = shot.typeCategory.shortDisplayName
+                    if shot.secondTypeCategory != .none {
+                        typeText += " + " + shot.secondTypeCategory.shortDisplayName
+                    }
+                    if shot.thirdTypeCategory != .none {
+                        typeText += " + " + shot.thirdTypeCategory.shortDisplayName
+                    }
+                    output += detailRow("Type", typeText)
+                }
+
+                if shot.lensfocal > 0 {
+                    let focal = shot.lensIsPrime
+                        ? "\(shot.lensfocal)mm"
+                        : "\(shot.lensfocal)→\(shot.lensfocalEnd)mm"
+                    output += detailRow("Focal", focal)
+                }
+
+                if shot.type != .none {
+                    output += detailRow("Grip", shot.type.displayName)
+                }
+                if !shot.camera.isEmpty {
+                    output += detailRow("Camera", shot.camera)
+                }
+                if !shot.format.isEmpty {
+                    output += detailRow("Format", shot.format)
+                }
+                if !shot.framelines.isEmpty {
+                    output += detailRow("Framelines", shot.framelines)
+                }
+                if !shot.lensPreset.isEmpty {
+                    output += detailRow("Lens", shot.lensPreset)
+                }
+                if !shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    output += detailRow("Extra", shot.extraInfo)
+                }
+
+                // Reference media — noted as present (text can't carry it).
+                if let media = referenceSummary(for: shot) {
+                    output += detailRow("Reference", media)
+                }
+
+                // Script coverage
+                if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
+                    output += detailRow("Coverage", "\(selections.count) selection\(selections.count == 1 ? "" : "s")")
+                    for selection in selections {
+                        output += contIndent + "· " + formatCoverageSummary(selection) + "\n"
+                    }
+                }
+
                 output += "\n"
             }
         }
-        
+
         print("✅ [EXPORT_TEXT] Scene breakdown complete!")
         return output
+    }
+
+    /// "2 photos · 1 video · 1 map", or nil when the shot has no media.
+    private func referenceSummary(for shot: Shot) -> String? {
+        let photos = shot.referenceImages.count
+        let maps = shot.referenceMaps.count
+        let videos = shot.orderedReferences.filter { $0.videoExtension != nil }.count
+
+        var parts: [String] = []
+        if photos > 0 { parts.append("\(photos) photo\(photos == 1 ? "" : "s")") }
+        if videos > 0 { parts.append("\(videos) video\(videos == 1 ? "" : "s")") }
+        if maps > 0 { parts.append("\(maps) map\(maps == 1 ? "" : "s")") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
     
     // MARK: - Helper Functions
