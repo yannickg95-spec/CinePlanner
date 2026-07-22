@@ -1389,6 +1389,8 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         var containerView: NSView?
         var overlayView: PDFCoverageOverlayView?
         var selectionModeObserver: NSObjectProtocol?
+        var captureObserver: NSObjectProtocol?
+        var cancelObserver: NSObjectProtocol?
         var scrollObserver: NSObjectProtocol?
         var pageChangeObserver: NSObjectProtocol?
         var scaleChangeObserver: NSObjectProtocol?
@@ -1420,21 +1422,24 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             print("🎯 Entering text selection mode for shot \(shot.displayNumber)")
             isInSelectionMode = true
             currentSelectionShot = shot
-            
-            // Show instruction overlay
-            if let pdfView = pdfView {
-                let instructionView = SelectionInstructionView(coordinator: self, shot: shot)
-                instructionView.translatesAutoresizingMaskIntoConstraints = false
-                pdfView.addSubview(instructionView)
-                
-                NSLayoutConstraint.activate([
-                    instructionView.centerXAnchor.constraint(equalTo: pdfView.centerXAnchor),
-                    instructionView.topAnchor.constraint(equalTo: pdfView.topAnchor, constant: 20)
-                ])
-                
-                // Track mouse for text selection
-                self.startTrackingSelection()
+
+            // The instruction and Done/Cancel now live in the SwiftUI coverage
+            // card, so tell it selection has started rather than overlaying the PDF.
+            NotificationCenter.default.post(
+                name: .scriptSelectionModeChanged, object: nil,
+                userInfo: ["active": true, "shotID": shot.persistentModelID])
+
+            // Done/Cancel in the card drive the same capture/cancel as before.
+            captureObserver = NotificationCenter.default.addObserver(
+                forName: .captureScriptSelection, object: nil, queue: .main) { [weak self] _ in
+                self?.captureSelection()
             }
+            cancelObserver = NotificationCenter.default.addObserver(
+                forName: .cancelScriptSelection, object: nil, queue: .main) { [weak self] _ in
+                self?.cancelSelection()
+            }
+
+            if pdfView != nil { startTrackingSelection() }
         }
         
         func startTrackingSelection() {
@@ -1535,17 +1540,23 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         func exitSelectionMode() {
             isInSelectionMode = false
             currentSelectionShot = nil
-            
+
             // Clear selection
             pdfView?.clearSelection()
-            
-            // Remove instruction view
-            if let pdfView = pdfView {
-                for subview in pdfView.subviews {
-                    if subview is SelectionInstructionView {
-                        subview.removeFromSuperview()
-                    }
-                }
+
+            // Tell the coverage card selection mode is over so it hides the
+            // instruction and Done/Cancel.
+            NotificationCenter.default.post(
+                name: .scriptSelectionModeChanged, object: nil,
+                userInfo: ["active": false])
+
+            if let observer = captureObserver {
+                NotificationCenter.default.removeObserver(observer)
+                captureObserver = nil
+            }
+            if let observer = cancelObserver {
+                NotificationCenter.default.removeObserver(observer)
+                cancelObserver = nil
             }
         }
         
@@ -1554,6 +1565,12 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             displayTimer = nil
             
             if let observer = selectionModeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = captureObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = cancelObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
             if let observer = scrollObserver {
@@ -1566,72 +1583,6 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(observer)
             }
         }
-    }
-}
-
-// MARK: - Selection Instruction View
-
-class SelectionInstructionView: NSView {
-    weak var coordinator: PDFViewerWithCoverageRepresentable.Coordinator?
-    let shot: Shot
-    
-    init(coordinator: PDFViewerWithCoverageRepresentable.Coordinator, shot: Shot) {
-        self.coordinator = coordinator
-        self.shot = shot
-        super.init(frame: .zero)
-        setupView()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupView() {
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        layer?.cornerRadius = 8
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
-        
-        let stackView = NSStackView()
-        stackView.orientation = .horizontal
-        stackView.spacing = 12
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
-        
-        let shotLabel = NSTextField(labelWithString: "Shot \(shot.displayNumber):")
-        shotLabel.font = .systemFont(ofSize: 13, weight: .bold)
-        shotLabel.textColor = .systemBlue
-        
-        let instructionLabel = NSTextField(labelWithString: "Select text in the PDF, then:")
-        instructionLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        
-        let doneButton = NSButton(title: "Done", target: self, action: #selector(doneClicked))
-        doneButton.bezelStyle = .rounded
-        
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))
-        cancelButton.bezelStyle = .rounded
-        
-        stackView.addArrangedSubview(shotLabel)
-        stackView.addArrangedSubview(instructionLabel)
-        stackView.addArrangedSubview(doneButton)
-        stackView.addArrangedSubview(cancelButton)
-        
-        addSubview(stackView)
-        NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-    
-    @objc private func doneClicked() {
-        coordinator?.captureSelection()
-    }
-    
-    @objc private func cancelClicked() {
-        coordinator?.cancelSelection()
     }
 }
 

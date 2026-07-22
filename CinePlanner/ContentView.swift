@@ -17,6 +17,12 @@ import UniformTypeIdentifiers
 extension Notification.Name {
     static let startScriptTextSelection = Notification.Name("startScriptTextSelection")
     static let scriptTextSelectionCompleted = Notification.Name("scriptTextSelectionCompleted")
+    // The PDF coordinator tells the coverage card when selection mode turns on or
+    // off; the card's Done/Cancel tell the coordinator to capture or abort. This
+    // moves the instruction + buttons out of the PDF and into the card.
+    static let scriptSelectionModeChanged = Notification.Name("scriptSelectionModeChanged")
+    static let captureScriptSelection = Notification.Name("captureScriptSelection")
+    static let cancelScriptSelection = Notification.Name("cancelScriptSelection")
 }
 
 // MARK: - Scene List View
@@ -574,6 +580,7 @@ struct ShotDetailView: View {
     @Bindable var shot: Shot
     /// Which photo is open full size, if any.
     @Environment(\.modelContext) private var shotModelContext
+    @State private var isMarkingCoverage = false
     @State private var showSecondType: Bool = false
     @State private var showThirdType: Bool = false
     @State private var showSecondSize: Bool = false
@@ -1052,35 +1059,65 @@ struct ShotDetailView: View {
 
     private var scriptCoverageCard: some View {
     sectionCard("SCRIPT COVERAGE") {
-        HStack {
-        Button {
-            // Signal to enter text selection mode
-            NotificationCenter.default.post(
-                name: .startScriptTextSelection,
-                object: nil,
-                userInfo: ["shot": shot]
-            )
-        } label: {
-            HStack(spacing: 4) {
+        // While marking, the instruction and Done/Cancel — previously an overlay
+        // on the PDF — appear here in the card. The PDF selection itself is
+        // unchanged; Done/Cancel just signal the coordinator.
+        if isMarkingCoverage {
+            HStack(spacing: 10) {
                 Image(systemName: "highlighter")
-                Text("Mark Text")
+                    .foregroundStyle(.blue)
+                Text("Select text in the PDF, then:")
+                    .font(.subheadline)
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    NotificationCenter.default.post(name: .cancelScriptSelection, object: nil)
+                }
+                .buttonStyle(.bordered)
+                Button("Done") {
+                    NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            HStack {
+                Button {
+                    // Signal the PDF viewer to enter text selection mode
+                    NotificationCenter.default.post(
+                        name: .startScriptTextSelection, object: nil,
+                        userInfo: ["shot": shot])
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "highlighter")
+                        Text("Mark Text")
+                    }
+                }
+                .buttonStyle(.bordered)
+
+                if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
+                    Text("(\(selections.count) marking\(selections.count == 1 ? "" : "s"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button(role: .destructive) {
+                        shot.scriptCoverageSelections = nil
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear all coverage markings")
+                }
             }
         }
-        .buttonStyle(.bordered)
-        
-        if let selections = shot.scriptCoverageSelections, !selections.isEmpty {
-            Text("(\(selections.count) marking\(selections.count == 1 ? "" : "s"))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            Button(role: .destructive) {
-                shot.scriptCoverageSelections = nil
-            } label: {
-                Image(systemName: "trash")
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .scriptSelectionModeChanged)) { note in
+        // Only react to this shot's selection; ignore an id that isn't ours.
+        let active = note.userInfo?["active"] as? Bool ?? false
+        if active {
+            if let id = note.userInfo?["shotID"] as? PersistentIdentifier, id == shot.persistentModelID {
+                isMarkingCoverage = true
             }
-            .buttonStyle(.borderless)
-            .help("Clear all coverage markings")
-        }
+        } else {
+            isMarkingCoverage = false
         }
     }
     }
