@@ -11,7 +11,7 @@ struct ExportOptionsSheet: View {
     let project: Project
     let version: ScriptVersion?
 
-    @State private var selected: Set<ExportFormat> = [.pdf]
+    @State private var selected: Set<ExportFormat> = [.htmlWithMedia]
 
     /// Selected formats in the order they're listed.
     private var orderedSelection: [ExportFormat] {
@@ -60,21 +60,24 @@ struct ExportOptionsSheet: View {
         let title: String
         let detail: String
         let requiresScript: Bool
+        var badge: String? = nil
     }
 
-    /// Shot list formats.
+    /// Shot list formats, listed most capable first — which is also the order we
+    /// recommend.
     private var shotListOptions: [Option] {
         [
+            Option(format: .htmlWithMedia, icon: "photo.on.rectangle.angled", title: "Webpage",
+                   detail: hasVideoInShots
+                       ? "The richest format — searchable and filterable, with reference photos, playable video and script coverage. Saved as a zipped folder (the page plus the videos); photos are built into the page. Opens on any device."
+                       : "The richest format — searchable and filterable, with reference photos and script coverage, all in one self-contained page. Nothing to unpack. Opens on any device.",
+                   requiresScript: false,
+                   badge: "Recommended"),
             Option(format: .pdf, icon: "doc.richtext", title: "PDF",
-                   detail: "Clean, printable shot list with photos. Not compatible with video.",
+                   detail: "A clean, printable shot list with reference photos and script coverage. Best for printing or handing out on set. Can't include video.",
                    requiresScript: false),
             Option(format: .text, icon: "doc.plaintext", title: "Text File",
-                   detail: "Plain text you can paste into an email or message. No photos or video — media is only noted as present.",
-                   requiresScript: false),
-            Option(format: .htmlWithMedia, icon: "photo.on.rectangle.angled", title: "Webpage File",
-                   detail: hasVideoInShots
-                       ? "A zipped folder with a webpage plus every video. Photos are built into the page."
-                       : "A single webpage with every photo built in. No folder to unpack.",
+                   detail: "Plain text to paste into an email or message. No photos or video — media is only noted as present.",
                    requiresScript: false)
         ]
     }
@@ -109,7 +112,12 @@ struct ExportOptionsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("SHOT LIST")
+                        HStack(spacing: 6) {
+                            sectionHeader("SHOT LIST")
+                            Text("· in recommended order")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                         ForEach(shotListOptions) { option in
                             optionRow(option)
                         }
@@ -181,6 +189,16 @@ struct ExportOptionsSheet: View {
                             .padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.15))
                             .clipShape(Capsule())
+                        if let badge = option.badge {
+                            Text(badge)
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.accentColor.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
                     }
                     Text(option.detail)
                         .font(.caption)
