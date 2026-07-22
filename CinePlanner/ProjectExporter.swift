@@ -134,6 +134,7 @@ struct ProjectExporter {
         let details: [(label: String, value: String)]
         let coverageText: String?
         let coveragePreview: String?
+        let hasCoverage: Bool
         let references: [MediaReference]
     }
 
@@ -143,6 +144,7 @@ struct ProjectExporter {
         let isInterior: Bool         // kept separate so the web page can filter on them
         let isDay: Bool
         let location: String
+        let coverageImageData: Data?   // scene's script pages with all shots' coverage
         let shots: [MediaShot]
     }
 
@@ -206,8 +208,91 @@ struct ProjectExporter {
         }
     }
 
+    /// The per-shot colour used for coverage highlights, matching the editor and
+    /// the "script with coverage" PDF: a shot's position within its scene.
+    private static let coveragePalette: [NSColor] = [
+        .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemPink,
+        .systemTeal, .systemIndigo, .systemRed, .systemYellow, .systemBrown
+    ]
+
+    /// Renders the scene's covered script page(s) as one image, with every shot's
+    /// coverage highlighted in that shot's colour, so the web export can show which
+    /// part of the script each shot covers — and how shots in a scene overlap.
+    /// Returns nil when no shot in the scene has coverage or there's no script PDF.
+    private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> Data? {
+        // Gather highlight rects per page, coloured by shot.
+        var byPage: [Int: [(rect: CGRect, color: NSColor)]] = [:]
+        for shot in scene.shots {
+            guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
+            let colorIndex = (scene.shots.firstIndex { $0 === shot } ?? 0) % Self.coveragePalette.count
+            let color = Self.coveragePalette[colorIndex]
+            for selection in selections {
+                for pageRange in selection.pageRanges {
+                    for bounds in pageRange.selections {
+                        byPage[pageRange.pageIndex, default: []].append((bounds.cgRect, color))
+                    }
+                }
+            }
+        }
+        guard !byPage.isEmpty else { return nil }
+
+        let scale: CGFloat = 2.0
+        var pageImages: [NSImage] = []
+        for pageIndex in byPage.keys.sorted() {
+            guard let page = sourcePDF.page(at: pageIndex) else { continue }
+            let cropBox = page.bounds(for: .cropBox)
+            let size = NSSize(width: cropBox.width * scale, height: cropBox.height * scale)
+            guard size.width > 1, size.height > 1 else { continue }
+
+            let image = NSImage(size: size)
+            image.lockFocus()
+            NSColor.white.setFill()
+            NSRect(origin: .zero, size: size).fill()
+            if let ctx = NSGraphicsContext.current?.cgContext {
+                ctx.saveGState()
+                ctx.scaleBy(x: scale, y: scale)
+                ctx.translateBy(x: -cropBox.origin.x, y: -cropBox.origin.y)
+                page.draw(with: .cropBox, to: ctx)   // page + highlights share page space
+                for highlight in byPage[pageIndex] ?? [] {
+                    highlight.color.withAlphaComponent(0.22).setFill()
+                    NSBezierPath(rect: highlight.rect).fill()
+                    highlight.color.setStroke()
+                    let border = NSBezierPath(rect: highlight.rect)
+                    border.lineWidth = 1.5 / scale
+                    border.stroke()
+                }
+                ctx.restoreGState()
+            }
+            image.unlockFocus()
+            pageImages.append(image)
+        }
+        guard !pageImages.isEmpty else { return nil }
+
+        // Stack the pages vertically into one image.
+        let gap: CGFloat = 12 * scale
+        let width = pageImages.map(\.size.width).max() ?? 0
+        let height = pageImages.reduce(0) { $0 + $1.size.height } + gap * CGFloat(pageImages.count - 1)
+        let composite = NSImage(size: NSSize(width: width, height: height))
+        composite.lockFocus()
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        var y = height
+        for image in pageImages {
+            y -= image.size.height
+            image.draw(in: NSRect(x: (width - image.size.width) / 2, y: y,
+                                  width: image.size.width, height: image.size.height))
+            y -= gap
+        }
+        composite.unlockFocus()
+
+        guard let tiff = composite.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+    }
+
     private func snapshotScenesForMedia() -> [MediaScene] {
         let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
+        let sourcePDF = (version?.pdfData ?? project.scriptPDFData).flatMap { PDFDocument(data: $0) }
         return ordered.map { scene in
             let heading = "Scene \(scene.sceneNumber)\(scene.suffix)"
             var parts: [String] = [scene.isInterior ? "INT" : "EXT"]
@@ -223,6 +308,7 @@ struct ProjectExporter {
                     details: shotDetails(shot),
                     coverageText: coverageSummary(shot),
                     coveragePreview: coveragePreview(shot),
+                    hasCoverage: !(shot.scriptCoverageSelections?.isEmpty ?? true),
                     references: shot.orderedReferences.enumerated().map { index, reference in
                         MediaReference(
                             index: index + 1,
@@ -239,6 +325,7 @@ struct ProjectExporter {
                               isInterior: scene.isInterior,
                               isDay: scene.isDay,
                               location: location,
+                              coverageImageData: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
                               shots: shots)
         }
     }
@@ -463,8 +550,17 @@ struct ProjectExporter {
 
         var body = ""
         var toc = ""
+        var coverageStyles = ""   // one background-image rule per scene, so the JPEG isn't inlined per shot
         for (index, scene) in scenes.enumerated() {
             let anchor = "scene-\(index)"
+            // The scene's coverage image is embedded once as a CSS background and
+            // shared by every covered shot's thumbnail, rather than inlined N times.
+            var coverageClass: String? = nil
+            if let data = scene.coverageImageData {
+                let cls = "cov-\(index)"
+                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(data))); }\n"
+                coverageClass = cls
+            }
             let timeLabel = scene.isDay ? "DAY" : "NIGHT"
             let typeLabel = scene.isInterior ? "INT" : "EXT"
 
@@ -575,7 +671,14 @@ struct ProjectExporter {
                     }
                     body += "          </div>\n"
                 }
-                if !hasMedia {
+                if shot.hasCoverage, let cls = coverageClass {
+                    // Opens the scene's script pages with every shot's coverage
+                    // highlighted — the same image for each covered shot.
+                    body += "          <div class=\"mi-pair\">\n"
+                    body += "          <details class=\"mi mi-doc\"><summary title=\"Script coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
+                    body += "          </div>\n"
+                }
+                if !hasMedia && !(shot.hasCoverage && coverageClass != nil) {
                     body += "          <div class=\"nomedia\" title=\"No reference media\">—</div>\n"
                 }
                 body += "        </div>\n"
@@ -735,6 +838,15 @@ struct ProjectExporter {
           .mi-video[open] > summary img { display: none; }
           .mi-video[open] > video { display: block; position: relative; z-index: 1;
                                     max-width: 96vw; max-height: 92vh; border-radius: 6px; }
+          /* Coverage thumbnail: the script page shown shrunk-to-fit, opening full
+             size. The image comes from a per-scene background-image rule so the
+             JPEG is embedded once, not per covered shot. */
+          .cover-thumb { display: block; width: 94px; height: 66px; border-radius: 8px;
+                         border: 1px solid var(--line); background-color: #fff;
+                         background-size: contain; background-repeat: no-repeat; background-position: center; }
+          .mi-doc[open] > summary .cover-thumb { position: absolute; left: 50%; top: 50%;
+                                    transform: translate(-50%,-50%); width: 94vw; height: 90vh;
+                                    border: 0; background-color: transparent; }
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
           .details { min-width: 0; }
@@ -784,7 +896,7 @@ struct ProjectExporter {
             .scene { break-inside: avoid-page; }
             body { background: #fff; }
           }
-        </style>
+        \(coverageStyles)</style>
         </head>
         <body>
         <div class="masthead">
