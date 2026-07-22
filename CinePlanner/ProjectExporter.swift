@@ -636,11 +636,15 @@ struct ProjectExporter {
                 // It's cheap (no images) so it can live in the markup alongside the
                 // full body and swap in via a body class.
                 body += "      <div class=\"shot-inline\">\n"
-                if shot.details.isEmpty {
+                // The compact line drops the wordier gear fields (camera, format,
+                // lens) and keeps the framing essentials, focal length included.
+                let inlineHidden: Set<String> = ["Camera", "Format", "Lens"]
+                let inlineDetails = shot.details.filter { !inlineHidden.contains($0.label) }
+                if inlineDetails.isEmpty {
                     body += "        <span class=\"si-vals si-empty\">No details</span>\n"
                 } else {
-                    let inlineVals = shot.details.map { esc($0.value) }.joined(separator: " · ")
-                    let inlineTitle = shot.details.map { "\($0.label): \($0.value)" }.joined(separator: " · ")
+                    let inlineVals = inlineDetails.map { esc($0.value) }.joined(separator: " · ")
+                    let inlineTitle = inlineDetails.map { "\($0.label): \($0.value)" }.joined(separator: " · ")
                     body += "        <span class=\"si-vals\" title=\"\(esc(inlineTitle))\">\(inlineVals)</span>\n"
                 }
                 if shot.hasCoverage { body += "        <span class=\"si-cov\" title=\"Has script coverage\">Coverage</span>\n" }
