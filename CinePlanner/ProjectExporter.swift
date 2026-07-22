@@ -144,7 +144,7 @@ struct ProjectExporter {
         let isInterior: Bool         // kept separate so the web page can filter on them
         let isDay: Bool
         let location: String
-        let coverageImageData: Data?   // scene's script pages with all shots' coverage
+        let coverage: CoverageImage?   // scene's script pages with all shots' coverage
         let shots: [MediaShot]
     }
 
@@ -215,28 +215,38 @@ struct ProjectExporter {
         .systemTeal, .systemIndigo, .systemRed, .systemYellow, .systemBrown
     ]
 
-    /// Renders the scene's covered script page(s) as one image, with every shot's
-    /// coverage highlighted in that shot's colour, so the web export can show which
-    /// part of the script each shot covers — and how shots in a scene overlap.
-    /// Returns nil when no shot in the scene has coverage or there's no script PDF.
-    private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> Data? {
-        // Gather highlight rects per page, coloured by shot.
-        var byPage: [Int: [(rect: CGRect, color: NSColor)]] = [:]
+    /// A rendered scene-coverage image, plus its pixel size so the web page can set
+    /// an aspect ratio and let the (often tall) image scroll at a readable width.
+    struct CoverageImage {
+        let data: Data
+        let width: CGFloat
+        let height: CGFloat
+    }
+
+    /// Renders the scene's covered script page(s) as one image, drawing each shot's
+    /// coverage as a coloured bar in the left margin next to the covered lines —
+    /// the same style as the "script with coverage" PDF — with the shot number
+    /// above each bar. Returns nil when no shot in the scene has coverage.
+    private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> CoverageImage? {
+        struct Bar { let color: NSColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
+        var byPage: [Int: [Bar]] = [:]
         for shot in scene.shots {
             guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
             let colorIndex = (scene.shots.firstIndex { $0 === shot } ?? 0) % Self.coveragePalette.count
             let color = Self.coveragePalette[colorIndex]
             for selection in selections {
                 for pageRange in selection.pageRanges {
-                    for bounds in pageRange.selections {
-                        byPage[pageRange.pageIndex, default: []].append((bounds.cgRect, color))
-                    }
+                    let ys = pageRange.selections.map(\.cgRect)
+                    guard let minY = ys.map(\.minY).min(), let maxY = ys.map(\.maxY).max() else { continue }
+                    byPage[pageRange.pageIndex, default: []].append(
+                        Bar(color: color, label: shot.displayNumber, minY: minY, maxY: maxY))
                 }
             }
         }
         guard !byPage.isEmpty else { return nil }
 
-        let scale: CGFloat = 2.0
+        // Higher scale than a poster: this is text meant to be read when opened.
+        let scale: CGFloat = 3.0
         var pageImages: [NSImage] = []
         for pageIndex in byPage.keys.sorted() {
             guard let page = sourcePDF.page(at: pageIndex) else { continue }
@@ -252,14 +262,26 @@ struct ProjectExporter {
                 ctx.saveGState()
                 ctx.scaleBy(x: scale, y: scale)
                 ctx.translateBy(x: -cropBox.origin.x, y: -cropBox.origin.y)
-                page.draw(with: .cropBox, to: ctx)   // page + highlights share page space
-                for highlight in byPage[pageIndex] ?? [] {
-                    highlight.color.withAlphaComponent(0.22).setFill()
-                    NSBezierPath(rect: highlight.rect).fill()
-                    highlight.color.setStroke()
-                    let border = NSBezierPath(rect: highlight.rect)
-                    border.lineWidth = 1.5 / scale
-                    border.stroke()
+                page.draw(with: .cropBox, to: ctx)
+
+                // Place each bar into a free margin slot, avoiding vertical overlap.
+                var placed: [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)] = []
+                let xRange = exportLineRange(for: cropBox)
+                for bar in byPage[pageIndex] ?? [] {
+                    let x = calculateCoverageLineX(at: bar.minY...bar.maxY, within: xRange, existingLines: &placed)
+                    ctx.setStrokeColor(bar.color.cgColor)
+                    ctx.setLineWidth(3)
+                    ctx.move(to: CGPoint(x: x, y: bar.minY))
+                    ctx.addLine(to: CGPoint(x: x, y: bar.maxY))
+                    ctx.strokePath()
+
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                        .foregroundColor: bar.color
+                    ]
+                    let label = NSAttributedString(string: bar.label, attributes: attrs)
+                    let ls = label.size()
+                    label.draw(at: CGPoint(x: x - ls.width / 2, y: bar.maxY + 3))
                 }
                 ctx.restoreGState()
             }
@@ -268,8 +290,8 @@ struct ProjectExporter {
         }
         guard !pageImages.isEmpty else { return nil }
 
-        // Stack the pages vertically into one image.
-        let gap: CGFloat = 12 * scale
+        // Stack the pages vertically.
+        let gap: CGFloat = 14 * scale
         let width = pageImages.map(\.size.width).max() ?? 0
         let height = pageImages.reduce(0) { $0 + $1.size.height } + gap * CGFloat(pageImages.count - 1)
         let composite = NSImage(size: NSSize(width: width, height: height))
@@ -286,8 +308,9 @@ struct ProjectExporter {
         composite.unlockFocus()
 
         guard let tiff = composite.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+              let rep = NSBitmapImageRep(data: tiff),
+              let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return nil }
+        return CoverageImage(data: data, width: width, height: height)
     }
 
     private func snapshotScenesForMedia() -> [MediaScene] {
@@ -325,7 +348,7 @@ struct ProjectExporter {
                               isInterior: scene.isInterior,
                               isDay: scene.isDay,
                               location: location,
-                              coverageImageData: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
+                              coverage: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
                               shots: shots)
         }
     }
@@ -556,9 +579,9 @@ struct ProjectExporter {
             // The scene's coverage image is embedded once as a CSS background and
             // shared by every covered shot's thumbnail, rather than inlined N times.
             var coverageClass: String? = nil
-            if let data = scene.coverageImageData {
+            if let cov = scene.coverage {
                 let cls = "cov-\(index)"
-                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(data))); }\n"
+                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(cov.data))); aspect-ratio: \(Int(cov.width)) / \(Int(cov.height)); }\n"
                 coverageClass = cls
             }
             let timeLabel = scene.isDay ? "DAY" : "NIGHT"
@@ -838,15 +861,21 @@ struct ProjectExporter {
           .mi-video[open] > summary img { display: none; }
           .mi-video[open] > video { display: block; position: relative; z-index: 1;
                                     max-width: 96vw; max-height: 92vh; border-radius: 6px; }
-          /* Coverage thumbnail: the script page shown shrunk-to-fit, opening full
-             size. The image comes from a per-scene background-image rule so the
-             JPEG is embedded once, not per covered shot. */
+          /* Coverage thumbnail: the top of the first script page. The image and
+             its aspect ratio come from a per-scene rule (.cov-N) so the JPEG is
+             embedded once, not per covered shot. */
           .cover-thumb { display: block; width: 94px; height: 66px; border-radius: 8px;
                          border: 1px solid var(--line); background-color: #fff;
-                         background-size: contain; background-repeat: no-repeat; background-position: center; }
-          .mi-doc[open] > summary .cover-thumb { position: absolute; left: 50%; top: 50%;
-                                    transform: translate(-50%,-50%); width: 94vw; height: 90vh;
-                                    border: 0; background-color: transparent; }
+                         background-size: cover; background-repeat: no-repeat; background-position: top center; }
+          /* Open: a scrollable dark overlay showing the pages at a readable width;
+             the element's aspect-ratio (from .cov-N) gives it its full height, so
+             a tall multi-page image scrolls rather than shrinking to fit. */
+          .mi-doc[open] { display: block; overflow: auto; padding: 24px 0; }
+          .mi-doc[open] > summary { position: static; inset: auto; display: block; cursor: zoom-out; }
+          .mi-doc[open] > summary .cover-thumb { width: min(1000px, 94vw); height: auto;
+                                    margin: 0 auto; border: 0; border-radius: 4px;
+                                    background-size: 100% auto; background-position: top center; }
+          .mi-doc[open] > summary .thumb-label { display: none; }
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
           .details { min-width: 0; }
