@@ -19,8 +19,8 @@ struct ReferenceCardView: View {
     let totalCount: Int
     var onDelete: () -> Void
 
-    @State private var selectedImage: PhotosPickerItem?
-    @State private var selectedMap: PhotosPickerItem?
+    @State private var isImportingImage = false
+    @State private var isImportingMap = false
     @State private var isImportingVideo = false
     @State private var previewImage: NSImage?
     @State private var previewTitle = ""
@@ -52,11 +52,17 @@ struct ReferenceCardView: View {
                       allowsMultipleSelection: false) { result in
             handleVideoImport(result)
         }
-        .onChange(of: selectedImage) { _, item in
-            Task { await loadImage(item) }
+        // Finder file pickers, not the Photos library: the Photos picker
+        // re-encodes and drops the EXIF that carries the camera/lens metadata.
+        .fileImporter(isPresented: $isImportingImage,
+                      allowedContentTypes: [.image],
+                      allowsMultipleSelection: false) { result in
+            if let data = readPickedFile(result) { loadImage(data: data) }
         }
-        .onChange(of: selectedMap) { _, item in
-            Task { await loadMap(item) }
+        .fileImporter(isPresented: $isImportingMap,
+                      allowedContentTypes: [.image],
+                      allowsMultipleSelection: false) { result in
+            if let data = readPickedFile(result) { loadMap(data: data) }
         }
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
                              set: { if $0 == nil { previewImage = nil } })) { preview in
@@ -151,7 +157,9 @@ struct ReferenceCardView: View {
     /// Nothing added yet: one row offering either kind of media.
     private var emptyMediaRow: some View {
         HStack(spacing: 8) {
-            PhotosPicker(selection: $selectedImage, matching: .images) {
+            Button {
+                isImportingImage = true
+            } label: {
                 Label("Add Photo", systemImage: "photo.badge.plus")
                     .font(.subheadline)
             }
@@ -184,7 +192,9 @@ struct ReferenceCardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                PhotosPicker(selection: $selectedMap, matching: .images) {
+                Button {
+                    isImportingMap = true
+                } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "map")
                             .foregroundStyle(.secondary)
@@ -261,60 +271,60 @@ struct ReferenceCardView: View {
 
     // MARK: - Loading
 
-    private func loadImage(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-        let metadata = EXIFExtractor.extractMetadata(from: data)
-        await MainActor.run {
-            reference.imageData = data
-            reference.videoData = nil          // a reference holds one or the other
-            reference.videoExtension = nil
-            if let metadata {
-                reference.cameraFamily = metadata.cameraFamily
-                reference.cameraFormat = metadata.cameraFormat
-                reference.focalLength = metadata.focalLength
-                reference.lensPreset = metadata.lensPreset
-                reference.horizon = metadata.horizon
-                reference.tilt = metadata.tilt
-                reference.height = metadata.height
-                reference.captureID = metadata.captureID
-                reference.captureType = metadata.captureType
-                reference.dateTimeOriginal = metadata.dateTimeOriginal
-                reference.keywords = metadata.iptcKeywords
-                reference.caption = metadata.iptcCaption
-                reference.framelines = metadata.framelines
-                reference.software = metadata.tiffSoftware
+    /// Reads the file the user picked, honouring the security scope.
+    private func readPickedFile(_ result: Result<[URL], Error>) -> Data? {
+        guard case .success(let urls) = result, let url = urls.first else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return try? Data(contentsOf: url)
+    }
 
-                // Fill the shot's camera fields from the first reference that has them
-                if let shot = reference.shot {
-                    if let family = metadata.cameraFamily, shot.camera.isEmpty { shot.camera = family }
-                    if let format = metadata.cameraFormat, shot.format.isEmpty { shot.format = format }
-                    if let lines = metadata.framelines, shot.framelines.isEmpty { shot.framelines = lines }
-                    // A single focal length is a prime lens; only fill it when the
-                    // shot hasn't got one yet, so a manual value isn't overwritten.
-                    if let focal = metadata.focalLength, focal > 0, shot.lensfocal == 0 {
-                        shot.lensfocal = Int(focal.rounded())
-                        shot.lensIsPrime = true
-                    }
+    private func loadImage(data: Data) {
+        let metadata = EXIFExtractor.extractMetadata(from: data)
+        reference.imageData = data
+        reference.videoData = nil          // a reference holds one or the other
+        reference.videoExtension = nil
+        if let metadata {
+            reference.cameraFamily = metadata.cameraFamily
+            reference.cameraFormat = metadata.cameraFormat
+            reference.focalLength = metadata.focalLength
+            reference.lensPreset = metadata.lensPreset
+            reference.horizon = metadata.horizon
+            reference.tilt = metadata.tilt
+            reference.height = metadata.height
+            reference.captureID = metadata.captureID
+            reference.captureType = metadata.captureType
+            reference.dateTimeOriginal = metadata.dateTimeOriginal
+            reference.keywords = metadata.iptcKeywords
+            reference.caption = metadata.iptcCaption
+            reference.framelines = metadata.framelines
+            reference.software = metadata.tiffSoftware
+
+            // Fill the shot's camera fields from the first reference that has them
+            if let shot = reference.shot {
+                if let family = metadata.cameraFamily, shot.camera.isEmpty { shot.camera = family }
+                if let format = metadata.cameraFormat, shot.format.isEmpty { shot.format = format }
+                if let lines = metadata.framelines, shot.framelines.isEmpty { shot.framelines = lines }
+                // A single focal length is a prime lens; only fill it when the
+                // shot hasn't got one yet, so a manual value isn't overwritten.
+                if let focal = metadata.focalLength, focal > 0, shot.lensfocal == 0 {
+                    shot.lensfocal = Int(focal.rounded())
+                    shot.lensIsPrime = true
                 }
             }
-            selectedImage = nil
         }
     }
 
-    private func loadMap(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
-        await MainActor.run {
-            reference.mapData = data
-            guard let metadata = EXIFExtractor.extractMetadata(from: data) else { selectedMap = nil; return }
-            reference.mapCaptureID = metadata.captureID
-            reference.mapCameraPhysicalWidth = metadata.cameraPhysicalWidth
-            reference.mapCameraPhysicalLength = metadata.cameraPhysicalLength
-            reference.mapLocationModel = metadata.locationModel
-            reference.mapLocationWidth = metadata.locationWidth
-            reference.mapLocationLength = metadata.locationLength
-            reference.mapLocationHeight = metadata.locationHeight
-            selectedMap = nil
-        }
+    private func loadMap(data: Data) {
+        reference.mapData = data
+        guard let metadata = EXIFExtractor.extractMetadata(from: data) else { return }
+        reference.mapCaptureID = metadata.captureID
+        reference.mapCameraPhysicalWidth = metadata.cameraPhysicalWidth
+        reference.mapCameraPhysicalLength = metadata.cameraPhysicalLength
+        reference.mapLocationModel = metadata.locationModel
+        reference.mapLocationWidth = metadata.locationWidth
+        reference.mapLocationLength = metadata.locationLength
+        reference.mapLocationHeight = metadata.locationHeight
     }
 
     private func handleVideoImport(_ result: Result<[URL], Error>) {
@@ -342,7 +352,6 @@ struct ReferenceCardView: View {
         reference.caption = nil
         reference.framelines = nil
         reference.software = nil
-        selectedImage = nil
     }
 
     private func clearMap() {
@@ -354,7 +363,6 @@ struct ReferenceCardView: View {
         reference.mapLocationWidth = nil
         reference.mapLocationLength = nil
         reference.mapLocationHeight = nil
-        selectedMap = nil
     }
 }
 
