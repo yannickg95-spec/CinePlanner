@@ -671,7 +671,7 @@ struct ShotDetailView: View {
     private static let mediaMaxWidth: CGFloat = 700
 
     private var addReferenceLabel: some View {
-        Label(shot.references.isEmpty ? "Add Reference Image" : "Add Another Reference Image",
+        Label(shot.references.isEmpty ? "Add Reference Image/Video" : "Add Another Reference Image/Video",
               systemImage: "plus.circle.fill")
             .font(.headline)
             .frame(maxWidth: .infinity)
