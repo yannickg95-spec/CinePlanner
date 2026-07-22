@@ -139,15 +139,13 @@ struct ReferenceCardView: View {
 
     /// Nothing added yet: one row offering either kind of media.
     private var emptyMediaRow: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 8) {
             Button {
                 isImportingImage = true
             } label: {
-                Label("Add Photo", systemImage: "photo.badge.plus")
-                    .font(.subheadline)
+                addMediaLabel("Add Photo", systemImage: "photo")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             // Finder, not the Photos library: the Photos picker re-encodes the
             // image and drops the EXIF that carries the camera/lens metadata.
             .fileImporter(isPresented: $isImportingImage,
@@ -159,20 +157,42 @@ struct ReferenceCardView: View {
             Button {
                 isImportingVideo = true
             } label: {
-                Label("Add Video", systemImage: "video.badge.plus")
-                    .font(.subheadline)
+                addMediaLabel("Add Video", systemImage: "video")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             .fileImporter(isPresented: $isImportingVideo,
                           allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
                           allowsMultipleSelection: false) { result in
                 handleVideoImport(result)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+    }
+
+    /// Shared dashed drop-zone label used by every "add media" button, so the
+    /// photo, video and map placeholders read as one style.
+    private func addMediaLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+            Text(title)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Text("Add")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Map
@@ -190,28 +210,7 @@ struct ReferenceCardView: View {
                 Button {
                     isImportingMap = true
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "map")
-                            .foregroundStyle(.secondary)
-                        Text("Top Down Map")
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        Text("Add")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    addMediaLabel("Top Down Map", systemImage: "map")
                 }
                 .buttonStyle(.plain)
                 .fileImporter(isPresented: $isImportingMap,
