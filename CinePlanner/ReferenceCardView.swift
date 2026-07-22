@@ -289,6 +289,12 @@ struct ReferenceCardView: View {
                     if let family = metadata.cameraFamily, shot.camera.isEmpty { shot.camera = family }
                     if let format = metadata.cameraFormat, shot.format.isEmpty { shot.format = format }
                     if let lines = metadata.framelines, shot.framelines.isEmpty { shot.framelines = lines }
+                    // A single focal length is a prime lens; only fill it when the
+                    // shot hasn't got one yet, so a manual value isn't overwritten.
+                    if let focal = metadata.focalLength, focal > 0, shot.lensfocal == 0 {
+                        shot.lensfocal = Int(focal.rounded())
+                        shot.lensIsPrime = true
+                    }
                 }
             }
             selectedImage = nil
