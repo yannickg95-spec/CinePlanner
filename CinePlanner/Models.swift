@@ -243,6 +243,18 @@ enum ShotSize: String, Codable, CaseIterable {
         case .extremeWideShot: return "Extreme Wide Shot (XWS)"
         }
     }
+
+    /// Short form for a stored raw value — the enum's abbreviation, or the raw
+    /// text itself for a user's custom size. Empty when unset.
+    static func short(forRaw raw: String) -> String {
+        (raw.isEmpty || raw == "none") ? "" : (ShotSize(rawValue: raw)?.shortVersion ?? raw)
+    }
+
+    /// Built-in sizes for the picker, as (menu label, stored value). Sizes are a
+    /// single ordered scale, so they aren't subdivided into groups.
+    static var pickerOptions: [(label: String, value: String)] {
+        allCases.filter { $0 != .none }.map { (label: $0.displayName, value: $0.rawValue) }
+    }
 }
 
 enum ShotType: String, Codable, CaseIterable {
@@ -291,7 +303,18 @@ enum ShotType: String, Codable, CaseIterable {
         ("Stabilized",       [.steadicam, .gimbal]),
         ("Vehicle & Aerial", [.carmount, .drone]),
     ]
+
+    /// Built-in grips as (menu label, stored value) pairs. A grip stores its
+    /// display name, so label and value are the same.
+    static var pickerGroups: [(title: String, options: [(label: String, value: String)])] {
+        menuGroups.map { group in
+            (title: group.title, options: group.grips.map { (label: $0.displayName, value: $0.displayName) })
+        }
+    }
 }
+
+// A grip has no separate short form, so a custom grip needs no derivation — it's
+// read directly via Shot.gripName. Size and type below do have short forms.
 
 enum ShotTypeCategory: String, Codable, CaseIterable {
     case none = ""
@@ -363,6 +386,24 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
         case .zoomIn: return "Zoom In"
         case .zoomOut: return "Zoom Out"
         }
+    }
+
+    /// Short form for a stored raw value — the enum's abbreviation, or the raw
+    /// text itself for a user's custom type. Empty when unset.
+    static func short(forRaw raw: String) -> String {
+        (raw.isEmpty || raw == "none") ? "" : (ShotTypeCategory(rawValue: raw)?.shortDisplayName ?? raw)
+    }
+
+    /// Built-in types grouped for the picker, as (menu label, stored value).
+    static var pickerGroups: [(title: String, options: [(label: String, value: String)])] {
+        func opts(_ cases: [ShotTypeCategory]) -> [(label: String, value: String)] {
+            cases.map { (label: $0.displayName, value: $0.rawValue) }
+        }
+        return [
+            ("Coverage", opts([.establishingShot, .single, .overTheShoulder, .twoShot, .threeShot, .groupShot, .POV, .insert, .profileShot])),
+            ("Angle",    opts([.lowAngle, .highAngle, .dutchAngle, .topShot, .overhead, .aerial])),
+            ("Movement", opts([.pushIn, .pushOut, .zoomIn, .zoomOut])),
+        ]
     }
 }
 
@@ -647,11 +688,34 @@ final class Shot {
     /// isn't one of the built-ins round-trips here where `type` would flatten it
     /// to `.none`.
     var gripName: String {
-        get { (typeRaw.isEmpty || typeRaw == "none") ? "" : typeRaw }
+        get { Self.unset(typeRaw) }
         set { typeRaw = newValue }
     }
     var hasGrip: Bool { !gripName.isEmpty }
-    
+
+    // Size and type as free text, backed by the same raw fields as the enum
+    // accessors above. A custom value that isn't a built-in round-trips here,
+    // where the enum accessors would flatten it to `.none`. `…Short` yields the
+    // export/subtitle abbreviation (the raw text itself for a custom value).
+    var sizeName: String { get { Self.unset(sizeRaw) } set { sizeRaw = newValue } }
+    var secondSizeName: String { get { Self.unset(secondSizeRaw) } set { secondSizeRaw = newValue } }
+    var sizeShort: String { ShotSize.short(forRaw: sizeRaw) }
+    var secondSizeShort: String { ShotSize.short(forRaw: secondSizeRaw) }
+    var hasSize: Bool { !sizeShort.isEmpty }
+    var hasSecondSize: Bool { !secondSizeShort.isEmpty }
+
+    var typeName: String { get { Self.unset(typeCategoryRaw) } set { typeCategoryRaw = newValue } }
+    var secondTypeName: String { get { Self.unset(secondTypeCategoryRaw) } set { secondTypeCategoryRaw = newValue } }
+    var thirdTypeName: String { get { Self.unset(thirdTypeCategoryRaw) } set { thirdTypeCategoryRaw = newValue } }
+    var typeShort: String { ShotTypeCategory.short(forRaw: typeCategoryRaw) }
+    var secondTypeShort: String { ShotTypeCategory.short(forRaw: secondTypeCategoryRaw) }
+    var thirdTypeShort: String { ShotTypeCategory.short(forRaw: thirdTypeCategoryRaw) }
+    var hasType: Bool { !typeShort.isEmpty }
+    var hasSecondType: Bool { !secondTypeShort.isEmpty }
+    var hasThirdType: Bool { !thirdTypeShort.isEmpty }
+
+    private static func unset(_ raw: String) -> String { (raw.isEmpty || raw == "none") ? "" : raw }
+
     init(shotNumber: Int, shotInformation: String = "") {
         self.shotNumber = shotNumber
         self.shotInformation = shotInformation
@@ -736,12 +800,14 @@ extension Shot {
     func duplicate() -> Shot {
         let copy = Shot(shotNumber: shotNumber, shotInformation: shotInformation)
         copy.numberingStyle = numberingStyle
-        copy.size = size
-        copy.secondSize = secondSize
-        copy.typeCategory = typeCategory
-        copy.secondTypeCategory = secondTypeCategory
-        copy.thirdTypeCategory = thirdTypeCategory
-        copy.gripName = gripName   // preserves a custom grip that `type` would flatten
+        // The …Name accessors copy the raw string, preserving a custom size,
+        // type, or grip that the enum accessors would flatten to none.
+        copy.sizeName = sizeName
+        copy.secondSizeName = secondSizeName
+        copy.typeName = typeName
+        copy.secondTypeName = secondTypeName
+        copy.thirdTypeName = thirdTypeName
+        copy.gripName = gripName
         copy.suffix = suffix
         copy.nickname = nickname
         copy.lensIsPrime = lensIsPrime

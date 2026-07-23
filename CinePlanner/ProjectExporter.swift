@@ -355,15 +355,15 @@ struct ProjectExporter {
 
     private func shotDetails(_ shot: Shot) -> [(label: String, value: String)] {
         var rows: [(String, String)] = []
-        if shot.size != .none {
-            var s = shot.size.shortVersion
-            if shot.secondSize != .none { s += " → " + shot.secondSize.shortVersion }
+        if shot.hasSize {
+            var s = shot.sizeShort
+            if shot.hasSecondSize { s += " → " + shot.secondSizeShort }
             rows.append(("Size", s))
         }
-        if shot.typeCategory != .none {
-            var t = shot.typeCategory.shortDisplayName
-            if shot.secondTypeCategory != .none { t += " + " + shot.secondTypeCategory.shortDisplayName }
-            if shot.thirdTypeCategory != .none { t += " + " + shot.thirdTypeCategory.shortDisplayName }
+        if shot.hasType {
+            var t = shot.typeShort
+            if shot.hasSecondType { t += " + " + shot.secondTypeShort }
+            if shot.hasThirdType { t += " + " + shot.thirdTypeShort }
             rows.append(("Type", t))
         }
         if shot.lensfocal > 0 {
@@ -1523,21 +1523,21 @@ struct ProjectExporter {
                 }
                 output += line + "\n"
 
-                if shot.size != .none {
-                    var sizeText = shot.size.shortVersion
-                    if shot.secondSize != .none {
-                        sizeText += " → " + shot.secondSize.shortVersion
+                if shot.hasSize {
+                    var sizeText = shot.sizeShort
+                    if shot.hasSecondSize {
+                        sizeText += " → " + shot.secondSizeShort
                     }
                     output += detailRow("Size", sizeText)
                 }
 
-                if shot.typeCategory != .none {
-                    var typeText = shot.typeCategory.shortDisplayName
-                    if shot.secondTypeCategory != .none {
-                        typeText += " + " + shot.secondTypeCategory.shortDisplayName
+                if shot.hasType {
+                    var typeText = shot.typeShort
+                    if shot.hasSecondType {
+                        typeText += " + " + shot.secondTypeShort
                     }
-                    if shot.thirdTypeCategory != .none {
-                        typeText += " + " + shot.thirdTypeCategory.shortDisplayName
+                    if shot.hasThirdType {
+                        typeText += " + " + shot.thirdTypeShort
                     }
                     output += detailRow("Type", typeText)
                 }
@@ -2428,15 +2428,15 @@ struct ProjectExporter {
     /// The label/value pairs, long fields and reference rows a shot card shows.
     private func pdfShotContent(_ shot: Shot) -> (pairs: [(String, String)], extra: String, coverage: [String], refs: [ShotReference]) {
         var pairs: [(String, String)] = []
-        if shot.size != .none {
-            var v = shot.size.shortVersion
-            if shot.secondSize != .none { v += " → " + shot.secondSize.shortVersion }
+        if shot.hasSize {
+            var v = shot.sizeShort
+            if shot.hasSecondSize { v += " → " + shot.secondSizeShort }
             pairs.append(("Size", v))
         }
-        if shot.typeCategory != .none {
-            var v = shot.typeCategory.shortDisplayName
-            if shot.secondTypeCategory != .none { v += " + " + shot.secondTypeCategory.shortDisplayName }
-            if shot.thirdTypeCategory != .none { v += " + " + shot.thirdTypeCategory.shortDisplayName }
+        if shot.hasType {
+            var v = shot.typeShort
+            if shot.hasSecondType { v += " + " + shot.secondTypeShort }
+            if shot.hasThirdType { v += " + " + shot.thirdTypeShort }
             pairs.append(("Type", v))
         }
         if shot.lensfocal > 0 {

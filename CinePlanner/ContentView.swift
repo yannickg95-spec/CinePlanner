@@ -523,9 +523,9 @@ struct ShotListView: View {
         let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nickname.isEmpty { parts.append(nickname) }
 
-        if shot.size != .none {
-            var size = shot.size.shortVersion
-            if shot.secondSize != .none { size += " → " + shot.secondSize.shortVersion }
+        if shot.hasSize {
+            var size = shot.sizeShort
+            if shot.hasSecondSize { size += " → " + shot.secondSizeShort }
             parts.append(size)
         }
 
@@ -537,10 +537,10 @@ struct ShotListView: View {
     /// The shot's type for the row subtitle — "Static", or "Static + Handheld"
     /// when a shot combines several. Matches how the exports read.
     private func typeSummary(for shot: Shot) -> String? {
-        guard shot.typeCategory != .none else { return nil }
-        var text = shot.typeCategory.shortDisplayName
-        if shot.secondTypeCategory != .none { text += " + " + shot.secondTypeCategory.shortDisplayName }
-        if shot.thirdTypeCategory != .none { text += " + " + shot.thirdTypeCategory.shortDisplayName }
+        guard shot.hasType else { return nil }
+        var text = shot.typeShort
+        if shot.hasSecondType { text += " + " + shot.secondTypeShort }
+        if shot.hasThirdType { text += " + " + shot.thirdTypeShort }
         return text
     }
 
@@ -722,36 +722,19 @@ struct ShotDetailView: View {
         Text("Size")
             .font(.headline)
             .frame(width: 100, alignment: .leading)
-        
+
         HStack(spacing: 8) {
-            Menu {
-                ForEach(ShotSize.allCases, id: \.self) { size in
-                    Button(size.displayName) {
-                        shot.size = size
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(shot.size == .none ? "Select size" : shot.size.displayName)
-                        .foregroundStyle(shot.size == .none ? .secondary : .primary)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(minWidth: 60)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            
+            OptionPickerView(
+                noun: "size",
+                placeholder: "Select size",
+                sections: [(title: "", options: ShotSize.pickerOptions)],
+                grouped: false,
+                value: $shot.sizeName,
+                customKey: "customSizes"
+            )
+
             // Plus button (only show when first size is selected and second dropdown is hidden)
-            if shot.size != .none && !showSecondSize {
+            if shot.hasSize && !showSecondSize {
                 Button {
                     showSecondSize = true
                 } label: {
@@ -761,46 +744,26 @@ struct ShotDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
-            
+
             // Arrow and second size dropdown (only show when showSecondSize is true)
             if showSecondSize {
                 Image(systemName: "arrow.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
-                Menu {
-                    ForEach(ShotSize.allCases, id: \.self) { size in
-                        Button(size.displayName) {
-                            shot.secondSize = size
-                            // Hide second dropdown if none is selected
-                            if size == .none {
-                                showSecondSize = false
-                            }
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Text(shot.secondSize == .none ? "Select size" : shot.secondSize.displayName)
-                            .foregroundStyle(shot.secondSize == .none ? .secondary : .primary)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(minWidth: 60)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                
+
+                OptionPickerView(
+                    noun: "size",
+                    placeholder: "Select size",
+                    sections: [(title: "", options: ShotSize.pickerOptions)],
+                    grouped: false,
+                    value: $shot.secondSizeName,
+                    customKey: "customSizes",
+                    onSelect: { if $0.isEmpty { showSecondSize = false } }
+                )
+
                 // Remove button for second size
                 Button {
-                    shot.secondSize = .none
+                    shot.secondSizeName = ""
                     showSecondSize = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -811,44 +774,23 @@ struct ShotDetailView: View {
             }
         }
     }
-    
+
     HStack {
         Text("Type")
             .font(.headline)
             .frame(width: 100, alignment: .leading)
-        
+
         HStack(spacing: 8) {
-            Menu {
-                ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                    if typeCategory == .topShot || typeCategory == .pushIn {
-                        Divider()
-                    }
-                    Button(typeCategory.displayName) {
-                        shot.typeCategory = typeCategory
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(shot.typeCategory == .none ? "Select type" : shot.typeCategory.displayName)
-                        .foregroundStyle(shot.typeCategory == .none ? .secondary : .primary)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(minWidth: 60)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(6)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            
+            OptionPickerView(
+                noun: "type",
+                placeholder: "Select type",
+                sections: ShotTypeCategory.pickerGroups,
+                value: $shot.typeName,
+                customKey: "customTypes"
+            )
+
             // Plus button (only show when first type is selected and second dropdown is hidden)
-            if shot.typeCategory != .none && !showSecondType {
+            if shot.hasType && !showSecondType {
                 Button {
                     showSecondType = true
                 } label: {
@@ -858,46 +800,26 @@ struct ShotDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
-            
+
             // Second type dropdown (only show when showSecondType is true)
             if showSecondType {
-                Menu {
-                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                        if typeCategory == .topShot || typeCategory == .pushIn {
-                            Divider()
-                        }
-                        Button(typeCategory.displayName) {
-                            shot.secondTypeCategory = typeCategory
-                            // Hide second dropdown if none is selected
-                            if typeCategory == .none {
-                                showSecondType = false
-                                showThirdType = false
-                                shot.thirdTypeCategory = .none
-                            }
+                OptionPickerView(
+                    noun: "type",
+                    placeholder: "Select type",
+                    sections: ShotTypeCategory.pickerGroups,
+                    value: $shot.secondTypeName,
+                    customKey: "customTypes",
+                    onSelect: {
+                        if $0.isEmpty {
+                            showSecondType = false
+                            showThirdType = false
+                            shot.thirdTypeName = ""
                         }
                     }
-                } label: {
-                    HStack {
-                        Text(shot.secondTypeCategory == .none ? "Select type" : shot.secondTypeCategory.displayName)
-                            .foregroundStyle(shot.secondTypeCategory == .none ? .secondary : .primary)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(minWidth: 60)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                
+                )
+
                 // Plus button for third type (only show when second type is selected and third is hidden)
-                if shot.secondTypeCategory != .none && !showThirdType {
+                if shot.hasSecondType && !showThirdType {
                     Button {
                         showThirdType = true
                     } label: {
@@ -909,7 +831,7 @@ struct ShotDetailView: View {
                 } else if !showThirdType {
                     // Remove button for second type (only show if third type is not visible)
                     Button {
-                        shot.secondTypeCategory = .none
+                        shot.secondTypeName = ""
                         showSecondType = false
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -919,45 +841,21 @@ struct ShotDetailView: View {
                     .buttonStyle(.plain)
                 }
             }
-            
+
             // Third type dropdown (only show when showThirdType is true)
             if showThirdType {
-                Menu {
-                    ForEach(ShotTypeCategory.allCases, id: \.self) { typeCategory in
-                        if typeCategory == .topShot || typeCategory == .pushIn {
-                            Divider()
-                        }
-                        Button(typeCategory.displayName) {
-                            shot.thirdTypeCategory = typeCategory
-                            // Hide third dropdown if none is selected
-                            if typeCategory == .none {
-                                showThirdType = false
-                            }
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Text(shot.thirdTypeCategory == .none ? "Select type" : shot.thirdTypeCategory.displayName)
-                            .foregroundStyle(shot.thirdTypeCategory == .none ? .secondary : .primary)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(minWidth: 60)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                
+                OptionPickerView(
+                    noun: "type",
+                    placeholder: "Select type",
+                    sections: ShotTypeCategory.pickerGroups,
+                    value: $shot.thirdTypeName,
+                    customKey: "customTypes",
+                    onSelect: { if $0.isEmpty { showThirdType = false } }
+                )
+
                 // Remove button for third type
                 Button {
-                    shot.thirdTypeCategory = .none
+                    shot.thirdTypeName = ""
                     showThirdType = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -1024,7 +922,13 @@ struct ShotDetailView: View {
             .font(.headline)
             .frame(width: 100, alignment: .leading)
 
-        GripPickerView(shot: shot)
+        OptionPickerView(
+            noun: "grip",
+            placeholder: "Select grip",
+            sections: ShotType.pickerGroups,
+            value: $shot.gripName,
+            customKey: "customGrips"
+        )
     }
 
     // Extra info — part of the core shot settings, right under Grip.
@@ -1231,13 +1135,13 @@ struct ShotDetailView: View {
                                 .foregroundStyle(.secondary)
                         }
                         // At-a-glance summary chips
-                        if shot.size != .none {
-                            headerChip(shot.secondSize == .none
-                                       ? shot.size.shortVersion
-                                       : "\(shot.size.shortVersion) → \(shot.secondSize.shortVersion)")
+                        if shot.hasSize {
+                            headerChip(shot.hasSecondSize
+                                       ? "\(shot.sizeShort) → \(shot.secondSizeShort)"
+                                       : shot.sizeShort)
                         }
-                        if shot.typeCategory != .none {
-                            headerChip(shot.typeCategory.shortDisplayName)
+                        if shot.hasType {
+                            headerChip(shot.typeShort)
                         }
                         if shot.hasGrip {
                             headerChip(shot.gripName)
@@ -1294,73 +1198,118 @@ struct ShotDetailView: View {
         }
                         .onAppear {
             // Show second type dropdown if a second type is already set
-            showSecondType = shot.secondTypeCategory != .none
+            showSecondType = shot.hasSecondType
             // Show third type dropdown if a third type is already set
-            showThirdType = shot.thirdTypeCategory != .none
+            showThirdType = shot.hasThirdType
             // Show second size dropdown if a second size is already set
-            showSecondSize = shot.secondSize != .none
+            showSecondSize = shot.hasSecondSize
         }
         .onChange(of: shot.id) { _, _ in
             // Each reference card owns its own pickers now; only the
             // shot-level toggles need resetting here.
-            showSecondType = shot.secondTypeCategory != .none
-            showThirdType = shot.thirdTypeCategory != .none
-            showSecondSize = shot.secondSize != .none
+            showSecondType = shot.hasSecondType
+            showThirdType = shot.hasThirdType
+            showSecondSize = shot.hasSecondSize
         }
     }
 
 }
 
-// MARK: - Grip Picker
+// MARK: - Option Picker
 
-/// The grip field: a button that opens a popover of grips laid out in two
-/// columns, grouped like with like. Custom grips are remembered app-wide and
-/// can be removed from here.
-struct GripPickerView: View {
-    @Bindable var shot: Shot
+/// A reusable field (size, type, grip): a button that opens a popover of options
+/// laid out in two balanced columns, grouped like with like. The user can add
+/// their own options, which are remembered app-wide and can be removed here.
+struct OptionPickerView: View {
+    typealias Option = (label: String, value: String)
+    typealias Section = (title: String, options: [Option])
 
-    // Custom grips are stored as one newline-joined string because @AppStorage
-    // can't hold an array directly.
-    @AppStorage("customGrips") private var customGripsRaw: String = ""
+    let noun: String                    // "size" / "type" / "grip"
+    let placeholder: String
+    let sections: [Section]             // built-in options
+    let grouped: Bool                   // false = one flat list, no section headers
+    @Binding var value: String          // the stored value
+    var onSelect: ((String) -> Void)? = nil   // called after any value change
+
+    // Custom options are stored as one newline-joined string because @AppStorage
+    // can't hold an array directly. The key is per-field, passed in at init.
+    @AppStorage private var customRaw: String
     @State private var isPresented = false
-    @State private var showAddGrip = false
-    @State private var newGripName = ""
+    @State private var showAdd = false
+    @State private var newName = ""
 
-    private var customGrips: [String] {
-        customGripsRaw.split(separator: "\n").map(String.init)
+    init(noun: String, placeholder: String, sections: [Section], grouped: Bool = true,
+         value: Binding<String>, customKey: String, onSelect: ((String) -> Void)? = nil) {
+        self.noun = noun
+        self.placeholder = placeholder
+        self.sections = sections
+        self.grouped = grouped
+        self._value = value
+        self.onSelect = onSelect
+        self._customRaw = AppStorage(wrappedValue: "", customKey)
     }
 
-    private typealias GripSection = (title: String, grips: [String])
+    private var customOptions: [String] {
+        customRaw.split(separator: "\n").map(String.init)
+    }
 
-    /// Built-in groups plus the user's custom list, each a section whose options
-    /// are listed vertically underneath.
-    private var allSections: [GripSection] {
-        var sections: [GripSection] = ShotType.menuGroups.map {
-            (title: $0.title, grips: $0.grips.map(\.displayName))
+    private var hasValue: Bool { !value.isEmpty && value != "none" }
+
+    /// The menu label for the current value — a built-in's display name, or the
+    /// custom text itself.
+    private var currentLabel: String {
+        for section in sections {
+            if let match = section.options.first(where: { $0.value == value }) { return match.label }
         }
-        if !customGrips.isEmpty { sections.append((title: "Custom", grips: customGrips)) }
-        return sections
+        return hasValue ? value : placeholder
+    }
+
+    /// Built-in groups plus the user's custom list. Custom options carry
+    /// label == value.
+    private var allSections: [Section] {
+        var result = sections
+        if !customOptions.isEmpty {
+            result.append((title: "Custom", options: customOptions.map { (label: $0, value: $0) }))
+        }
+        return result
     }
 
     /// Splits the sections into two balanced columns, keeping each section whole
     /// and preserving top-to-bottom order within a column. A section's weight is
     /// its options plus one for the header row.
-    private func splitColumns(_ sections: [GripSection]) -> (left: [GripSection], right: [GripSection]) {
-        let total = sections.reduce(0) { $0 + $1.grips.count + 1 }
+    private func splitColumns(_ sections: [Section]) -> (left: [Section], right: [Section]) {
+        let total = sections.reduce(0) { $0 + $1.options.count + 1 }
         var accumulated = 0
         var breakIndex = sections.count
         for (index, section) in sections.enumerated() {
-            accumulated += section.grips.count + 1
+            accumulated += section.options.count + 1
             if accumulated >= (total + 1) / 2 { breakIndex = index + 1; break }
         }
         return (Array(sections[..<breakIndex]), Array(sections[breakIndex...]))
     }
 
+    // Flat (ungrouped) layout: every built-in option followed by the customs,
+    // each tagged so custom ones can carry a remove button.
+    private var flatItems: [(option: Option, isCustom: Bool)] {
+        var items = sections.flatMap { $0.options }.map { (option: $0, isCustom: false) }
+        items += customOptions.map { (option: (label: $0, value: $0), isCustom: true) }
+        return items
+    }
+
+    private func itemColumn(_ items: [(option: Option, isCustom: Bool)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(items, id: \.option.value) { item in
+                optionChip(item.option, removable: item.isCustom)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     var body: some View {
         Button { isPresented.toggle() } label: {
             HStack {
-                Text(shot.hasGrip ? shot.gripName : "Select grip")
-                    .foregroundStyle(shot.hasGrip ? .primary : .secondary)
+                Text(currentLabel)
+                    .foregroundStyle(hasValue ? .primary : .secondary)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1377,85 +1326,89 @@ struct GripPickerView: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
-        .alert("Add Custom Grip", isPresented: $showAddGrip) {
-            TextField("Grip name", text: $newGripName)
-            Button("Add") { addCustomGrip(newGripName) }
+        .alert("Add Custom \(noun.capitalized)", isPresented: $showAdd) {
+            TextField("\(noun.capitalized) name", text: $newName)
+            Button("Add") { addCustom(newName) }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("Enter a grip name. It'll be saved for use in all your projects.")
+            Text("Enter a \(noun) name. It'll be saved for use in all your projects.")
         }
     }
 
     private var popover: some View {
-        let split = splitColumns(allSections)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+        // No fixed height — the popover fits its content, so a short list (sizes)
+        // doesn't leave empty space below.
+        VStack(alignment: .leading, spacing: 12) {
+            if grouped {
+                let split = splitColumns(allSections)
                 HStack(alignment: .top, spacing: 16) {
                     sectionColumn(split.left)
                     sectionColumn(split.right)
                 }
+            } else {
+                // No subdivisions: a single vertical list, no section headers.
+                itemColumn(flatItems)
+            }
 
-                Divider()
-                HStack {
-                    Button {
-                        // Close the popover first, then raise the alert — macOS
-                        // doesn't present an alert cleanly over an open popover.
-                        isPresented = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            newGripName = ""
-                            showAddGrip = true
-                        }
-                    } label: {
-                        Label("Add Custom Grip…", systemImage: "plus")
+            Divider()
+            HStack {
+                Button {
+                    // Close the popover first, then raise the alert — macOS
+                    // doesn't present an alert cleanly over an open popover.
+                    isPresented = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        newName = ""
+                        showAdd = true
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
+                } label: {
+                    Label("Add Custom \(noun.capitalized)…", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
 
-                    Spacer()
+                Spacer()
 
-                    if shot.hasGrip {
-                        Button("Clear") { shot.gripName = ""; isPresented = false }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                    }
+                if hasValue {
+                    Button("Clear") { select("") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(12)
         }
-        .frame(width: 360, height: 360)
+        .padding(12)
+        .frame(width: grouped ? 360 : 240)
     }
 
     /// One of the two side-by-side columns: a stack of whole sections.
-    private func sectionColumn(_ sections: [GripSection]) -> some View {
+    private func sectionColumn(_ sections: [Section]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(sections, id: \.title) { section in
-                gripSection(section)
+                optionSection(section)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A section header with its options listed vertically underneath.
-    private func gripSection(_ section: GripSection) -> some View {
+    private func optionSection(_ section: Section) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(section.title.uppercased())
                 .font(.caption2)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
-            ForEach(section.grips, id: \.self) { name in
-                gripChip(name, removable: section.title == "Custom")
+            ForEach(section.options, id: \.value) { option in
+                optionChip(option, removable: section.title == "Custom")
             }
         }
     }
 
-    private func gripChip(_ name: String, removable: Bool = false) -> some View {
-        let selected = shot.gripName.caseInsensitiveCompare(name) == .orderedSame
+    private func optionChip(_ option: Option, removable: Bool = false) -> some View {
+        let selected = option.value.caseInsensitiveCompare(value) == .orderedSame
         return HStack(spacing: 4) {
             Button {
-                shot.gripName = name
-                isPresented = false
+                select(option.value)
             } label: {
-                Text(name)
+                Text(option.label)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1463,13 +1416,13 @@ struct GripPickerView: View {
 
             if removable {
                 Button {
-                    removeCustomGrip(name)
+                    removeCustom(option.value)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .help("Remove this custom grip")
+                .help("Remove this custom \(noun)")
             }
         }
         .padding(.horizontal, 8)
@@ -1484,21 +1437,28 @@ struct GripPickerView: View {
         )
     }
 
-    /// Adds a custom grip app-wide (unless it duplicates a built-in or an
-    /// existing custom, case-insensitively) and selects it for this shot.
-    private func addCustomGrip(_ raw: String) {
-        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let taken = Set(customGrips.map { $0.lowercased() }
-                        + ShotType.allCases.map { $0.displayName.lowercased() })
-        if !taken.contains(name.lowercased()) {
-            customGripsRaw = (customGrips + [name]).joined(separator: "\n")
-        }
-        shot.gripName = name
+    private func select(_ newValue: String) {
+        value = newValue
+        isPresented = false
+        onSelect?(newValue)
     }
 
-    private func removeCustomGrip(_ name: String) {
-        customGripsRaw = customGrips
+    /// Adds a custom option app-wide (unless it duplicates a built-in label,
+    /// a built-in value, or an existing custom — all case-insensitively) and
+    /// selects it.
+    private func addCustom(_ raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let builtIn = sections.flatMap { $0.options }.flatMap { [$0.label.lowercased(), $0.value.lowercased()] }
+        let taken = Set(customOptions.map { $0.lowercased() } + builtIn)
+        if !taken.contains(name.lowercased()) {
+            customRaw = (customOptions + [name]).joined(separator: "\n")
+        }
+        select(name)
+    }
+
+    private func removeCustom(_ name: String) {
+        customRaw = customOptions
             .filter { $0.caseInsensitiveCompare(name) != .orderedSame }
             .joined(separator: "\n")
     }
