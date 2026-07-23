@@ -17,7 +17,6 @@ struct ProjectEditorView: View {
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
     // to SwiftData on every frame.
-    @State private var sceneWidth: CGFloat = 300
     @State private var scriptWidth: CGFloat = 420
     @State private var selectedScenes: Set<Scene> = []
     @State private var selectedShots: Set<Shot> = []
@@ -118,9 +117,6 @@ struct ProjectEditorView: View {
             project.migrateStructureIfNeeded()
             project.lastOpenedDate = Date()
 
-            // Seed the live column widths from the saved values (clamped, so an
-            // odd stored value can't make the window wider than the display)
-            sceneWidth = min(max(CGFloat(project.sceneColumnWidth), Self.sceneColumnMinWidth), sceneColumnMaxWidth)
             // scriptWidth is derived from the stored fraction once the width is known
             if selectedEpisode == nil {
                 selectedEpisode = project.orderedEpisodes.first
@@ -473,12 +469,15 @@ struct ProjectEditorView: View {
     private var minimumEditorWidth: CGFloat {
         // Uses each pane's *minimum* (not its preferred width) so the window can
         // still shrink to fit smaller displays.
-        250 + Self.shotColumnWidth + (Self.paneMinWidth * 2) + Self.dividerAllowance
+        (Self.sideColumnWidth * 2) + (Self.paneMinWidth * 2) + Self.dividerAllowance
     }
 
-    private static let shotColumnWidth: CGFloat = 190
+    /// Scenes and shots share one fixed width. Both have predictable row content
+    /// — the scene tag line ("EXT" + "NIGHT" + a three-digit shot count) is the
+    /// widest thing either shows — so neither needs a resize handle, and a shared
+    /// value keeps the two lists aligned with each other.
+    private static let sideColumnWidth: CGFloat = 190
     private static let dividerAllowance: CGFloat = 30
-    private static let sceneColumnMinWidth: CGFloat = 250
 
     // Shot details and script split the space left over from the fixed columns
     // evenly, and the divider between them is fixed — there is nothing to drag.
@@ -488,7 +487,7 @@ struct ProjectEditorView: View {
 
     /// Space the details and script panes divide between them.
     private func combinedPaneWidth(available: CGFloat) -> CGFloat {
-        max(0, available - sceneWidth - Self.shotColumnWidth - Self.dividerAllowance)
+        max(0, available - (Self.sideColumnWidth * 2) - Self.dividerAllowance)
     }
 
     /// Gives the script pane exactly half of what the pair has to share.
@@ -498,59 +497,15 @@ struct ProjectEditorView: View {
         scriptWidth = max(Self.paneMinWidth, combined * Self.scriptSplitDefault)
     }
 
-    /// The widest the scenes column ever usefully needs to be: enough to show the
-    /// longest "Scene 12A  Location" title in full. Dragging past this would only
-    /// add empty space, so it becomes the divider's maximum.
-    private var sceneColumnMaxWidth: CGFloat {
-        let titleFont = NSFont.preferredFont(forTextStyle: .headline)
-        let nameFont = NSFont.preferredFont(forTextStyle: .subheadline)
-
-        var widest: CGFloat = 0
-        for scene in orderedScenes {
-            let title = "Scene \(scene.sceneNumber)\(scene.suffix)"
-            var width = (title as NSString).size(withAttributes: [.font: titleFont]).width
-            let nickname = scene.nickname.trimmingCharacters(in: .whitespaces)
-            if !nickname.isEmpty {
-                width += 6 + (nickname as NSString).size(withAttributes: [.font: nameFont]).width
-            }
-            widest = max(widest, width)
-        }
-
-        // List row insets + selection chrome + a little breathing room
-        let chrome: CGFloat = 46
-        return max(Self.sceneColumnMinWidth, ceil(widest) + chrome)
-    }
-
-    /// Width the fixed columns may occupy before the flexible panes hit their minimums.
-    private func fixedColumnBudget(available: CGFloat) -> CGFloat {
-        available - (Self.paneMinWidth * 2) - Self.dividerAllowance
-    }
-
-    /// Keeps the stored widths inside what the current window can actually show.
-    private func clampColumnWidths(available: CGFloat) {
-        guard available > 0 else { return }
-        let budget = fixedColumnBudget(available: available)
-        guard budget > 0 else { return }
-        sceneWidth = min(sceneWidth,
-                         max(Self.sceneColumnMinWidth,
-                             min(sceneColumnMaxWidth, budget - Self.shotColumnWidth)))
-    }
-
     private var editorColumns: some View {
         GeometryReader { geo in
             editorColumnStack(available: geo.size.width)
                 .onAppear {
-                    clampColumnWidths(available: geo.size.width)
                     applyScriptSplit(available: geo.size.width)
                 }
                 .onChange(of: geo.size.width) { _, newWidth in
-                    clampColumnWidths(available: newWidth)
                     // Re-derive from the fraction so the split holds as the window resizes.
                     applyScriptSplit(available: newWidth)
-                }
-                .onChange(of: sceneWidth) { _, _ in
-                    // Widening the scenes column changes what the pair has to share.
-                    applyScriptSplit(available: geo.size.width)
                 }
         }
         .frame(minWidth: minimumEditorWidth, minHeight: 700)
@@ -558,7 +513,7 @@ struct ProjectEditorView: View {
 
     private func editorColumnStack(available: CGFloat) -> some View {
         HStack(spacing: 0) {
-            // Sidebar - Scenes (Resizable width)
+            // Sidebar - Scenes (fixed width, matching the shots column)
             SceneListView(
                 project: project,
                 version: selectedVersion,
@@ -568,21 +523,12 @@ struct ProjectEditorView: View {
                 onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
                 onDeleteScenes: { pendingSceneDeletion = $0 }
             )
-            .frame(width: sceneWidth)
+            .frame(width: Self.sideColumnWidth)
             .clipped()
 
-            // Draggable divider between Scenes and Shots. The maximum is whatever
-            // is left after the other panes' minimums, so a drag can never push
-            // content outside the window.
-            ResizableDivider(
-                width: $sceneWidth,
-                minWidth: 250,
-                maxWidth: max(Self.sceneColumnMinWidth,
-                              min(sceneColumnMaxWidth,
-                                  fixedColumnBudget(available: available) - Self.shotColumnWidth))
-            ) { project.sceneColumnWidth = Double($0) }
-            
-            // Middle column - Shots (Resizable width)
+            Divider()
+
+            // Middle column - Shots (fixed width)
             Group {
                 if let scene = selectedScene {
                     ShotListView(
@@ -601,7 +547,7 @@ struct ProjectEditorView: View {
             }
             // Fixed width: the shot rows have a predictable size, so this is just
             // wide enough to show them in full — no resize handle needed.
-            .frame(width: Self.shotColumnWidth)
+            .frame(width: Self.sideColumnWidth)
             .clipped()
 
             Divider()

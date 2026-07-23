@@ -186,21 +186,19 @@ struct SceneListView: View {
     @ViewBuilder
     private func sceneRow(for scene: Scene) -> some View {
         NavigationLink(value: scene) {
-            // Two lines so a narrow column can't push anything off the edge:
-            // title (truncating) above, tags + shot count below.
+            // Stacked so a narrow column can't push anything off the edge:
+            // title, then the scene name on its own line, then tags + shot count.
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text("Scene \(scene.sceneNumber)\(scene.suffix)")
-                        .font(.headline)
-                        .fixedSize()
-                    if !scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(scene.nickname)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    Spacer(minLength: 0)
+                Text("Scene \(scene.sceneNumber)\(scene.suffix)")
+                    .font(.headline)
+                    .lineLimit(1)
+
+                if !scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(scene.nickname)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 HStack(spacing: 6) {
@@ -434,32 +432,15 @@ struct ShotListView: View {
                             Text("Shot \(shot.displayNumber)")
                                 .font(.headline)
                                 .lineLimit(1)
-                            HStack(spacing: 4) {
-                                if !shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(shot.nickname)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if shot.size != .none {
-                                    if !shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        Text("•")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(shot.size.shortVersion)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    
-                                    // Show arrow and second size if it exists
-                                    if shot.secondSize != .none {
-                                        Image(systemName: "arrow.right")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                        Text(shot.secondSize.shortVersion)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                            // One Text rather than an HStack of pieces: an HStack
+                            // can't wrap, so a long subtitle got squeezed onto a
+                            // single line. This flows onto further lines instead.
+                            if let subtitle = shotSubtitle(for: shot) {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                         Spacer()
@@ -532,6 +513,35 @@ struct ShotListView: View {
     private func shotDeleteLabel(for shot: Shot) -> String {
         let count = deletionTargets(for: shot).count
         return count > 1 ? "Delete \(count) Shots" : "Delete Shot"
+    }
+
+    /// "Establishing • WS → MS • Static" — the row subtitle as one string, so it
+    /// wraps onto further lines rather than being squeezed onto one.
+    private func shotSubtitle(for shot: Shot) -> String? {
+        var parts: [String] = []
+
+        let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nickname.isEmpty { parts.append(nickname) }
+
+        if shot.size != .none {
+            var size = shot.size.shortVersion
+            if shot.secondSize != .none { size += " → " + shot.secondSize.shortVersion }
+            parts.append(size)
+        }
+
+        if let type = typeSummary(for: shot) { parts.append(type) }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
+    }
+
+    /// The shot's type for the row subtitle — "Static", or "Static + Handheld"
+    /// when a shot combines several. Matches how the exports read.
+    private func typeSummary(for shot: Shot) -> String? {
+        guard shot.typeCategory != .none else { return nil }
+        var text = shot.typeCategory.shortDisplayName
+        if shot.secondTypeCategory != .none { text += " + " + shot.secondTypeCategory.shortDisplayName }
+        if shot.thirdTypeCategory != .none { text += " + " + shot.thirdTypeCategory.shortDisplayName }
+        return text
     }
 
     private func addShot() {
