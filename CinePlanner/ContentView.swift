@@ -427,28 +427,38 @@ struct ShotListView: View {
                 ForEach(sortedShots) { shot in
                 NavigationLink(value: shot) {
                     HStack(spacing: 8) {
-                        Image(systemName: "camera.circle.fill")
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Shot \(shot.displayNumber)")
                                 .font(.headline)
                                 .lineLimit(1)
-                            // One Text rather than an HStack of pieces: an HStack
-                            // can't wrap, so a long subtitle got squeezed onto a
-                            // single line. This flows onto further lines instead.
-                            if let subtitle = shotSubtitle(for: shot) {
-                                Text(subtitle)
-                                    .font(.caption)
+                            // Nickname on its own line, at the scene-name size.
+                            let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !nickname.isEmpty {
+                                Text(nickname)
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            // Size and type as small labels below the nickname —
+                            // side by side when they fit, stacked when they don't.
+                            let sizeText = sizeSummary(for: shot)
+                            let typeText = typeSummary(for: shot)
+                            if sizeText != nil || typeText != nil {
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(spacing: 4) {
+                                        if let sizeText { detailTag(sizeText) }
+                                        if let typeText { detailTag(typeText) }
+                                    }
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        if let sizeText { detailTag(sizeText) }
+                                        if let typeText { detailTag(typeText) }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                         Spacer()
-                        if shot.hasAnyReferenceMedia {
-                            Image(systemName: "photo")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                 }
                 .draggable(shot.id.hashValue.description) {
@@ -515,23 +525,24 @@ struct ShotListView: View {
         return count > 1 ? "Delete \(count) Shots" : "Delete Shot"
     }
 
-    /// "Establishing • WS → MS • Static" — the row subtitle as one string, so it
-    /// wraps onto further lines rather than being squeezed onto one.
-    private func shotSubtitle(for shot: Shot) -> String? {
-        var parts: [String] = []
+    /// "WS → MS" — the shot's size (with a second size when set), or nil.
+    private func sizeSummary(for shot: Shot) -> String? {
+        guard shot.hasSize else { return nil }
+        var size = shot.sizeShort
+        if shot.hasSecondSize { size += " → " + shot.secondSizeShort }
+        return size
+    }
 
-        let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nickname.isEmpty { parts.append(nickname) }
-
-        if shot.hasSize {
-            var size = shot.sizeShort
-            if shot.hasSecondSize { size += " → " + shot.secondSizeShort }
-            parts.append(size)
-        }
-
-        if let type = typeSummary(for: shot) { parts.append(type) }
-
-        return parts.isEmpty ? nil : parts.joined(separator: " • ")
+    /// A small label chip for a shot detail, matching the scene rows' tag style.
+    private func detailTag(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     /// The shot's type for the row subtitle — "Static", or "Static + Handheld"
@@ -665,16 +676,17 @@ struct ShotDetailView: View {
         )
     }
 
-    /// Small accent chip for the header summary (size, type, grip).
+    /// Small label chip for the header summary (size, type, grip), matching the
+    /// detail tags in the shot list.
     private func headerChip(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .font(.caption2)
             .fontWeight(.semibold)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.12))
-            .clipShape(Capsule())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
     }
     
 
