@@ -369,7 +369,7 @@ struct ProjectExporter {
         if shot.lensfocal > 0 {
             rows.append(("Focal Length", shot.lensIsPrime ? "\(shot.lensfocal)mm" : "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"))
         }
-        if shot.type != .none { rows.append(("Grip", shot.type.displayName)) }
+        if shot.hasGrip { rows.append(("Grip", shot.gripName)) }
         if !shot.camera.isEmpty { rows.append(("Camera", shot.camera)) }
         if !shot.format.isEmpty { rows.append(("Format", shot.format)) }
         if !shot.framelines.isEmpty { rows.append(("Framelines", shot.framelines)) }
@@ -1549,8 +1549,8 @@ struct ProjectExporter {
                     output += detailRow("Focal", focal)
                 }
 
-                if shot.type != .none {
-                    output += detailRow("Grip", shot.type.displayName)
+                if shot.hasGrip {
+                    output += detailRow("Grip", shot.gripName)
                 }
                 if !shot.camera.isEmpty {
                     output += detailRow("Camera", shot.camera)
@@ -2442,7 +2442,7 @@ struct ProjectExporter {
         if shot.lensfocal > 0 {
             pairs.append(("Focal Length", shot.lensIsPrime ? "\(shot.lensfocal)mm" : "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"))
         }
-        if shot.type != .none { pairs.append(("Grip", shot.type.displayName)) }
+        if shot.hasGrip { pairs.append(("Grip", shot.gripName)) }
         if !shot.camera.isEmpty { pairs.append(("Camera", shot.camera)) }
         if !shot.format.isEmpty { pairs.append(("Format", shot.format)) }
         if !shot.framelines.isEmpty { pairs.append(("Framelines", shot.framelines)) }

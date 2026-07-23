@@ -1023,34 +1023,10 @@ struct ShotDetailView: View {
         Text("Grip")
             .font(.headline)
             .frame(width: 100, alignment: .leading)
-        
-        Menu {
-            ForEach(ShotType.allCases, id: \.self) { type in
-                Button(type.displayName) {
-                    shot.type = type
-                }
-            }
-        } label: {
-            HStack {
-                Text(shot.type == .none ? "Select grip" : shot.type.displayName)
-                    .foregroundStyle(shot.type == .none ? .secondary : .primary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 60)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+
+        GripPickerView(shot: shot)
     }
-    
+
     // Extra info — part of the core shot settings, right under Grip.
     // Vertical axis lets the field grow as the text gets longer.
     HStack(alignment: .top) {
@@ -1263,8 +1239,8 @@ struct ShotDetailView: View {
                         if shot.typeCategory != .none {
                             headerChip(shot.typeCategory.shortDisplayName)
                         }
-                        if shot.type != .none {
-                            headerChip(shot.type.displayName)
+                        if shot.hasGrip {
+                            headerChip(shot.gripName)
                         }
                     }
                 }
@@ -1332,7 +1308,200 @@ struct ShotDetailView: View {
             showSecondSize = shot.secondSize != .none
         }
     }
-    
+
+}
+
+// MARK: - Grip Picker
+
+/// The grip field: a button that opens a popover of grips laid out in two
+/// columns, grouped like with like. Custom grips are remembered app-wide and
+/// can be removed from here.
+struct GripPickerView: View {
+    @Bindable var shot: Shot
+
+    // Custom grips are stored as one newline-joined string because @AppStorage
+    // can't hold an array directly.
+    @AppStorage("customGrips") private var customGripsRaw: String = ""
+    @State private var isPresented = false
+    @State private var showAddGrip = false
+    @State private var newGripName = ""
+
+    private var customGrips: [String] {
+        customGripsRaw.split(separator: "\n").map(String.init)
+    }
+
+    private typealias GripSection = (title: String, grips: [String])
+
+    /// Built-in groups plus the user's custom list, each a section whose options
+    /// are listed vertically underneath.
+    private var allSections: [GripSection] {
+        var sections: [GripSection] = ShotType.menuGroups.map {
+            (title: $0.title, grips: $0.grips.map(\.displayName))
+        }
+        if !customGrips.isEmpty { sections.append((title: "Custom", grips: customGrips)) }
+        return sections
+    }
+
+    /// Splits the sections into two balanced columns, keeping each section whole
+    /// and preserving top-to-bottom order within a column. A section's weight is
+    /// its options plus one for the header row.
+    private func splitColumns(_ sections: [GripSection]) -> (left: [GripSection], right: [GripSection]) {
+        let total = sections.reduce(0) { $0 + $1.grips.count + 1 }
+        var accumulated = 0
+        var breakIndex = sections.count
+        for (index, section) in sections.enumerated() {
+            accumulated += section.grips.count + 1
+            if accumulated >= (total + 1) / 2 { breakIndex = index + 1; break }
+        }
+        return (Array(sections[..<breakIndex]), Array(sections[breakIndex...]))
+    }
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            HStack {
+                Text(shot.hasGrip ? shot.gripName : "Select grip")
+                    .foregroundStyle(shot.hasGrip ? .primary : .secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: 60)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.1))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
+        .alert("Add Custom Grip", isPresented: $showAddGrip) {
+            TextField("Grip name", text: $newGripName)
+            Button("Add") { addCustomGrip(newGripName) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter a grip name. It'll be saved for use in all your projects.")
+        }
+    }
+
+    private var popover: some View {
+        let split = splitColumns(allSections)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 16) {
+                    sectionColumn(split.left)
+                    sectionColumn(split.right)
+                }
+
+                Divider()
+                HStack {
+                    Button {
+                        // Close the popover first, then raise the alert — macOS
+                        // doesn't present an alert cleanly over an open popover.
+                        isPresented = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            newGripName = ""
+                            showAddGrip = true
+                        }
+                    } label: {
+                        Label("Add Custom Grip…", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+
+                    Spacer()
+
+                    if shot.hasGrip {
+                        Button("Clear") { shot.gripName = ""; isPresented = false }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 360, height: 360)
+    }
+
+    /// One of the two side-by-side columns: a stack of whole sections.
+    private func sectionColumn(_ sections: [GripSection]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(sections, id: \.title) { section in
+                gripSection(section)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A section header with its options listed vertically underneath.
+    private func gripSection(_ section: GripSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(section.title.uppercased())
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            ForEach(section.grips, id: \.self) { name in
+                gripChip(name, removable: section.title == "Custom")
+            }
+        }
+    }
+
+    private func gripChip(_ name: String, removable: Bool = false) -> some View {
+        let selected = shot.gripName.caseInsensitiveCompare(name) == .orderedSame
+        return HStack(spacing: 4) {
+            Button {
+                shot.gripName = name
+                isPresented = false
+            } label: {
+                Text(name)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            if removable {
+                Button {
+                    removeCustomGrip(name)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove this custom grip")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(selected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+        )
+    }
+
+    /// Adds a custom grip app-wide (unless it duplicates a built-in or an
+    /// existing custom, case-insensitively) and selects it for this shot.
+    private func addCustomGrip(_ raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let taken = Set(customGrips.map { $0.lowercased() }
+                        + ShotType.allCases.map { $0.displayName.lowercased() })
+        if !taken.contains(name.lowercased()) {
+            customGripsRaw = (customGrips + [name]).joined(separator: "\n")
+        }
+        shot.gripName = name
+    }
+
+    private func removeCustomGrip(_ name: String) {
+        customGripsRaw = customGrips
+            .filter { $0.caseInsensitiveCompare(name) != .orderedSame }
+            .joined(separator: "\n")
+    }
 }
 
 // MARK: - Photo Slot

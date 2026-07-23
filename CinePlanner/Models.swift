@@ -248,28 +248,49 @@ enum ShotSize: String, Codable, CaseIterable {
 enum ShotType: String, Codable, CaseIterable {
     case none = "none"
     case tripod = "Tripod"
+    case lowBowl = "Low Bowl"
     case dolly = "Dolly"
+    case slider = "Slider"
+    case rickshaw = "Rickshaw"
     case crane = "Crane"
+    case jib = "Jib"
+    case technocrane = "Technocrane"
     case handheld = "Handheld"
     case steadicam = "Steadicam"
+    case gimbal = "Gimbal"
+    case easyrig = "Easyrig"
     case drone = "Drone"
     case carmount = "Car Mount"
-    case special = "Special Grip"
-    
+
     var displayName: String {
         switch self {
         case .none: return "Select grip"
         case .tripod: return "Tripod"
-        case .handheld: return "Handheld"
+        case .lowBowl: return "Low Bowl"
         case .dolly: return "Dolly"
+        case .slider: return "Slider"
+        case .rickshaw: return "Rickshaw"
         case .crane: return "Crane"
+        case .jib: return "Jib"
+        case .technocrane: return "Technocrane"
+        case .handheld: return "Handheld"
         case .steadicam: return "Steadicam"
+        case .gimbal: return "Gimbal"
+        case .easyrig: return "Easyrig"
         case .drone: return "Drone"
         case .carmount: return "Car Mount"
-        case .special: return "Special Grip"
-            
         }
     }
+
+    /// Built-in grips grouped for the picker, so like sits with like.
+    static let menuGroups: [(title: String, grips: [ShotType])] = [
+        ("Sticks",           [.tripod, .lowBowl]),
+        ("Dolly & Track",    [.dolly, .slider, .rickshaw]),
+        ("Crane & Jib",      [.crane, .jib, .technocrane]),
+        ("Handheld",         [.handheld, .easyrig]),
+        ("Stabilized",       [.steadicam, .gimbal]),
+        ("Vehicle & Aerial", [.carmount, .drone]),
+    ]
 }
 
 enum ShotTypeCategory: String, Codable, CaseIterable {
@@ -283,6 +304,8 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
     case POV = "POV"
     case establishingShot = "Establishing Shot"
     case topShot = "Top Shot"
+    case overhead = "Overhead"
+    case aerial = "Aerial"
     case lowAngle = "Low Angle"
     case highAngle = "High Angle"
     case dutchAngle = "Dutch Angle"
@@ -304,6 +327,8 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
         case .POV: return "POV"
         case .establishingShot: return "Establishing Shot"
         case .topShot: return "Top Shot"
+        case .overhead: return "Overhead"
+        case .aerial: return "Aerial"
         case .lowAngle: return "Low Angle"
         case .highAngle: return "High Angle"
         case .dutchAngle: return "Dutch Angle"
@@ -314,7 +339,7 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
         case .zoomOut: return "Zoom Out"
         }
     }
-    
+
     var shortDisplayName: String {
         switch self {
         case .none: return "Select type"
@@ -327,6 +352,8 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
         case .POV: return "POV"
         case .establishingShot: return "Est. Shot"
         case .topShot: return "Top Shot"
+        case .overhead: return "Overhead"
+        case .aerial: return "Aerial"
         case .lowAngle: return "Low Angle"
         case .highAngle: return "High Angle"
         case .dutchAngle: return "Dutch Angle"
@@ -614,6 +641,16 @@ final class Shot {
             typeRaw = newValue.rawValue
         }
     }
+
+    /// The grip as free text — a built-in name or a user's custom one; empty
+    /// when unset. Backed by the same field as `type`, so a custom string that
+    /// isn't one of the built-ins round-trips here where `type` would flatten it
+    /// to `.none`.
+    var gripName: String {
+        get { (typeRaw.isEmpty || typeRaw == "none") ? "" : typeRaw }
+        set { typeRaw = newValue }
+    }
+    var hasGrip: Bool { !gripName.isEmpty }
     
     init(shotNumber: Int, shotInformation: String = "") {
         self.shotNumber = shotNumber
@@ -704,7 +741,7 @@ extension Shot {
         copy.typeCategory = typeCategory
         copy.secondTypeCategory = secondTypeCategory
         copy.thirdTypeCategory = thirdTypeCategory
-        copy.type = type
+        copy.gripName = gripName   // preserves a custom grip that `type` would flatten
         copy.suffix = suffix
         copy.nickname = nickname
         copy.lensIsPrime = lensIsPrime
