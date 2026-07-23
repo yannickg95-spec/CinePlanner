@@ -306,7 +306,7 @@ struct ProjectEditorView: View {
 
                 Image(systemName: "doc.text.magnifyingglass")
                     .foregroundStyle(.secondary)
-                Text("Version:")
+                Text("Script Version:")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
