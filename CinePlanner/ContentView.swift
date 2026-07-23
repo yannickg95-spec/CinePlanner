@@ -190,12 +190,14 @@ struct SceneListView: View {
             // title, then the scene name on its own line, then tags + shot count.
             VStack(alignment: .leading, spacing: 3) {
                 Text("Scene \(scene.sceneNumber)\(scene.suffix)")
-                    .font(.headline)
+                    .font(.title3)
+                    .fontWeight(.semibold)
                     .lineLimit(1)
 
                 if !scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(scene.nickname)
-                        .font(.subheadline)
+                        .font(.headline)
+                        .fontWeight(.regular)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -429,13 +431,15 @@ struct ShotListView: View {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Shot \(shot.displayNumber)")
-                                .font(.headline)
+                                .font(.title3)
+                                .fontWeight(.semibold)
                                 .lineLimit(1)
                             // Nickname on its own line, at the scene-name size.
                             let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !nickname.isEmpty {
                                 Text(nickname)
-                                    .font(.subheadline)
+                                    .font(.headline)
+                                    .fontWeight(.regular)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
