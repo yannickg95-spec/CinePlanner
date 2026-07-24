@@ -18,6 +18,7 @@ struct ProjectListView: View {
     @State private var searchText = ""
     @State private var importErrorMessage: String?
     @State private var showingRestoreSheet = false
+    @State private var recoveryMessage: String?
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
     enum ProjectSort: String, CaseIterable, Identifiable {
@@ -73,6 +74,21 @@ struct ProjectListView: View {
             }
             .sheet(isPresented: $showingRestoreSheet) {
                 RestoreBackupSheet()
+            }
+            .alert("Data Recovery", isPresented: Binding(
+                get: { recoveryMessage != nil },
+                set: { if !$0 { recoveryMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(recoveryMessage ?? "")
+            }
+            .onAppear {
+                // Surface a recovery notice from the launch's store-open, once.
+                if let message = UserDefaults.standard.string(forKey: CinePlannerApp.recoveryMessageKey) {
+                    recoveryMessage = message
+                    UserDefaults.standard.removeObject(forKey: CinePlannerApp.recoveryMessageKey)
+                }
             }
         }
         .frame(minWidth: 900, minHeight: 600)

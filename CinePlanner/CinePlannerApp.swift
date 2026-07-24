@@ -10,31 +10,55 @@ import SwiftData
 
 @main
 struct CinePlannerApp: App {
+    static let recoveryMessageKey = "storeRecoveryMessage"
+
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Project.self,
-            Episode.self,
-            ScriptVersion.self,
-            Scene.self,
-            Shot.self,
-            ShotReference.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let schema = Schema(versionedSchema: SchemaV1.self)
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
-        // Apply a queued restore before the store is opened — the only safe
-        // moment to overwrite the store files.
+        // Before the store is opened (the only safe moment to touch its files):
+        // apply a queued restore, then snapshot the last good state ahead of any
+        // migration this launch runs.
         StoreBackup.performPendingRestoreIfNeeded()
+        StoreBackup.backupBeforeOpening()
 
-        do {
-            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+        func open() throws -> ModelContainer {
+            try ModelContainer(for: schema, migrationPlan: CinePlannerMigrationPlan.self, configurations: [config])
+        }
+        func finish(_ container: ModelContainer) -> ModelContainer {
+            StoreBackup.recordStoreURL(container)
             Self.backfillUIDsIfNeeded(container)
-            // Snapshot the (possibly just-restored) store for next time.
             StoreBackup.backupIfNeeded(container: container)
             return container
+        }
+
+        do {
+            return finish(try open())
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // The store won't open — corruption, an interrupted write, or a bad
+            // migration. Recover instead of crashing.
+            // 1. Restore the most recent backup and retry.
+            if let latest = StoreBackup.listBackups().first,
+               StoreBackup.restoreNow(latest),
+               let container = try? open() {
+                Self.setRecoveryMessage("Your data couldn't be opened, so it was restored from the most recent backup (\(latest.date.formatted(date: .abbreviated, time: .shortened))).")
+                return finish(container)
+            }
+            // 2. Set the unreadable store aside and start fresh, so the app opens.
+            //    The real data is quarantined and still lives in Backups.
+            StoreBackup.quarantineUnreadableStore()
+            if let container = try? open() {
+                Self.setRecoveryMessage("Your data couldn't be opened and no backup could be restored automatically. It's been set aside safely — use “Restore from Backup…” to recover a snapshot.")
+                return finish(container)
+            }
+            // 3. Even a fresh store won't open — the environment itself is broken.
+            fatalError("Could not open or recover the data store: \(error)")
         }
     }()
+
+    private static func setRecoveryMessage(_ message: String) {
+        UserDefaults.standard.set(message, forKey: recoveryMessageKey)
+    }
 
     /// The `uid` property is new, so rows that existed before it was added may
     /// share the default value the migration applied. Once, on first launch

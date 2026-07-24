@@ -2,14 +2,14 @@
 //  StoreBackup.swift
 //  CinePlanner
 //
-//  Automatic, timestamped snapshots of the SwiftData store, so a corrupt write
-//  or a fat-finger is never a total loss. A snapshot copies the store file and
-//  everything beside it (the -wal/-shm sidecars and the external-storage
-//  _SUPPORT folder that holds script PDFs).
+//  Automatic, timestamped snapshots of the SwiftData store, so a corrupt write,
+//  a fat-finger, or a bad migration is never a total loss. A snapshot copies the
+//  store file and everything beside it (the -wal/-shm sidecars and the
+//  external-storage _SUPPORT folder that holds script PDFs).
 //
-//  Restore is applied on the *next* launch, before the store is opened — the
-//  only safe moment to overwrite it — so we never swap the store out from under
-//  a live container.
+//  Snapshots are taken *before* the store is opened, so they capture the last
+//  good state ahead of any migration this launch might run. Restore is likewise
+//  applied before the store is opened — the only safe moment to overwrite it.
 //
 
 import Foundation
@@ -21,9 +21,10 @@ enum StoreBackup {
     private static let restorePendingKey = "pendingRestoreBackupPath"
     private static let storeURLKey = "recordedStoreURL"
 
+    /// Millisecond resolution so two snapshots in one launch never collide.
     private static let folderFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        f.dateFormat = "yyyy-MM-dd-HHmmss-SSS"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
@@ -37,16 +38,16 @@ enum StoreBackup {
 
     // MARK: - Locations
 
-    /// The set of files that make up the store: the store file itself, its
-    /// sidecars, and the external-storage support folder — everything in the
-    /// store's directory whose name shares the store's base name.
+    /// The files that make up the store: the store file, its sidecars, and the
+    /// external-storage support folder — everything in the store's directory
+    /// whose name shares the store's base name.
     private static func storeItems(for storeURL: URL) -> [URL] {
         let dir = storeURL.deletingLastPathComponent()
         let base = storeURL.lastPathComponent   // e.g. "default.store"
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil,
             options: [.skipsSubdirectoryDescendants])) ?? []
-        return contents.filter { $0.lastPathComponent.contains(base) }
+        return contents.filter { $0.lastPathComponent.contains(base) && !$0.lastPathComponent.contains(".corrupt-") }
     }
 
     private static var backupsRoot: URL? {
@@ -56,15 +57,36 @@ enum StoreBackup {
         return support.appending(path: "Backups")
     }
 
-    // MARK: - Snapshot (on launch)
+    /// The store location, recorded after a successful open so later launches
+    /// (which run before the container exists) know where the store lives.
+    static var recordedStoreURL: URL? {
+        UserDefaults.standard.string(forKey: storeURLKey).map { URL(fileURLWithPath: $0) }
+    }
 
-    /// Snapshots the store if it has changed since the most recent backup.
+    static func recordStoreURL(_ container: ModelContainer) {
+        if let url = container.configurations.first?.url {
+            UserDefaults.standard.set(url.path, forKey: storeURLKey)
+        }
+    }
+
+    // MARK: - Snapshot
+
+    /// Snapshots the on-disk store before it's opened — capturing the last good
+    /// state ahead of any migration. No-op on the first ever launch (no store
+    /// location recorded yet) and when nothing changed since the last snapshot.
+    static func backupBeforeOpening() {
+        guard let url = recordedStoreURL else { return }
+        snapshot(storeURL: url)
+    }
+
+    /// Snapshots the current store after a successful open — covers the very
+    /// first launch, when there was no recorded location to snapshot beforehand.
     static func backupIfNeeded(container: ModelContainer) {
-        guard let storeURL = container.configurations.first?.url else { return }
-        // Record the real store location so a restore next launch knows where to
-        // put the files back, before the container exists.
-        UserDefaults.standard.set(storeURL.path, forKey: storeURLKey)
+        guard let url = container.configurations.first?.url else { return }
+        snapshot(storeURL: url)
+    }
 
+    private static func snapshot(storeURL: URL) {
         guard let root = backupsRoot else { return }
         let items = storeItems(for: storeURL)
         guard !items.isEmpty else { return }
@@ -86,7 +108,6 @@ enum StoreBackup {
         prune()
     }
 
-    /// The most recent modification time across the store's files.
     private static func newestChange(_ items: [URL]) -> Date {
         items.compactMap {
             (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -103,7 +124,6 @@ enum StoreBackup {
 
     // MARK: - Listing
 
-    /// Existing snapshots, newest first.
     static func listBackups() -> [Backup] {
         guard let root = backupsRoot,
               let dirs = try? FileManager.default.contentsOfDirectory(
@@ -118,48 +138,59 @@ enum StoreBackup {
 
     private static func directorySize(_ url: URL) -> Int64 {
         guard let items = try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.fileSizeKey],
-            options: []) else { return 0 }
+            at: url, includingPropertiesForKeys: [.fileSizeKey], options: []) else { return 0 }
         return items.reduce(0) { total, item in
-            let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            return total + Int64(size)
+            total + Int64((try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
     }
 
-    // MARK: - Restore (queued now, applied on next launch)
+    // MARK: - Restore
 
+    /// Queues a user-chosen restore, applied on the next launch before the store
+    /// opens (see performPendingRestoreIfNeeded).
     static func requestRestore(_ backup: Backup) {
         UserDefaults.standard.set(backup.url.path, forKey: restorePendingKey)
     }
 
-    static var restoreIsPending: Bool {
-        UserDefaults.standard.string(forKey: restorePendingKey) != nil
-    }
-
-    /// Applied at launch, *before* the ModelContainer opens the store — the only
-    /// safe moment to overwrite the store files. Copies a queued backup over the
-    /// live store location, then clears the flag.
     static func performPendingRestoreIfNeeded() {
         let defaults = UserDefaults.standard
         guard let backupPath = defaults.string(forKey: restorePendingKey),
               let storePath = defaults.string(forKey: storeURLKey) else { return }
         defer { defaults.removeObject(forKey: restorePendingKey) }
+        _ = copyBackup(URL(fileURLWithPath: backupPath), toStoreURL: URL(fileURLWithPath: storePath))
+    }
 
-        let backupDir = URL(fileURLWithPath: backupPath)
-        let storeURL = URL(fileURLWithPath: storePath)
-        let storeDir = storeURL.deletingLastPathComponent()
+    /// Immediate restore during recovery — the store must not be open. Returns
+    /// whether the copy succeeded.
+    @discardableResult
+    static func restoreNow(_ backup: Backup) -> Bool {
+        guard let storeURL = recordedStoreURL else { return false }
+        return copyBackup(backup.url, toStoreURL: storeURL)
+    }
 
-        guard let backupItems = try? FileManager.default.contentsOfDirectory(
-            at: backupDir, includingPropertiesForKeys: nil, options: []) else { return }
-
-        // Remove the current store files, then lay the backup's copies down.
+    /// Moves an unreadable store aside (…​.corrupt-<timestamp>) so a fresh one can
+    /// be created and the app can open. The bad files stay for manual recovery.
+    static func quarantineUnreadableStore() {
+        guard let storeURL = recordedStoreURL else { return }
+        let stamp = folderFormatter.string(from: Date())
         for item in storeItems(for: storeURL) {
-            try? FileManager.default.removeItem(at: item)
+            let aside = item.deletingLastPathComponent()
+                .appending(path: item.lastPathComponent + ".corrupt-\(stamp)")
+            try? FileManager.default.moveItem(at: item, to: aside)
         }
-        for item in backupItems {
+    }
+
+    private static func copyBackup(_ backupDir: URL, toStoreURL storeURL: URL) -> Bool {
+        let storeDir = storeURL.deletingLastPathComponent()
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: backupDir, includingPropertiesForKeys: nil, options: []) else { return false }
+        for item in storeItems(for: storeURL) { try? FileManager.default.removeItem(at: item) }
+        var ok = true
+        for item in items {
             let dest = storeDir.appending(path: item.lastPathComponent)
             try? FileManager.default.removeItem(at: dest)
-            try? FileManager.default.copyItem(at: item, to: dest)
+            do { try FileManager.default.copyItem(at: item, to: dest) } catch { ok = false }
         }
+        return ok
     }
 }
