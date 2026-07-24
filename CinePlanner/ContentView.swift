@@ -569,6 +569,11 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         scene.shots.append(newShot)
+        // Persist now so the new shot — and, on a brand-new project, its new
+        // scene — get permanent ids and a settled relationship before the detail
+        // pane resolves the selection. Otherwise the very first shot can't be
+        // opened until the scene is reselected.
+        try? scene.modelContext?.save()
         selectedShots = [newShot.uid]
     }
     

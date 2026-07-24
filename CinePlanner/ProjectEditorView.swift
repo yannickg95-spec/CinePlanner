@@ -122,11 +122,16 @@ struct ProjectEditorView: View {
                 selectedScenes = []
             }
         }
-        .onChange(of: selectedScene) { oldScene, newScene in
+        // Key on the scene's stable uid, not the scene itself: a brand-new scene's
+        // persistentModelID (which drives Scene's Equatable) flips on its first
+        // save, and keying on the scene would fire this handler on that flip and
+        // wipe a just-made shot selection. uid never changes, so this fires only
+        // on a real scene switch.
+        .onChange(of: selectedScene?.uid) { oldUID, newUID in
             // Picking a scene lands on its first shot, so the detail pane always
             // has something to show. Scenes without shots clear the selection.
-            guard oldScene !== newScene else { return }
-            if let firstShot = newScene?.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
+            guard oldUID != newUID else { return }
+            if let firstShot = selectedScene?.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
                 selectedShots = [firstShot.uid]
             } else {
                 selectedShots = []
