@@ -944,6 +944,8 @@ struct ProjectExporter {
           [hidden] { display: none !important; }
 
           /* View toggle (segmented control) */
+          .view-label { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+                        color: var(--faint); }
           .viewtoggle { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; }
           .vt { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 11px; border: 0;
                 background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
@@ -1035,8 +1037,9 @@ struct ProjectExporter {
               <button class="chip" data-group="media" data-value="media" type="button">Has media</button>
             </div>
             <div class="tools">
-              <div class="viewtoggle" role="group" aria-label="View density">
-                <button class="vt" id="view-comfortable" data-view="comfortable" type="button" aria-pressed="true" title="Full cards">Comfortable</button>
+              <span class="view-label">View</span>
+              <div class="viewtoggle" role="group" aria-label="View mode">
+                <button class="vt" id="view-comfortable" data-view="comfortable" type="button" aria-pressed="true" title="Full detail cards">Extended</button>
                 <button class="vt" id="view-compact" data-view="compact" type="button" aria-pressed="false" title="Dense one-line rows">Compact</button>
               </div>
               <span class="count" id="count"></span>
