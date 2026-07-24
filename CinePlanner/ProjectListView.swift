@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import AppKit
 
 struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -15,6 +16,7 @@ struct ProjectListView: View {
     @State private var showingNewProjectSheet = false
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
+    @State private var importErrorMessage: String?
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
     enum ProjectSort: String, CaseIterable, Identifiable {
@@ -60,8 +62,38 @@ struct ProjectListView: View {
                     createProject(named: projectName, isSeries: isSeries, scriptURL: scriptURL)
                 }
             }
+            .alert("Couldn't Import Project", isPresented: Binding(
+                get: { importErrorMessage != nil },
+                set: { if !$0 { importErrorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(importErrorMessage ?? "")
+            }
         }
         .frame(minWidth: 900, minHeight: 600)
+    }
+
+    /// Reads a .cineplan file and adds its project (with fresh ids) to the store.
+    @MainActor
+    private func importProject() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Project"
+        panel.allowedContentTypes = [UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let project = try ProjectArchive.importProject(from: data, into: modelContext)
+            try modelContext.save()
+            navigationPath.append(project)   // open the imported project
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
     }
 
     // MARK: - Grid
@@ -97,6 +129,13 @@ struct ProjectListView: View {
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
+
+                Button {
+                    importProject()
+                } label: {
+                    Label("Import…", systemImage: "square.and.arrow.down")
+                }
+                .help("Import a project from a .cineplan file")
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -235,6 +274,7 @@ struct ProjectCardView: View {
     @Bindable var project: Project
     @State private var showingEditSheet = false
     @State private var showingDeleteAlert = false
+    @State private var exportErrorMessage: String?
     @Environment(\.modelContext) private var modelContext
 
     private var shotCount: Int {
@@ -298,6 +338,11 @@ struct ProjectCardView: View {
             } label: {
                 Label("Rename…", systemImage: "pencil")
             }
+            Button {
+                exportProject()
+            } label: {
+                Label("Export Project…", systemImage: "square.and.arrow.up")
+            }
             Divider()
             Button(role: .destructive) {
                 showingDeleteAlert = true
@@ -307,6 +352,14 @@ struct ProjectCardView: View {
         }
         .sheet(isPresented: $showingEditSheet) {
             EditProjectNameSheet(project: project, isPresented: $showingEditSheet)
+        }
+        .alert("Couldn't Export Project", isPresented: Binding(
+            get: { exportErrorMessage != nil },
+            set: { if !$0 { exportErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(exportErrorMessage ?? "")
         }
         .alert("Delete “\(project.filmName)”?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
@@ -325,6 +378,24 @@ struct ProjectCardView: View {
             return "Opened \(formatter.localizedString(for: opened, relativeTo: Date()))"
         }
         return "Created \(formatter.localizedString(for: project.createdDate, relativeTo: Date()))"
+    }
+
+    /// Writes the whole project (media included) to a single .cineplan file the
+    /// user can back up or hand off.
+    @MainActor
+    private func exportProject() {
+        let panel = NSSavePanel()
+        panel.title = "Export Project"
+        panel.nameFieldStringValue = ProjectArchive.suggestedFileName(for: project)
+        panel.allowedContentTypes = [UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try ProjectArchive.data(for: project)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            exportErrorMessage = error.localizedDescription
+        }
     }
 }
 
