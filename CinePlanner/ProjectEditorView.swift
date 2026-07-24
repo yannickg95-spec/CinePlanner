@@ -448,7 +448,7 @@ struct ProjectEditorView: View {
     private var minimumEditorWidth: CGFloat {
         // Uses each pane's *minimum* (not its preferred width) so the window can
         // still shrink to fit smaller displays.
-        (Self.sideColumnWidth * 2) + (Self.paneMinWidth * 2) + Self.dividerAllowance
+        (Self.sideColumnWidth * 2) + Self.paneMinWidth + Self.detailPaneMinWidth + Self.dividerAllowance
     }
 
     /// Scenes and shots share one fixed width. Both have predictable row content
@@ -456,16 +456,19 @@ struct ProjectEditorView: View {
     /// widest thing either shows — so neither needs a resize handle, and a shared
     /// value keeps the two lists aligned with each other.
     private static let sideColumnWidth: CGFloat = 190
-    private static let dividerAllowance: CGFloat = 30
+    private static let dividerAllowance: CGFloat = 12
 
     // Shot details and script split the space left over from the fixed columns.
-    // The divider is draggable, but only within a band around the middle — a
-    // little adjustment either way, not a free resize.
+    // Default 50/50; the divider may move up to 20% of the pair either way.
     private static let scriptSplitDefault: CGFloat = 0.5
-    private static let scriptSplitMinFraction: CGFloat = 0.40
-    private static let scriptSplitMaxFraction: CGFloat = 0.60
-    /// Hard floor so a very narrow window can't collapse either pane entirely.
-    private static let paneMinWidth: CGFloat = 240
+    private static let scriptSplitMinFraction: CGFloat = 0.30
+    private static let scriptSplitMaxFraction: CGFloat = 0.70
+    /// Script pane minimum — low, so the script can shrink to 30% (letting the
+    /// details pane grow) on normal windows.
+    private static let paneMinWidth: CGFloat = 200
+    /// Details pane minimum — set by its content (labelled fields), so the script
+    /// only grows past 50% when the window is wide enough to leave this much room.
+    private static let detailPaneMinWidth: CGFloat = 340
 
     /// Space the details and script panes divide between them.
     private func combinedPaneWidth(available: CGFloat) -> CGFloat {
@@ -473,11 +476,11 @@ struct ProjectEditorView: View {
     }
 
     /// The width range the script pane may be dragged to at the current window
-    /// size: the split band, clamped so neither pane drops below its minimum.
+    /// size: the ±20% band, clamped so neither pane drops below its minimum.
     private func scriptWidthBounds(available: CGFloat) -> (min: CGFloat, max: CGFloat) {
         let combined = combinedPaneWidth(available: available)
         let low = max(Self.paneMinWidth, combined * Self.scriptSplitMinFraction)
-        let high = min(combined - Self.paneMinWidth, combined * Self.scriptSplitMaxFraction)
+        let high = min(combined - Self.detailPaneMinWidth, combined * Self.scriptSplitMaxFraction)
         return (min(low, high), max(low, high))
     }
 
@@ -563,7 +566,7 @@ struct ProjectEditorView: View {
             }
             // Detail is the flexible pane: it absorbs whatever width is left and can
             // compress down to its minimum so the layout fits narrower displays.
-            .frame(minWidth: Self.paneMinWidth, maxWidth: .infinity)
+            .frame(minWidth: Self.detailPaneMinWidth, maxWidth: .infinity)
 
             // Draggable divider setting the script pane's width. The script pane
             // is to the right, so the drag is inverted. Its range is the split

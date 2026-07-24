@@ -737,7 +737,7 @@ struct ShotDetailView: View {
 
         TextField("Add a nickname for this shot", text: $shot.nickname)
             .textFieldStyle(.roundedBorder)
-            .frame(width: 200)
+            .frame(maxWidth: 200)
     }
     
     HStack {
@@ -963,7 +963,7 @@ struct ShotDetailView: View {
         TextField("Additional information", text: $shot.extraInfo, axis: .vertical)
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...10)
-            .frame(width: 200)
+            .frame(maxWidth: 200)
     }
 
     }
@@ -1046,7 +1046,7 @@ struct ShotDetailView: View {
             HStack(spacing: 4) {
                 TextField("Camera name", text: $shot.camera)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
+                    .frame(maxWidth: 200)
 
                 // Show suggestions menu if there are previous values
                 if !previousCameraValues.isEmpty {
@@ -1076,7 +1076,7 @@ struct ShotDetailView: View {
             HStack(spacing: 4) {
                 TextField("Format", text: $shot.format)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
+                    .frame(maxWidth: 200)
 
                 // Show suggestions menu if there are previous values
                 if !previousFormatValues.isEmpty {
@@ -1119,7 +1119,7 @@ struct ShotDetailView: View {
             HStack(spacing: 4) {
                 TextField("Lens name", text: $shot.lensPreset)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 200)
+                    .frame(maxWidth: 200)
 
                 // Show suggestions menu if there are previous values
                 if !previousLensValues.isEmpty {
