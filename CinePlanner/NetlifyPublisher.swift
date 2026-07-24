@@ -95,8 +95,9 @@ enum NetlifyPublisher {
         log.append("Site: \(siteURL) (id \(siteID))")
 
         // 3. Deploy the zip — Netlify unzips and serves it.
-        let deployID = try await deployZip(siteID: siteID, zip: zipData, token: token)
+        let (deployID, deployDiag) = try await deployZip(siteID: siteID, zip: zipData, token: token)
         log.append("Deploy \(deployID) created")
+        log.append(deployDiag)
 
         // 4. Wait until the deploy is live, capturing its own URL and state.
         let deploy = await waitForDeploy(deployID: deployID, token: token)
@@ -156,15 +157,19 @@ enum NetlifyPublisher {
         return url
     }
 
-    private static func deployZip(siteID: String, zip: Data, token: String) async throws -> String {
+    private static func deployZip(siteID: String, zip: Data, token: String) async throws -> (id: String, diag: String) {
         var request = URLRequest(url: base.appending(path: "sites/\(siteID)/deploys"))
         request.httpMethod = "POST"
         request.setValue("application/zip", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = zip
-        let json = try await sendJSON(request)
+        let (data, http) = try await sendRaw(request)
+        let json = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) ?? [:]
         guard let id = json["id"] as? String else { throw NetlifyError.badResponse }
-        return id
+        var diag = ["Deploy POST: HTTP \(http.statusCode), landed on \(http.url?.absoluteString ?? "?")"]
+        if let req = json["required"] as? [String] { diag.append("Deploy 'required' at create: \(req.count)") }
+        if let state = json["state"] as? String { diag.append("Deploy state at create: \(state)") }
+        return (id, diag.joined(separator: "\n"))
     }
 
     private struct DeployStatus { let state: String; let deployURL: String? }
@@ -195,14 +200,25 @@ enum NetlifyPublisher {
 
     // MARK: - Transport
 
-    private static func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+    /// URLSession drops the method and body on a 301/302/303 redirect (POST → GET,
+    /// no body) — which silently produced empty deploys. NetlifyRedirectPreserver
+    /// re-attaches the original method, body and headers so a redirect can't strip
+    /// them.
+    private static let session = URLSession(configuration: .default,
+                                            delegate: NetlifyRedirectPreserver(), delegateQueue: nil)
+
+    @discardableResult
+    private static func sendRaw(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NetlifyError.badResponse }
         guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw NetlifyError.http(http.statusCode, body)
+            throw NetlifyError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        return data
+        return (data, http)
+    }
+
+    private static func send(_ request: URLRequest) async throws -> Data {
+        try await sendRaw(request).0
     }
 
     private static func sendJSON(_ request: URLRequest) async throws -> [String: Any] {
@@ -211,6 +227,22 @@ enum NetlifyPublisher {
             throw NetlifyError.badResponse
         }
         return json
+    }
+}
+
+// MARK: - Redirect-preserving delegate
+
+private final class NetlifyRedirectPreserver: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let original = task.originalRequest else { completionHandler(request); return }
+        var req = request
+        req.httpMethod = original.httpMethod
+        req.httpBody = original.httpBody
+        original.allHTTPHeaderFields?.forEach { req.setValue($1, forHTTPHeaderField: $0) }
+        completionHandler(req)
     }
 }
 
