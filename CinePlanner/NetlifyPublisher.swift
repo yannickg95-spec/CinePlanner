@@ -98,11 +98,17 @@ enum NetlifyPublisher {
         let deployID = try await deployZip(siteID: siteID, zip: zipData, token: token)
         log.append("Deploy \(deployID) created")
 
-        // 4. Wait until the deploy is live, then hand back the site's stable URL.
-        let finalState = await waitForDeploy(deployID: deployID, token: token)
-        log.append("Final deploy state: \(finalState)")
+        // 4. Wait until the deploy is live, capturing its own URL and state.
+        let deploy = await waitForDeploy(deployID: deployID, token: token)
+        log.append("Final deploy state: \(deploy.state)")
+        if let deployURL = deploy.deployURL { log.append("Deploy URL: \(deployURL)") }
+        if let published = try? await publishedDeployID(siteID: siteID, token: token) {
+            log.append("Site's published deploy: \(published) (this deploy: \(deployID))")
+        }
 
-        return Result(url: siteURL, siteID: siteID, adminURL: adminURL, diagnostics: log.joined(separator: "\n"))
+        // Prefer the deploy-specific URL if the production URL isn't reflecting it.
+        let link = deploy.deployURL ?? siteURL
+        return Result(url: link, siteID: siteID, adminURL: adminURL, diagnostics: log.joined(separator: "\n"))
     }
 
     // MARK: - Files
@@ -161,19 +167,30 @@ enum NetlifyPublisher {
         return id
     }
 
+    private struct DeployStatus { let state: String; let deployURL: String? }
+
     /// Polls the deploy until Netlify reports it live ("ready"), returning the
-    /// last state seen. Never throws — the site URL is valid regardless.
-    private static func waitForDeploy(deployID: String, token: String) async -> String {
+    /// last state and the deploy's own URL. Never throws.
+    private static func waitForDeploy(deployID: String, token: String) async -> DeployStatus {
         var last = "unknown"
+        var deployURL: String?
         for _ in 0..<60 {   // ~60s
             var request = URLRequest(url: base.appending(path: "deploys/\(deployID)"))
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             guard let json = try? await sendJSON(request) else { break }
             last = (json["state"] as? String) ?? last
-            if last == "ready" { return last }
+            deployURL = (json["deploy_ssl_url"] ?? json["deploy_url"] ?? json["ssl_url"]) as? String ?? deployURL
+            if last == "ready" { return DeployStatus(state: last, deployURL: deployURL) }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        return last
+        return DeployStatus(state: last, deployURL: deployURL)
+    }
+
+    private static func publishedDeployID(siteID: String, token: String) async throws -> String? {
+        var request = URLRequest(url: base.appending(path: "sites/\(siteID)"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let json = try await sendJSON(request)
+        return (json["published_deploy"] as? [String: Any])?["id"] as? String
     }
 
     // MARK: - Transport
