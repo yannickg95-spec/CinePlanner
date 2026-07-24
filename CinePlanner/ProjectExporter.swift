@@ -439,6 +439,60 @@ struct ProjectExporter {
         }
     }
 
+    /// Builds a self-contained website folder — index.html at the root plus a
+    /// media/ folder for any videos — in a fresh temp directory, ready to deploy.
+    /// Photos are embedded in the page; only videos live as sibling files. The
+    /// caller is responsible for removing the returned directory.
+    @MainActor
+    func buildSiteDirectory() throws -> URL {
+        let filmName = project.filmName
+        let versionName = version?.name
+        let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
+        let scenes = snapshotScenesForMedia()
+
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("netlify-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+
+        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
+        if hasVideo {
+            try fm.createDirectory(at: staging.appendingPathComponent("media", isDirectory: true),
+                                   withIntermediateDirectories: true)
+        }
+
+        var rendered: [String: RenderedMedia] = [:]
+        for scene in scenes {
+            for shot in scene.shots {
+                for reference in shot.references {
+                    var videoPath: String?
+                    var posterURI: String?
+                    if let data = reference.videoData {
+                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(reference.videoExtension)"
+                        try data.write(to: staging.appendingPathComponent(name))
+                        videoPath = name
+                        if let poster = Self.posterFrame(fromVideoData: data, ext: reference.videoExtension) {
+                            posterURI = Self.dataURI(poster)
+                        }
+                    }
+                    rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
+                        photoURI: reference.photoData.map { Self.dataURI($0) },
+                        topDownURI: reference.mapData.map { Self.dataURI($0) },
+                        videoPath: videoPath,
+                        posterURI: posterURI
+                    )
+                }
+            }
+        }
+
+        let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+                                  scenes: scenes, media: rendered)
+        guard let data = html.data(using: .utf8) else {
+            throw Self.exportError("Failed to encode the web page.")
+        }
+        try data.write(to: staging.appendingPathComponent("index.html"))
+        return staging
+    }
+
     /// Writes "<name>.html" + media/ into a temp folder and zips it to `destination`.
     private func writeHTMLBundle(filmName: String, episodeName: String?, versionName: String?,
                                  scenes: [MediaScene], to destination: URL) throws {

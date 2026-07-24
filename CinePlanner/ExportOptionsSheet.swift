@@ -12,6 +12,7 @@ struct ExportOptionsSheet: View {
     let version: ScriptVersion?
 
     @State private var selected: Set<ExportFormat> = [.htmlWithMedia]
+    @State private var showingPublish = false
 
     /// Selected formats in the order they're listed.
     private var orderedSelection: [ExportFormat] {
@@ -137,14 +138,21 @@ struct ExportOptionsSheet: View {
 
             // Footer
             HStack {
+                Button {
+                    showingPublish = true
+                } label: {
+                    Label("Publish to Web…", systemImage: "globe")
+                }
+                .help("Put the web shot list online on your own Netlify account")
+
                 if orderedSelection.count > 1 {
                     Text("You'll choose one folder for all \(orderedSelection.count) files.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Spacer()
                 Button(exportButtonTitle) { performExport() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -153,6 +161,9 @@ struct ExportOptionsSheet: View {
             .padding(16)
         }
         .frame(width: 580, height: 560)
+        .sheet(isPresented: $showingPublish) {
+            NetlifyPublishSheet(project: project, version: version)
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
