@@ -21,9 +21,15 @@ struct CinePlannerApp: App {
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
+        // Apply a queued restore before the store is opened — the only safe
+        // moment to overwrite the store files.
+        StoreBackup.performPendingRestoreIfNeeded()
+
         do {
             let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
             Self.backfillUIDsIfNeeded(container)
+            // Snapshot the (possibly just-restored) store for next time.
+            StoreBackup.backupIfNeeded(container: container)
             return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")

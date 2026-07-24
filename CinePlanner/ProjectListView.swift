@@ -17,6 +17,7 @@ struct ProjectListView: View {
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
     @State private var importErrorMessage: String?
+    @State private var showingRestoreSheet = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
     enum ProjectSort: String, CaseIterable, Identifiable {
@@ -69,6 +70,9 @@ struct ProjectListView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(importErrorMessage ?? "")
+            }
+            .sheet(isPresented: $showingRestoreSheet) {
+                RestoreBackupSheet()
             }
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -130,12 +134,24 @@ struct ProjectListView: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
 
-                Button {
-                    importProject()
+                Menu {
+                    Button {
+                        importProject()
+                    } label: {
+                        Label("Import Project…", systemImage: "square.and.arrow.down")
+                    }
+                    Button {
+                        showingRestoreSheet = true
+                    } label: {
+                        Label("Restore from Backup…", systemImage: "clock.arrow.circlepath")
+                    }
                 } label: {
-                    Label("Import…", systemImage: "square.and.arrow.down")
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
                 }
-                .help("Import a project from a .cineplan file")
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Import a project, or restore from a backup")
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -620,6 +636,81 @@ struct NewProjectSheet: View {
         projectName = ""
         isSeries = false
         step = .name
+    }
+}
+
+// MARK: - Restore from Backup Sheet
+
+struct RestoreBackupSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var backups: [StoreBackup.Backup] = []
+    @State private var confirmBackup: StoreBackup.Backup?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Restore from Backup")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("CinePlanner snapshots your data each time it launches. Restoring replaces your current data with a snapshot.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+
+            Divider()
+
+            if backups.isEmpty {
+                ContentUnavailableView(
+                    "No Backups Yet",
+                    systemImage: "clock.arrow.circlepath",
+                    description: Text("A backup is made automatically each time you open CinePlanner. They'll appear here.")
+                )
+                .frame(maxHeight: .infinity)
+            } else {
+                List(backups) { backup in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(backup.date.formatted(date: .abbreviated, time: .shortened))
+                                .fontWeight(.medium)
+                            Text(ByteCountFormatter.string(fromByteCount: backup.sizeBytes, countStyle: .file))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Restore") { confirmBackup = backup }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 460, height: 440)
+        .onAppear { backups = StoreBackup.listBackups() }
+        .alert("Restore this backup?", isPresented: Binding(
+            get: { confirmBackup != nil },
+            set: { if !$0 { confirmBackup = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { }
+            Button("Restore and Quit", role: .destructive) {
+                if let backup = confirmBackup {
+                    StoreBackup.requestRestore(backup)
+                    NSApp.terminate(nil)
+                }
+            }
+        } message: {
+            Text("Your current data will be replaced with this backup. CinePlanner will quit — reopen it to finish restoring.")
+        }
     }
 }
 
