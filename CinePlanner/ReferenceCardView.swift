@@ -116,7 +116,7 @@ struct ReferenceCardView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let data = reference.videoData {
                 ReferenceVideoView(
-                    shotID: "\(reference.persistentModelID.hashValue)",
+                    shotID: reference.uid,
                     videoData: data,
                     fileExtension: reference.videoExtension ?? "mov",
                     onDelete: {

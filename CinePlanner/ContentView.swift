@@ -30,7 +30,10 @@ extension Notification.Name {
 struct SceneListView: View {
     let project: Project
     let version: ScriptVersion?
-    @Binding var selectedScenes: Set<Scene>
+    /// Selection tracked by Scene.uid (stable across saves), not the model
+    /// itself, so a freshly-created scene can't fall out of the set when its
+    /// persistentModelID changes.
+    @Binding var selectedScenes: Set<String>
     var canImportShots: Bool = false
     var onEditScene: ((Scene) -> Void)? = nil
     var onImportShots: ((Scene) -> Void)? = nil
@@ -98,7 +101,7 @@ struct SceneListView: View {
         List(selection: $selectedScenes) {
             // Current Scenes Section
             Section {
-                ForEach(currentScenes) { scene in
+                ForEach(currentScenes, id: \.uid) { scene in
                     sceneRow(for: scene)
                 }
                 .onDelete { offsets in
@@ -142,7 +145,7 @@ struct SceneListView: View {
             // Old Scenes Section (only show if there are old scenes)
             if !oldScenes.isEmpty {
                 Section {
-                    ForEach(oldScenes) { scene in
+                    ForEach(oldScenes, id: \.uid) { scene in
                         sceneRow(for: scene)
                     }
                     .onDelete { offsets in
@@ -167,7 +170,7 @@ struct SceneListView: View {
         .navigationTitle(project.filmName)
         .onDeleteCommand {
             if !selectedScenes.isEmpty {
-                onDeleteScenes?(orderedScenes.filter { selectedScenes.contains($0) })
+                onDeleteScenes?(orderedScenes.filter { selectedScenes.contains($0.uid) })
             }
         }
         .alert(
@@ -256,7 +259,7 @@ struct SceneListView: View {
     /// Scenes a delete action should affect: the whole selection when the
     /// right-clicked scene is part of it, otherwise just that scene.
     private func deletionTargets(for scene: Scene) -> [Scene] {
-        selectedScenes.contains(scene) ? orderedScenes.filter { selectedScenes.contains($0) } : [scene]
+        selectedScenes.contains(scene.uid) ? orderedScenes.filter { selectedScenes.contains($0.uid) } : [scene]
     }
 
     private func sceneDeleteLabel(for scene: Scene) -> String {
@@ -339,9 +342,9 @@ struct SceneListView: View {
             oldScene.sortOrder = currentScenesCount + 1 + index
         }
         
-        selectedScenes = [newScene]
+        selectedScenes = [newScene.uid]
     }
-    
+
     private func deleteScenes(at offsets: IndexSet, from sceneList: [Scene]) {
         // Delete scenes at the given indices in the specified list
         let scenesToDelete = offsets.map { sceneList[$0] }
@@ -354,7 +357,7 @@ struct SceneListView: View {
             }
         }
 
-        selectedScenes.subtract(scenesToDelete)
+        selectedScenes.subtract(scenesToDelete.map(\.uid))
 
         // Update sortOrder for remaining scenes in this version
         for (index, scene) in orderedScenes.enumerated() {
@@ -402,7 +405,7 @@ struct SceneListView: View {
             }
         }
 
-        selectedScenes.subtract(scenesToDelete)
+        selectedScenes.subtract(scenesToDelete.map(\.uid))
 
         // Update sortOrder for remaining scenes in this version
         for (index, scene) in orderedScenes.enumerated() {
@@ -415,7 +418,8 @@ struct SceneListView: View {
 
 struct ShotListView: View {
     let scene: Scene
-    @Binding var selectedShots: Set<Shot>
+    /// Selection tracked by Shot.uid, stable across saves (see SceneListView).
+    @Binding var selectedShots: Set<String>
     var onEditShot: ((Shot) -> Void)? = nil
     var onDeleteShots: (([Shot]) -> Void)? = nil
 
@@ -426,7 +430,7 @@ struct ShotListView: View {
     var body: some View {
         List(selection: $selectedShots) {
             Section {
-                ForEach(sortedShots) { shot in
+                ForEach(sortedShots, id: \.uid) { shot in
                 NavigationLink(value: shot) {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -513,7 +517,7 @@ struct ShotListView: View {
         .navigationTitle(scene.project?.filmName ?? "")
         .onDeleteCommand {
             if !selectedShots.isEmpty {
-                onDeleteShots?(sortedShots.filter { selectedShots.contains($0) })
+                onDeleteShots?(sortedShots.filter { selectedShots.contains($0.uid) })
             }
         }
     }
@@ -521,7 +525,7 @@ struct ShotListView: View {
     /// Shots a delete action should affect: the whole selection when the
     /// right-clicked shot is part of it, otherwise just that shot.
     private func deletionTargets(for shot: Shot) -> [Shot] {
-        selectedShots.contains(shot) ? sortedShots.filter { selectedShots.contains($0) } : [shot]
+        selectedShots.contains(shot.uid) ? sortedShots.filter { selectedShots.contains($0.uid) } : [shot]
     }
 
     private func shotDeleteLabel(for shot: Shot) -> String {
@@ -565,7 +569,7 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         scene.shots.append(newShot)
-        selectedShots = [newShot]
+        selectedShots = [newShot.uid]
     }
     
     private func deleteShots(at offsets: IndexSet) {
@@ -575,7 +579,7 @@ struct ShotListView: View {
                 scene.shots.remove(at: index)
             }
         }
-        selectedShots.subtract(shotsToDelete)
+        selectedShots.subtract(shotsToDelete.map(\.uid))
 
         // Renumber all remaining shots
         renumberShots()
@@ -1198,7 +1202,7 @@ struct ShotDetailView: View {
                 // References: each is a photo or a video with its own optional
                 // top-down map. A shot can carry as many as it needs.
                 VStack(alignment: .leading, spacing: 16) {
-                    ForEach(Array(shot.orderedReferences.enumerated()), id: \.element.persistentModelID) { index, reference in
+                    ForEach(Array(shot.orderedReferences.enumerated()), id: \.element.uid) { index, reference in
                         ReferenceCardView(
                             reference: reference,
                             index: index + 1,

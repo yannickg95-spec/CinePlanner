@@ -168,7 +168,7 @@ struct ShotTransferView: View {
                     Text("Copy from:")
                         .foregroundStyle(.secondary)
                     Picker("Copy from", selection: $sourceVersion) {
-                        ForEach(sourceCandidates, id: \.persistentModelID) { version in
+                        ForEach(sourceCandidates, id: \.uid) { version in
                             Text("\(version.name) (\(version.totalShotCount) shots)")
                                 .tag(version as ScriptVersion?)
                         }
@@ -240,7 +240,7 @@ struct ShotTransferView: View {
 
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(sourceScenes, id: \.persistentModelID) { scene in
+                    ForEach(sourceScenes, id: \.uid) { scene in
                         sourceRow(scene)
                     }
                 }
@@ -287,7 +287,7 @@ struct ShotTransferView: View {
 
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(targetScenes, id: \.persistentModelID) { scene in
+                    ForEach(targetScenes, id: \.uid) { scene in
                         targetRow(scene)
                     }
                 }
@@ -312,7 +312,7 @@ struct ShotTransferView: View {
                     assignments[target.persistentModelID] = nil
                 }
                 Divider()
-                ForEach(sourceScenes.filter { !$0.shots.isEmpty }, id: \.persistentModelID) { candidate in
+                ForEach(sourceScenes.filter { !$0.shots.isEmpty }, id: \.uid) { candidate in
                     Button {
                         assign(candidate, to: target)
                     } label: {
@@ -431,7 +431,7 @@ struct SingleSceneShotImportSheet: View {
                     Text("From version:")
                         .foregroundStyle(.secondary)
                     Picker("From version", selection: $sourceVersion) {
-                        ForEach(sourceCandidates, id: \.persistentModelID) { version in
+                        ForEach(sourceCandidates, id: \.uid) { version in
                             Text("\(version.name) (\(version.totalShotCount) shots)")
                                 .tag(version as ScriptVersion?)
                         }
@@ -447,7 +447,7 @@ struct SingleSceneShotImportSheet: View {
 
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(sourceScenes, id: \.persistentModelID) { scene in
+                    ForEach(sourceScenes, id: \.uid) { scene in
                         let isSelected = scene.persistentModelID == selectedSourceID
                         Button {
                             selectedSourceID = scene.persistentModelID

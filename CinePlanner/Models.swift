@@ -11,6 +11,10 @@ import SwiftUI
 
 @Model
 final class Project {
+    /// Stable identity assigned at creation. Unlike persistentModelID (which is
+    /// temporary until the first save), this never changes — safe to key SwiftUI
+    /// selection and ForEach on. Backfilled for pre-existing rows at launch.
+    var uid: String = UUID().uuidString
     var filmName: String
     var createdDate: Date
     var lastOpenedDate: Date?   // Updated when the editor opens; drives "last opened" in the project list
@@ -103,6 +107,7 @@ final class Project {
 
 @Model
 final class Episode {
+    var uid: String = UUID().uuidString
     var episodeNumber: Int
     var title: String
     var createdDate: Date
@@ -129,6 +134,7 @@ final class Episode {
 
 @Model
 final class ScriptVersion {
+    var uid: String = UUID().uuidString
     var versionNumber: Int
     var name: String
     var createdDate: Date
@@ -160,6 +166,7 @@ final class ScriptVersion {
 
 @Model
 final class Scene {
+    var uid: String = UUID().uuidString
     var sceneNumber: Int
     var project: Project?
     var scriptVersion: ScriptVersion?
@@ -417,6 +424,7 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
 /// photo1/photo2/video slots the app started with.
 @Model
 final class ShotReference {
+    var uid: String = UUID().uuidString
     var sortOrder: Int = 0
 
     // Media — exactly one of these is set
@@ -527,6 +535,7 @@ final class ShotReference {
 
 @Model
 final class Shot {
+    var uid: String = UUID().uuidString
     var shotNumber: Int
     var shotInformation: String
     private var numberingStyleRaw: String = "numbers"

@@ -21,8 +21,9 @@ struct ProjectEditorView: View {
     /// The script pane's share of the details+script pair (seeded from the
     /// project, clamped to the allowed band).
     @State private var scriptFraction: CGFloat = 0.5
-    @State private var selectedScenes: Set<Scene> = []
-    @State private var selectedShots: Set<Shot> = []
+    // Selection is tracked by uid (stable across saves), not the model itself.
+    @State private var selectedScenes: Set<String> = []
+    @State private var selectedShots: Set<String> = []
 
     // Edit / delete targets (driven by right-click context menus on rows)
     @State private var sceneToEdit: Scene?
@@ -59,19 +60,15 @@ struct ProjectEditorView: View {
         currentVersions.filter { $0 !== selectedVersion && $0.totalShotCount > 0 }
     }
 
-    // Match by persistentModelID rather than Set.contains: a freshly-created
-    // model's id (and thus its hash) changes when the context autosaves, which
-    // leaves it in the wrong bucket of the selection Set so `.contains` misses
-    // it — the reason a first shot couldn't be opened until a second was added.
+    // Resolve the selected model by its stable uid. (uid never changes on save,
+    // so unlike Set<Model>.contains this can't miss a freshly-created row.)
     private var selectedScene: Scene? {
-        let ids = Set(selectedScenes.map(\.persistentModelID))
-        return orderedScenes.first { ids.contains($0.persistentModelID) }
+        orderedScenes.first { selectedScenes.contains($0.uid) }
     }
 
     private var selectedShot: Shot? {
         guard let scene = selectedScene else { return nil }
-        let ids = Set(selectedShots.map(\.persistentModelID))
-        return scene.shots.sorted { $0.shotNumber < $1.shotNumber }.first { ids.contains($0.persistentModelID) }
+        return scene.shots.sorted { $0.shotNumber < $1.shotNumber }.first { selectedShots.contains($0.uid) }
     }
     
     var body: some View {
@@ -106,9 +103,9 @@ struct ProjectEditorView: View {
 
             // Select first scene and shot automatically
             if selectedScenes.isEmpty, let firstScene = orderedScenes.first {
-                selectedScenes = [firstScene]
+                selectedScenes = [firstScene.uid]
                 if let firstShot = firstScene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
-                    selectedShots = [firstShot]
+                    selectedShots = [firstShot.uid]
                 }
             }
         }
@@ -120,7 +117,7 @@ struct ProjectEditorView: View {
             // Switching script versions invalidates the scene/shot selection
             selectedShots = []
             if let firstScene = orderedScenes.first {
-                selectedScenes = [firstScene]
+                selectedScenes = [firstScene.uid]
             } else {
                 selectedScenes = []
             }
@@ -130,7 +127,7 @@ struct ProjectEditorView: View {
             // has something to show. Scenes without shots clear the selection.
             guard oldScene !== newScene else { return }
             if let firstShot = newScene?.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
-                selectedShots = [firstShot]
+                selectedShots = [firstShot.uid]
             } else {
                 selectedShots = []
             }
@@ -320,7 +317,7 @@ struct ProjectEditorView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                ForEach(currentVersions, id: \.persistentModelID) { version in
+                ForEach(currentVersions, id: \.uid) { version in
                     versionTab(for: version)
                 }
 
@@ -342,7 +339,7 @@ struct ProjectEditorView: View {
 
     private var episodeMenu: some View {
         Menu {
-            ForEach(project.orderedEpisodes, id: \.persistentModelID) { episode in
+            ForEach(project.orderedEpisodes, id: \.uid) { episode in
                 Button {
                     selectedEpisode = episode
                 } label: {
@@ -956,9 +953,9 @@ struct ProjectEditorView: View {
             scene.sortOrder = index
         }
         if let firstScene = orderedScenes.first {
-            selectedScenes = [firstScene]
+            selectedScenes = [firstScene.uid]
             if let firstShot = firstScene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
-                selectedShots = [firstShot]
+                selectedShots = [firstShot.uid]
             }
         }
     }
@@ -986,7 +983,7 @@ struct ProjectEditorView: View {
 
         if let scene = selectedScene,
            let firstShot = scene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }).first {
-            selectedShots = [firstShot]
+            selectedShots = [firstShot.uid]
         }
     }
     
