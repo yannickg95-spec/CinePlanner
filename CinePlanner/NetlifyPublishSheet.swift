@@ -17,7 +17,7 @@ struct NetlifyPublishSheet: View {
     @State private var tokenInput = ""
     @State private var hasToken = NetlifyPublisher.hasToken
     @State private var isPublishing = false
-    @State private var resultURL: String?
+    @State private var result: NetlifyPublisher.Result?
     @State private var errorMessage: String?
 
     private var existingSiteID: String? { NetlifyPublisher.savedSiteID(forProjectUID: project.uid) }
@@ -95,12 +95,12 @@ struct NetlifyPublishSheet: View {
 
     private var publishBody: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let resultURL {
+            if let result {
                 Label("Published", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .font(.headline)
 
-                Text(resultURL)
+                Text(result.url)
                     .font(.body.monospaced())
                     .textSelection(.enabled)
                     .padding(10)
@@ -111,12 +111,16 @@ struct NetlifyPublishSheet: View {
                 HStack {
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(resultURL, forType: .string)
+                        NSPasteboard.general.setString(result.url, forType: .string)
                     } label: { Label("Copy Link", systemImage: "doc.on.doc") }
 
                     Button {
-                        if let url = URL(string: resultURL) { NSWorkspace.shared.open(url) }
+                        if let url = URL(string: result.url) { NSWorkspace.shared.open(url) }
                     } label: { Label("Open", systemImage: "safari") }
+
+                    if let admin = result.adminURL, let adminURL = URL(string: admin) {
+                        Link(destination: adminURL) { Label("Manage on Netlify", systemImage: "gearshape") }
+                    }
 
                     Spacer()
 
@@ -125,6 +129,15 @@ struct NetlifyPublishSheet: View {
                     }
                     .disabled(isPublishing)
                 }
+
+                DisclosureGroup("Details") {
+                    Text(result.diagnostics)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
             } else {
                 Text(existingSiteID == nil
                      ? "This creates a page on your Netlify account and gives you a link to share. Re-publishing later updates the same page."
@@ -173,7 +186,7 @@ struct NetlifyPublishSheet: View {
     private func clearToken() {
         NetlifyPublisher.token = nil
         hasToken = false
-        resultURL = nil
+        result = nil
         errorMessage = nil
     }
 
@@ -185,11 +198,10 @@ struct NetlifyPublishSheet: View {
                 let exporter = ProjectExporter(project: project, version: version)
                 let siteDir = try exporter.buildSiteDirectory()
                 defer { try? FileManager.default.removeItem(at: siteDir) }
-                let result = try await NetlifyPublisher.publish(
+                result = try await NetlifyPublisher.publish(
                     siteDirectory: siteDir,
                     existingSiteID: existingSiteID,
                     projectUID: project.uid)
-                resultURL = result.url
             } catch {
                 errorMessage = error.localizedDescription
             }

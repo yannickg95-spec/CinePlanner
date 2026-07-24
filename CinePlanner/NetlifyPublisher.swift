@@ -62,41 +62,52 @@ enum NetlifyPublisher {
 
     // MARK: - Publish
 
-    struct Result { let url: String; let siteID: String }
+    struct Result { let url: String; let siteID: String; let adminURL: String?; let diagnostics: String }
 
     /// Zips nothing — walks `siteDirectory`, hashes each file, and deploys via the
     /// digest API. Creates a Netlify site the first time; reuses `existingSiteID`
     /// afterwards so the link is stable.
     static func publish(siteDirectory: URL, existingSiteID: String?, projectUID: String) async throws -> Result {
         guard let token = token else { throw NetlifyError.notAuthenticated }
+        var log: [String] = []
 
         // 1. Gather files as "/path" → bytes, and their SHA1 digests.
         let files = try collectFiles(in: siteDirectory)              // ["/index.html": Data, …]
         let digests = files.mapValues { sha1Hex($0) }                // ["/index.html": "<sha1>", …]
+        log.append("Files (\(files.count)): \(files.keys.sorted().joined(separator: ", "))")
 
         // 2. Ensure a site exists; keep its stable URL.
         let siteID: String
         let siteURL: String
+        var adminURL: String?
         if let existingSiteID {
             siteID = existingSiteID
             siteURL = try await fetchSiteURL(siteID: existingSiteID, token: token)
         } else {
-            (siteID, siteURL) = try await createSite(token: token)
+            let site = try await createSite(token: token)
+            siteID = site.id; siteURL = site.url; adminURL = site.adminURL
             saveSiteID(siteID, forProjectUID: projectUID)
         }
+        log.append("Site: \(siteURL) (id \(siteID))")
 
         // 3. Create a deploy with the manifest; Netlify replies with the digests it needs.
         let deploy = try await createDeploy(siteID: siteID, files: digests, token: token)
+        log.append("Deploy \(deploy.id): Netlify requested \(deploy.required.count) of \(files.count) files")
 
-        // 4. Upload the files Netlify asked for (matched by digest).
-        let required = Set(deploy.required)
-        for (path, data) in files where required.contains(digests[path] ?? "") {
+        // 4. Upload the files. We upload everything (Netlify skips what it already
+        //    has); relying on `required` matching risks uploading nothing.
+        var uploaded = 0
+        for (path, data) in files {
             try await uploadFile(deployID: deploy.id, path: path, data: data, token: token)
+            uploaded += 1
         }
+        log.append("Uploaded \(uploaded) files")
 
         // 5. Wait until the deploy is live, then hand back the site's stable URL.
-        try await waitForDeploy(deployID: deploy.id, token: token)
-        return Result(url: siteURL, siteID: siteID)
+        let finalState = await waitForDeploy(deployID: deploy.id, token: token)
+        log.append("Final deploy state: \(finalState)")
+
+        return Result(url: siteURL, siteID: siteID, adminURL: adminURL, diagnostics: log.joined(separator: "\n"))
     }
 
     // MARK: - Files
@@ -128,16 +139,16 @@ enum NetlifyPublisher {
 
     private static let base = URL(string: "https://api.netlify.com/api/v1")!
 
-    private static func createSite(token: String) async throws -> (id: String, url: String) {
+    private static func createSite(token: String) async throws -> (id: String, url: String, adminURL: String?) {
         var request = URLRequest(url: base.appending(path: "sites"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = "{}".data(using: .utf8)
         let json = try await sendJSON(request)
-        guard let id = json["id"] as? String else { throw NetlifyError.badResponse }
-        let url = (json["ssl_url"] ?? json["url"]) as? String ?? "https://\(id).netlify.app"
-        return (id, url)
+        guard let id = json["id"] as? String,
+              let url = (json["ssl_url"] ?? json["url"]) as? String else { throw NetlifyError.badResponse }
+        return (id, url, json["admin_url"] as? String)
     }
 
     private static func fetchSiteURL(siteID: String, token: String) async throws -> String {
@@ -172,16 +183,19 @@ enum NetlifyPublisher {
         _ = try await send(request)
     }
 
-    /// Polls the deploy until Netlify reports it live ("ready"). Doesn't throw on
-    /// timeout — the site URL is valid regardless; the deploy just finishes soon.
-    private static func waitForDeploy(deployID: String, token: String) async throws {
+    /// Polls the deploy until Netlify reports it live ("ready"), returning the
+    /// last state seen. Never throws — the site URL is valid regardless.
+    private static func waitForDeploy(deployID: String, token: String) async -> String {
+        var last = "unknown"
         for _ in 0..<60 {   // ~60s
             var request = URLRequest(url: base.appending(path: "deploys/\(deployID)"))
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let json = try await sendJSON(request)
-            if (json["state"] as? String) == "ready" { return }
-            try await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let json = try? await sendJSON(request) else { break }
+            last = (json["state"] as? String) ?? last
+            if last == "ready" { return last }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
+        return last
     }
 
     // MARK: - Transport
