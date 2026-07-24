@@ -6,13 +6,12 @@
 //  the user's own Netlify account (their storage, not ours). Authentication is a
 //  personal access token the user pastes once, kept in the Keychain.
 //
-//  Deploy uses Netlify's file-digest API: send a manifest of path → SHA1, upload
-//  only the files Netlify asks for, then poll until the deploy is live. No zip,
-//  so file paths (index.html, media/…) are explicit.
+//  Deploy uses Netlify's zip API: POST a zip of the site (files at the archive
+//  root) and Netlify unzips and serves it. Simpler and more robust than the
+//  file-digest API, which was finicky about path format.
 //
 
 import Foundation
-import CryptoKit
 
 enum NetlifyError: LocalizedError {
     case notAuthenticated
@@ -71,10 +70,15 @@ enum NetlifyPublisher {
         guard let token = token else { throw NetlifyError.notAuthenticated }
         var log: [String] = []
 
-        // 1. Gather files as "/path" → bytes, and their SHA1 digests.
+        // 1. Zip the site with files at the archive root (index.html at "/").
         let files = try collectFiles(in: siteDirectory)              // ["/index.html": Data, …]
-        let digests = files.mapValues { sha1Hex($0) }                // ["/index.html": "<sha1>", …]
+        var zip = ZipArchive()
+        for (path, data) in files.sorted(by: { $0.key < $1.key }) {
+            zip.add(path: String(path.drop(while: { $0 == "/" })), contents: data)
+        }
+        let zipData = zip.finalize()
         log.append("Files (\(files.count)): \(files.keys.sorted().joined(separator: ", "))")
+        log.append("Zip: \(zipData.count) bytes")
 
         // 2. Ensure a site exists; keep its stable URL.
         let siteID: String
@@ -90,21 +94,12 @@ enum NetlifyPublisher {
         }
         log.append("Site: \(siteURL) (id \(siteID))")
 
-        // 3. Create a deploy with the manifest; Netlify replies with the digests it needs.
-        let deploy = try await createDeploy(siteID: siteID, files: digests, token: token)
-        log.append("Deploy \(deploy.id): Netlify requested \(deploy.required.count) of \(files.count) files")
+        // 3. Deploy the zip — Netlify unzips and serves it.
+        let deployID = try await deployZip(siteID: siteID, zip: zipData, token: token)
+        log.append("Deploy \(deployID) created")
 
-        // 4. Upload the files. We upload everything (Netlify skips what it already
-        //    has); relying on `required` matching risks uploading nothing.
-        var uploaded = 0
-        for (path, data) in files {
-            try await uploadFile(deployID: deploy.id, path: path, data: data, token: token)
-            uploaded += 1
-        }
-        log.append("Uploaded \(uploaded) files")
-
-        // 5. Wait until the deploy is live, then hand back the site's stable URL.
-        let finalState = await waitForDeploy(deployID: deploy.id, token: token)
+        // 4. Wait until the deploy is live, then hand back the site's stable URL.
+        let finalState = await waitForDeploy(deployID: deployID, token: token)
         log.append("Final deploy state: \(finalState)")
 
         return Result(url: siteURL, siteID: siteID, adminURL: adminURL, diagnostics: log.joined(separator: "\n"))
@@ -131,10 +126,6 @@ enum NetlifyPublisher {
         return result
     }
 
-    private static func sha1Hex(_ data: Data) -> String {
-        Insecure.SHA1.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
     // MARK: - API
 
     private static let base = URL(string: "https://api.netlify.com/api/v1")!
@@ -159,28 +150,15 @@ enum NetlifyPublisher {
         return url
     }
 
-    private struct DeployInfo { let id: String; let required: [String] }
-
-    private static func createDeploy(siteID: String, files: [String: String], token: String) async throws -> DeployInfo {
+    private static func deployZip(siteID: String, zip: Data, token: String) async throws -> String {
         var request = URLRequest(url: base.appending(path: "sites/\(siteID)/deploys"))
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/zip", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["files": files])
+        request.httpBody = zip
         let json = try await sendJSON(request)
         guard let id = json["id"] as? String else { throw NetlifyError.badResponse }
-        let required = (json["required"] as? [String]) ?? []
-        return DeployInfo(id: id, required: required)
-    }
-
-    private static func uploadFile(deployID: String, path: String, data: Data, token: String) async throws {
-        // path already begins with "/"; the API wants it appended after /files.
-        var request = URLRequest(url: base.appending(path: "deploys/\(deployID)/files\(path)"))
-        request.httpMethod = "PUT"
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = data
-        _ = try await send(request)
+        return id
     }
 
     /// Polls the deploy until Netlify reports it live ("ready"), returning the
