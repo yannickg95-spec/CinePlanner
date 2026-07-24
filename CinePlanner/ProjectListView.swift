@@ -142,27 +142,23 @@ struct ProjectListView: View {
 
                 Spacer()
 
-                Picker("Sort", selection: $sortRaw) {
-                    ForEach(ProjectSort.allCases) { option in
-                        Text(option.label).tag(option.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-
-                Menu {
-                    Button {
-                        showingRestoreSheet = true
-                    } label: {
-                        Label("Restore from Backup…", systemImage: "clock.arrow.circlepath")
-                    }
+                Button {
+                    showingRestoreSheet = true
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.arrow.circlepath")
+                        Text("Restore")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.secondary.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Restore from a backup")
+                .buttonStyle(.plain)
+                .help("Restore from Backup — roll your data back to an earlier snapshot")
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
