@@ -129,15 +129,6 @@ struct NetlifyPublishSheet: View {
                     }
                     .disabled(isPublishing)
                 }
-
-                DisclosureGroup("Details") {
-                    Text(result.diagnostics)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .font(.caption)
             } else {
                 Text(existingSiteID == nil
                      ? "This creates a page on your Netlify account and gives you a link to share. Re-publishing later updates the same page."

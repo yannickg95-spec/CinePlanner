@@ -66,19 +66,17 @@ enum NetlifyPublisher {
 
     // MARK: - Publish
 
-    struct Result { let url: String; let siteID: String; let adminURL: String?; let diagnostics: String }
+    struct Result { let url: String; let siteID: String; let adminURL: String? }
 
-    /// Zips nothing — walks `siteDirectory`, hashes each file, and deploys via the
-    /// digest API. Creates a Netlify site the first time; reuses `existingSiteID`
-    /// afterwards so the link is stable.
+    /// Walks `siteDirectory`, hashes each file, and deploys via the digest API.
+    /// Creates a Netlify site the first time; reuses `existingSiteID` afterwards so
+    /// the link is stable.
     static func publish(siteDirectory: URL, existingSiteID: String?, projectUID: String) async throws -> Result {
         guard let token = token else { throw NetlifyError.notAuthenticated }
-        var log: [String] = []
 
         // 1. Gather files ("/path" → bytes) and their SHA1 digests.
         let files = try collectFiles(in: siteDirectory)              // ["/index.html": Data, …]
         let digests = files.mapValues { sha1Hex($0) }
-        log.append("Files (\(files.count)): \(files.keys.sorted().joined(separator: ", "))")
 
         // 2. Ensure a site exists; keep its stable URL.
         let siteID: String
@@ -92,28 +90,18 @@ enum NetlifyPublisher {
             siteID = site.id; siteURL = site.url; adminURL = site.adminURL
             saveSiteID(siteID, forProjectUID: projectUID)
         }
-        log.append("Site: \(siteURL) (id \(siteID))")
 
-        // 3. Create the deploy with the file manifest; dump the raw response.
-        let (deployID, required, rawCreate) = try await createDeployDigest(siteID: siteID, files: digests, token: token)
-        log.append("Create response: \(rawCreate.prefix(400))")
-        log.append("Required (\(required.count)): \(required.map { String($0.prefix(8)) }.joined(separator: ", "))")
-
-        // 4. Upload every file (Netlify serves only files in the manifest).
-        for (path, data) in files {
-            let status = try await uploadFile(deployID: deployID, path: path, data: data, token: token)
-            log.append("PUT \(path): HTTP \(status)")
+        // 3. Create the deploy from the manifest; upload the files Netlify needs
+        //    (it dedupes ones it already has).
+        let (deployID, required) = try await createDeployDigest(siteID: siteID, files: digests, token: token)
+        let needed = Set(required)
+        for (path, data) in files where needed.contains(digests[path] ?? "") {
+            try await uploadFile(deployID: deployID, path: path, data: data, token: token)
         }
 
-        // 5. Wait until live, then check what Netlify actually recorded.
-        let deploy = await waitForDeploy(deployID: deployID, token: token)
-        log.append("Final deploy state: \(deploy.state)")
-        if let deployURL = deploy.deployURL { log.append("Deploy URL: \(deployURL)") }
-        if let deployed = try? await deployFiles(deployID: deployID, token: token) {
-            log.append("Files IN the deploy (\(deployed.count)): \(deployed.sorted().prefix(8).joined(separator: ", "))")
-        }
-
-        return Result(url: siteURL, siteID: siteID, adminURL: adminURL, diagnostics: log.joined(separator: "\n"))
+        // 4. Wait until the deploy is live.
+        await waitForDeploy(deployID: deployID, token: token)
+        return Result(url: siteURL, siteID: siteID, adminURL: adminURL)
     }
 
     // MARK: - Files
@@ -165,68 +153,41 @@ enum NetlifyPublisher {
         return url
     }
 
-    /// Creates a deploy from a path→SHA1 manifest. Returns the deploy id, the
-    /// SHA1s Netlify still needs, and the raw response (for diagnostics).
+    /// Creates a deploy from a path→SHA1 manifest, returning the deploy id and the
+    /// SHA1s Netlify still needs uploaded.
     private static func createDeployDigest(siteID: String, files: [String: String], token: String)
-        async throws -> (id: String, required: [String], raw: String) {
+        async throws -> (id: String, required: [String]) {
         var request = URLRequest(url: base.appending(path: "sites/\(siteID)/deploys"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["files": files])
-        let (data, _) = try await sendRaw(request)
-        let raw = String(data: data, encoding: .utf8) ?? ""
-        let json = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) ?? [:]
+        let json = try await sendJSON(request)
         guard let id = json["id"] as? String else { throw NetlifyError.badResponse }
-        return (id, (json["required"] as? [String]) ?? [], raw)
+        return (id, (json["required"] as? [String]) ?? [])
     }
 
-    /// Uploads one file's bytes to a deploy. Returns the HTTP status.
-    private static func uploadFile(deployID: String, path: String, data: Data, token: String) async throws -> Int {
-        // Manifest keys carry a leading slash; the upload URL appends it after /files.
+    /// Uploads one file's bytes to a deploy. Manifest keys carry a leading slash;
+    /// the upload URL appends it after /files.
+    private static func uploadFile(deployID: String, path: String, data: Data, token: String) async throws {
         var request = URLRequest(url: base.appending(path: "deploys/\(deployID)/files\(path)"))
         request.httpMethod = "PUT"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = data
-        let (_, http) = try await sendRaw(request)
-        return http.statusCode
+        _ = try await sendRaw(request)
     }
 
-    private struct DeployStatus { let state: String; let deployURL: String? }
-
-    /// Polls the deploy until Netlify reports it live ("ready"), returning the
-    /// last state and the deploy's own URL. Never throws.
-    private static func waitForDeploy(deployID: String, token: String) async -> DeployStatus {
-        var last = "unknown"
-        var deployURL: String?
+    /// Polls the deploy until Netlify reports it live ("ready"). Never throws — the
+    /// site URL is valid regardless; the deploy just finishes uploading shortly after.
+    private static func waitForDeploy(deployID: String, token: String) async {
         for _ in 0..<60 {   // ~60s
             var request = URLRequest(url: base.appending(path: "deploys/\(deployID)"))
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            guard let json = try? await sendJSON(request) else { break }
-            last = (json["state"] as? String) ?? last
-            deployURL = (json["deploy_ssl_url"] ?? json["deploy_url"] ?? json["ssl_url"]) as? String ?? deployURL
-            if last == "ready" { return DeployStatus(state: last, deployURL: deployURL) }
+            guard let json = try? await sendJSON(request) else { return }
+            if (json["state"] as? String) == "ready" { return }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
-        return DeployStatus(state: last, deployURL: deployURL)
-    }
-
-    private static func publishedDeployID(siteID: String, token: String) async throws -> String? {
-        var request = URLRequest(url: base.appending(path: "sites/\(siteID)"))
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let json = try await sendJSON(request)
-        return (json["published_deploy"] as? [String: Any])?["id"] as? String
-    }
-
-    /// The file paths Netlify actually recorded in the deploy — decisive for
-    /// telling "the deploy has no files" from "the site isn't serving them".
-    private static func deployFiles(deployID: String, token: String) async throws -> [String] {
-        var request = URLRequest(url: base.appending(path: "deploys/\(deployID)/files"))
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, _) = try await sendRaw(request)
-        let arr = ((try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]) ?? []
-        return arr.compactMap { ($0["path"] ?? $0["id"]) as? String }
     }
 
     // MARK: - Transport
