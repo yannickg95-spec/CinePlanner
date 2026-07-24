@@ -152,11 +152,6 @@ struct ProjectListView: View {
 
                 Menu {
                     Button {
-                        importProject()
-                    } label: {
-                        Label("Import Project…", systemImage: "square.and.arrow.down")
-                    }
-                    Button {
                         showingRestoreSheet = true
                     } label: {
                         Label("Restore from Backup…", systemImage: "clock.arrow.circlepath")
@@ -167,7 +162,7 @@ struct ProjectListView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Import a project, or restore from a backup")
+                .help("Restore from a backup")
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -202,34 +197,51 @@ struct ProjectListView: View {
         }
     }
 
-    /// Square tile that opens the new-project sheet, sized to match the project
-    /// cards but styled distinctly (dashed accent border) so it reads as an
-    /// action rather than a project.
+    /// Square tile matching the project cards but styled distinctly (dashed
+    /// accent border) so it reads as an action. Split into two tappable halves:
+    /// create a new project, or import one from a .cineplan file.
     private var addProjectCard: some View {
-        Button {
-            showingNewProjectSheet = true
-        } label: {
-            VStack(spacing: 10) {
-                Image(systemName: "plus")
-                    .font(.title)
-                    .foregroundStyle(Color.accentColor)
-                Text("New Project")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            Button {
+                showingNewProjectSheet = true
+            } label: {
+                addCardHalf(icon: "plus", title: "New Project")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .background(Color.accentColor.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.accentColor.opacity(0.4),
-                            style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .buttonStyle(.plain)
+            .help("Create a new project")
+
+            Divider()
+
+            Button {
+                importProject()
+            } label: {
+                addCardHalf(icon: "square.and.arrow.down", title: "Import Project")
+            }
+            .buttonStyle(.plain)
+            .help("Import a project from a .cineplan file")
         }
-        .buttonStyle(.plain)
-        .help("Create a new project")
+        .aspectRatio(1, contentMode: .fit)
+        .background(Color.accentColor.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.accentColor.opacity(0.4),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+        )
+    }
+
+    private func addCardHalf(icon: String, title: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Empty state
@@ -323,15 +335,55 @@ struct ProjectCardView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Shared by the top-right options button and the right-click menu.
+    @ViewBuilder
+    private var optionsMenuItems: some View {
+        Button {
+            showingEditSheet = true
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        Button {
+            exportProject()
+        } label: {
+            Label("Export Project…", systemImage: "square.and.arrow.up")
+        }
+        Divider()
+        Button(role: .destructive) {
+            showingDeleteAlert = true
+        } label: {
+            Label("Delete Project…", systemImage: "trash")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: project.isSeries ? "tv" : "film")
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28, height: 28)
-                .background(Color.accentColor.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-                .help(project.isSeries ? "Series" : "Film")
+            HStack(alignment: .top) {
+                Image(systemName: project.isSeries ? "tv" : "film")
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .help(project.isSeries ? "Series" : "Film")
+
+                Spacer(minLength: 0)
+
+                // Same actions as the right-click menu, always visible.
+                Menu {
+                    optionsMenuItems
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Project options")
+            }
 
             // The square card leaves room to spare, so the title sits on the
             // baseline of the card with the metadata beneath it rather than
@@ -365,22 +417,7 @@ struct ProjectCardView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .contextMenu {
-            Button {
-                showingEditSheet = true
-            } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-            Button {
-                exportProject()
-            } label: {
-                Label("Export Project…", systemImage: "square.and.arrow.up")
-            }
-            Divider()
-            Button(role: .destructive) {
-                showingDeleteAlert = true
-            } label: {
-                Label("Delete Project…", systemImage: "trash")
-            }
+            optionsMenuItems
         }
         .sheet(isPresented: $showingEditSheet) {
             EditProjectNameSheet(project: project, isPresented: $showingEditSheet)
