@@ -18,6 +18,9 @@ struct ProjectEditorView: View {
     // written back to the project only when the drag ends, so we're not saving
     // to SwiftData on every frame.
     @State private var scriptWidth: CGFloat = 420
+    /// The script pane's share of the details+script pair (seeded from the
+    /// project, clamped to the allowed band).
+    @State private var scriptFraction: CGFloat = 0.5
     @State private var selectedScenes: Set<Scene> = []
     @State private var selectedShots: Set<Shot> = []
 
@@ -92,7 +95,8 @@ struct ProjectEditorView: View {
             project.migrateStructureIfNeeded()
             project.lastOpenedDate = Date()
 
-            // scriptWidth is derived from the stored fraction once the width is known
+            // The script split is seeded where its width is derived (in the
+            // editor columns' GeometryReader), so nothing to do here.
             if selectedEpisode == nil {
                 selectedEpisode = project.orderedEpisodes.first
             }
@@ -454,9 +458,12 @@ struct ProjectEditorView: View {
     private static let sideColumnWidth: CGFloat = 190
     private static let dividerAllowance: CGFloat = 30
 
-    // Shot details and script split the space left over from the fixed columns
-    // evenly, and the divider between them is fixed — there is nothing to drag.
+    // Shot details and script split the space left over from the fixed columns.
+    // The divider is draggable, but only within a band around the middle — a
+    // little adjustment either way, not a free resize.
     private static let scriptSplitDefault: CGFloat = 0.5
+    private static let scriptSplitMinFraction: CGFloat = 0.40
+    private static let scriptSplitMaxFraction: CGFloat = 0.60
     /// Hard floor so a very narrow window can't collapse either pane entirely.
     private static let paneMinWidth: CGFloat = 240
 
@@ -465,17 +472,32 @@ struct ProjectEditorView: View {
         max(0, available - (Self.sideColumnWidth * 2) - Self.dividerAllowance)
     }
 
-    /// Gives the script pane exactly half of what the pair has to share.
+    /// The width range the script pane may be dragged to at the current window
+    /// size: the split band, clamped so neither pane drops below its minimum.
+    private func scriptWidthBounds(available: CGFloat) -> (min: CGFloat, max: CGFloat) {
+        let combined = combinedPaneWidth(available: available)
+        let low = max(Self.paneMinWidth, combined * Self.scriptSplitMinFraction)
+        let high = min(combined - Self.paneMinWidth, combined * Self.scriptSplitMaxFraction)
+        return (min(low, high), max(low, high))
+    }
+
+    /// Derives the script pane's width from the stored fraction, clamped to the
+    /// allowed band — so the split holds its proportion as the window resizes.
     private func applyScriptSplit(available: CGFloat) {
         let combined = combinedPaneWidth(available: available)
         guard combined > 0 else { return }
-        scriptWidth = max(Self.paneMinWidth, combined * Self.scriptSplitDefault)
+        let bounds = scriptWidthBounds(available: available)
+        scriptWidth = min(max(combined * scriptFraction, bounds.min), bounds.max)
     }
 
     private var editorColumns: some View {
         GeometryReader { geo in
             editorColumnStack(available: geo.size.width)
                 .onAppear {
+                    // Seed here, right before deriving the width, so the order
+                    // relative to the view's own onAppear can't matter.
+                    scriptFraction = min(max(CGFloat(project.scriptSplitFraction),
+                                             Self.scriptSplitMinFraction), Self.scriptSplitMaxFraction)
                     applyScriptSplit(available: geo.size.width)
                 }
                 .onChange(of: geo.size.width) { _, newWidth in
@@ -543,14 +565,20 @@ struct ProjectEditorView: View {
             // compress down to its minimum so the layout fits narrower displays.
             .frame(minWidth: Self.paneMinWidth, maxWidth: .infinity)
 
-            // Divider sets the script pane's width (it's to the right, so inverted).
-            // Capped so the detail pane always keeps its minimum.
-            // Fixed divider: the details and script panes are always equal, so
-            // there is nothing to drag here.
-            Rectangle()
-                .fill(Color.secondary.opacity(0.2))
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
+            // Draggable divider setting the script pane's width. The script pane
+            // is to the right, so the drag is inverted. Its range is the split
+            // band, so the two panes stay near even.
+            ResizableDivider(
+                width: $scriptWidth,
+                minWidth: scriptWidthBounds(available: available).min,
+                maxWidth: scriptWidthBounds(available: available).max,
+                invertDrag: true
+            ) { newWidth in
+                let combined = combinedPaneWidth(available: available)
+                guard combined > 0 else { return }
+                scriptFraction = newWidth / combined
+                project.scriptSplitFraction = Double(scriptFraction)
+            }
 
             // Fourth column - Script PDF Viewer (preferred width, can compress)
             ScriptPDFViewer(

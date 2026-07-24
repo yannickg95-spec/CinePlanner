@@ -21,6 +21,9 @@ final class Project {
     var shotColumnWidth: Double = 200
     var detailColumnWidth: Double = 800   // legacy; detail is now flexible
     var scriptColumnWidth: Double = 420   // preferred width of the script pane
+    /// The script pane's share of the details+script pair, adjustable within a
+    /// band around the middle. Persisted so the split survives window resizes.
+    var scriptSplitFraction: Double = 0.5
 
     // Script PDF (legacy, pre-versioning — migrated into the first episode's first version)
     var scriptPDFData: Data?
