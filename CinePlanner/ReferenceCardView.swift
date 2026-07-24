@@ -141,7 +141,7 @@ struct ReferenceCardView: View {
     private var emptyMediaRow: some View {
         VStack(spacing: 8) {
             Button {
-                isImportingImage = true
+                presentImporter($isImportingImage)
             } label: {
                 addMediaLabel("Add Photo", systemImage: "photo")
             }
@@ -155,7 +155,7 @@ struct ReferenceCardView: View {
             }
 
             Button {
-                isImportingVideo = true
+                presentImporter($isImportingVideo)
             } label: {
                 addMediaLabel("Add Video", systemImage: "video")
             }
@@ -208,7 +208,7 @@ struct ReferenceCardView: View {
                 }
             } else {
                 Button {
-                    isImportingMap = true
+                    presentImporter($isImportingMap)
                 } label: {
                     addMediaLabel("Top Down Map", systemImage: "map")
                 }
@@ -269,6 +269,15 @@ struct ReferenceCardView: View {
     }
 
     // MARK: - Loading
+
+    /// Opens a file importer, forcing a false→true transition. If a previous
+    /// panel was dismissed without the flag being reset (a known SwiftUI
+    /// fileImporter quirk), setting `true` again would be a no-op and the button
+    /// would appear dead — clearing it first guarantees the change is seen.
+    private func presentImporter(_ flag: Binding<Bool>) {
+        flag.wrappedValue = false
+        DispatchQueue.main.async { flag.wrappedValue = true }
+    }
 
     /// Reads the file the user picked, honouring the security scope.
     private func readPickedFile(_ result: Result<[URL], Error>) -> Data? {

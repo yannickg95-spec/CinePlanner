@@ -714,7 +714,13 @@ struct ShotDetailView: View {
     private func addReference() {
         let next = (shot.references.map(\.sortOrder).max() ?? -1) + 1
         let reference = ShotReference(sortOrder: next)
+        shotModelContext.insert(reference)
         reference.shot = shot
+        // Persist immediately so the reference's persistentModelID is permanent
+        // from the start. Otherwise a later autosave flips it from temporary to
+        // permanent, and if that happens while a file picker is open, the card
+        // (keyed by that id) is rebuilt and the picker is torn down mid-use.
+        try? shotModelContext.save()
     }
 
     private func deleteReference(_ reference: ShotReference) {
