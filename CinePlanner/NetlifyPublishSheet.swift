@@ -153,6 +153,17 @@ struct NetlifyPublishSheet: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(isPublishing)
+
+                if existingSiteID != nil {
+                    Button("Publish to a new site instead") {
+                        NetlifyPublisher.forgetSite(forProjectUID: project.uid)
+                        publish()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .disabled(isPublishing)
+                }
             }
 
             if isPublishing {

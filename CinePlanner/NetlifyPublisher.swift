@@ -58,6 +58,10 @@ enum NetlifyPublisher {
     private static func saveSiteID(_ id: String, forProjectUID uid: String) {
         UserDefaults.standard.set(id, forKey: "netlifySite-\(uid)")
     }
+    /// Forget the site tied to a project, so the next publish creates a new one.
+    static func forgetSite(forProjectUID uid: String) {
+        UserDefaults.standard.removeObject(forKey: "netlifySite-\(uid)")
+    }
 
     // MARK: - Publish
 
@@ -105,6 +109,9 @@ enum NetlifyPublisher {
         if let deployURL = deploy.deployURL { log.append("Deploy URL: \(deployURL)") }
         if let published = try? await publishedDeployID(siteID: siteID, token: token) {
             log.append("Site's published deploy: \(published) (this deploy: \(deployID))")
+        }
+        if let deployed = try? await deployFiles(deployID: deployID, token: token) {
+            log.append("Files IN the deploy (\(deployed.count)): \(deployed.sorted().prefix(8).joined(separator: ", "))")
         }
 
         // Prefer the deploy-specific URL if the production URL isn't reflecting it.
@@ -196,6 +203,16 @@ enum NetlifyPublisher {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let json = try await sendJSON(request)
         return (json["published_deploy"] as? [String: Any])?["id"] as? String
+    }
+
+    /// The file paths Netlify actually recorded in the deploy — decisive for
+    /// telling "the deploy has no files" from "the site isn't serving them".
+    private static func deployFiles(deployID: String, token: String) async throws -> [String] {
+        var request = URLRequest(url: base.appending(path: "deploys/\(deployID)/files"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await sendRaw(request)
+        let arr = ((try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]) ?? []
+        return arr.compactMap { ($0["path"] ?? $0["id"]) as? String }
     }
 
     // MARK: - Transport
