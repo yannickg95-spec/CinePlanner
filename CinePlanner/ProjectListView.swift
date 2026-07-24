@@ -52,16 +52,6 @@ struct ProjectListView: View {
                 }
             }
             .navigationTitle("CinePlanner")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingNewProjectSheet = true
-                    } label: {
-                        Label("New Project", systemImage: "plus")
-                    }
-                    .help("Create a new project")
-                }
-            }
             .navigationDestination(for: Project.self) { project in
                 ProjectEditorView(project: project)
             }
@@ -123,6 +113,11 @@ struct ProjectListView: View {
                     .padding(.top, 60)
                 } else {
                     LazyVGrid(columns: columns, spacing: 16) {
+                        // The add-project tile leads the grid, but only when not
+                        // searching — it isn't a search result.
+                        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                            addProjectCard
+                        }
                         ForEach(visibleProjects) { project in
                             NavigationLink(value: project) {
                                 ProjectCardView(project: project)
@@ -134,6 +129,36 @@ struct ProjectListView: View {
                 }
             }
         }
+    }
+
+    /// Square tile that opens the new-project sheet, sized to match the project
+    /// cards but styled distinctly (dashed accent border) so it reads as an
+    /// action rather than a project.
+    private var addProjectCard: some View {
+        Button {
+            showingNewProjectSheet = true
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "plus")
+                    .font(.title)
+                    .foregroundStyle(Color.accentColor)
+                Text("New Project")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .background(Color.accentColor.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.accentColor.opacity(0.4),
+                            style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .help("Create a new project")
     }
 
     // MARK: - Empty state
