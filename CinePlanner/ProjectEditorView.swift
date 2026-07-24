@@ -56,13 +56,19 @@ struct ProjectEditorView: View {
         currentVersions.filter { $0 !== selectedVersion && $0.totalShotCount > 0 }
     }
 
+    // Match by persistentModelID rather than Set.contains: a freshly-created
+    // model's id (and thus its hash) changes when the context autosaves, which
+    // leaves it in the wrong bucket of the selection Set so `.contains` misses
+    // it — the reason a first shot couldn't be opened until a second was added.
     private var selectedScene: Scene? {
-        orderedScenes.first { selectedScenes.contains($0) }
+        let ids = Set(selectedScenes.map(\.persistentModelID))
+        return orderedScenes.first { ids.contains($0.persistentModelID) }
     }
 
     private var selectedShot: Shot? {
         guard let scene = selectedScene else { return nil }
-        return scene.shots.sorted { $0.shotNumber < $1.shotNumber }.first { selectedShots.contains($0) }
+        let ids = Set(selectedShots.map(\.persistentModelID))
+        return scene.shots.sorted { $0.shotNumber < $1.shotNumber }.first { ids.contains($0.persistentModelID) }
     }
     
     var body: some View {
