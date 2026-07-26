@@ -125,6 +125,7 @@ struct ProjectExporter {
         let mapData: Data?          // JPEG
         let videoData: Data?
         let videoExtension: String
+        let note: String?           // user caption shown under the media
     }
 
     private struct MediaShot {
@@ -338,7 +339,8 @@ struct ProjectExporter {
                             photoData: reference.imageData.flatMap { Self.jpegData(from: $0) },
                             mapData: reference.mapData.flatMap { Self.jpegData(from: $0) },
                             videoData: reference.videoData,
-                            videoExtension: reference.videoExtension ?? "mov"
+                            videoExtension: reference.videoExtension ?? "mov",
+                            note: Self.cleanNote(reference.note)
                         )
                     }
                 )
@@ -425,7 +427,8 @@ struct ProjectExporter {
                             photoURI: reference.photoData.map { Self.dataURI($0) },
                             topDownURI: reference.mapData.map { Self.dataURI($0) },
                             videoPath: nil,
-                            posterURI: nil
+                            posterURI: nil,
+                            note: reference.note
                         )
                     }
                 }
@@ -498,7 +501,8 @@ struct ProjectExporter {
                         photoURI: reference.photoData.map { Self.dataURI($0) },
                         topDownURI: reference.mapData.map { Self.dataURI($0) },
                         videoPath: videoPath,
-                        posterURI: posterURI
+                        posterURI: posterURI,
+                        note: reference.note
                     )
                 }
             }
@@ -592,7 +596,8 @@ struct ProjectExporter {
                         photoURI: reference.photoData.map { Self.dataURI($0) },
                         topDownURI: reference.mapData.map { Self.dataURI($0) },
                         videoPath: videoPath,
-                        posterURI: posterURI
+                        posterURI: posterURI,
+                        note: reference.note
                     )
                 }
             }
@@ -633,6 +638,7 @@ struct ProjectExporter {
         let topDownURI: String?
         let videoPath: String?   // media/shot_x_1_video.mov
         let posterURI: String?   // data:image/jpeg;base64,… first frame
+        var note: String?        // user caption, shown when the media is opened
     }
 
     private static func mediaKey(_ shotSlug: String, _ referenceIndex: Int) -> String {
@@ -647,6 +653,12 @@ struct ProjectExporter {
 
     private static func dataURI(_ jpeg: Data) -> String {
         "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+    }
+
+    /// Trims a user note and returns nil when it's blank.
+    static func cleanNote(_ s: String?) -> String? {
+        let t = s?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (t?.isEmpty ?? true) ? nil : t
     }
 
     /// Extracts a poster frame (~0.5s in) from a video, as JPEG.
@@ -821,6 +833,9 @@ struct ProjectExporter {
                     // Label each thumbnail with its reference number when a shot
                     // carries more than one.
                     let tag = shot.references.count > 1 ? " \(reference.index)" : ""
+                    // The user's caption, revealed under the media in the open
+                    // fullscreen view (hidden on the thumbnail).
+                    let noteHTML = m.note.map { "<figcaption class=\"mi-note\">\(esc($0))</figcaption>" } ?? ""
                     if let video = m.videoPath {
                         let mime = video.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
                         body += "          <details class=\"mi mi-video\">\n            <summary title=\"Play video\">"
@@ -830,14 +845,14 @@ struct ProjectExporter {
                             body += "<span class=\"thumb-blank\"></span>"
                         }
                         body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Video\(tag)</span></summary>\n"
-                        body += "            <video controls playsinline preload=\"none\"><source src=\"\(video)\" type=\"\(mime)\"></video>\n"
+                        body += "            <video controls playsinline preload=\"none\"><source src=\"\(video)\" type=\"\(mime)\"></video>\(noteHTML)\n"
                         body += "          </details>\n"
                     }
                     if let photo = m.photoURI {
-                        body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Ref\(tag)</span></summary></details>\n"
+                        body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Ref\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     if let topDown = m.topDownURI {
-                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary></details>\n"
+                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     body += "          </div>\n"
                 }
@@ -999,6 +1014,15 @@ struct ProjectExporter {
           .mi-video[open] > summary img { display: none; }
           .mi-video[open] > video { display: block; position: relative; z-index: 1;
                                     max-width: 96vw; max-height: 92vh; border-radius: 6px; }
+          /* Reference caption: hidden on the thumbnail, shown along the bottom of
+             the open fullscreen viewer. */
+          .mi-note { display: none; }
+          .mi[open] > .mi-note { display: block; position: absolute; z-index: 2;
+                                 left: 0; right: 0; bottom: 0; margin: 0;
+                                 padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+                                 text-align: center; color: #fff; font-size: 14px; line-height: 1.4;
+                                 text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+                                 background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0)); }
           /* Coverage thumbnail: a small portrait script page showing its top, so
              it reads as the script (not a cropped landscape strip). The image and
              its aspect ratio come from a per-scene rule (.cov-N) so the JPEG is
@@ -2579,6 +2603,8 @@ struct ProjectExporter {
     private static let pdfCardInnerInset: CGFloat = 12
     private static let pdfCardRowH: CGFloat = 15
     private static let pdfCardBodyFont = NSFont.systemFont(ofSize: 9.5)
+    /// Vertical space reserved for a reference note line under its image.
+    private static let pdfRefNoteH: CGFloat = 14
 
     private func pdfFullWidthHeight(_ text: String, width: CGFloat) -> CGFloat {
         NSAttributedString(string: text, attributes: [.font: Self.pdfCardBodyFont]).boundingRect(
@@ -2599,6 +2625,7 @@ struct ProjectExporter {
         for r in c.refs {
             let pw = (r.imageData != nil && r.mapData != nil) ? (innerWidth - spacing) / 2 : min(innerWidth * 0.6, 320)
             photoH += pw * 0.75 + 24
+            if Self.cleanNote(r.note) != nil { photoH += Self.pdfRefNoteH }
         }
         if photoH > 0 { h += 8 + photoH }
         return h + 22
@@ -2714,6 +2741,14 @@ struct ProjectExporter {
                 }
                 if let data = r.mapData {
                     drawFramed(data, caption: "Top Down Map\(suffix)", at: CGPoint(x: px, y: cy), size: CGSize(width: pw, height: ph))
+                }
+                // The user's note, on its own line just below the image(s).
+                if let note = Self.cleanNote(r.note) {
+                    NSAttributedString(string: note,
+                                       attributes: [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: ink])
+                        .draw(with: CGRect(x: innerX, y: cy + 12 + ph + 3, width: innerWidth, height: Self.pdfRefNoteH),
+                              options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
+                    cy += Self.pdfRefNoteH
                 }
                 cy += ph + 24
             }

@@ -435,6 +435,11 @@ final class ShotReference {
     /// Top-down map belonging to this reference.
     var mapData: Data?
 
+    /// A short user note shown under this reference's media in the PDF, the HTML
+    /// export, and the published web page. Distinct from `caption`, which is EXIF
+    /// text read off the image.
+    var note: String?
+
     // EXIF/metadata read off the reference image
     var cameraFamily: String?
     var cameraFormat: String?
@@ -508,6 +513,7 @@ final class ShotReference {
         copy.videoData = videoData
         copy.videoExtension = videoExtension
         copy.mapData = mapData
+        copy.note = note
         copy.cameraFamily = cameraFamily
         copy.cameraFormat = cameraFormat
         copy.focalLength = focalLength

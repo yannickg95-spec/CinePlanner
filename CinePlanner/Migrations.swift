@@ -27,7 +27,12 @@ enum CinePlannerMigrationPlan: SchemaMigrationPlan {
     }
 
     static var stages: [MigrationStage] {
-        // No stages yet — one schema version. Add stages here when introducing V2+.
+        // Additive, optional-attribute changes (e.g. adding ShotReference.note)
+        // are handled by SwiftData's automatic lightweight migration — no explicit
+        // stage needed. A distinct SchemaV2 here would need frozen model copies to
+        // get a different checksum; adding one that reuses the live types trips
+        // "Duplicate version checksums". Add a real staged V2 only for a
+        // non-inferrable change (renames, type changes, data transforms).
         []
     }
 }

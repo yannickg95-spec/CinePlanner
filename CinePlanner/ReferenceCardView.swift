@@ -38,6 +38,10 @@ struct ReferenceCardView: View {
                 mediaColumn.frame(maxWidth: .infinity, alignment: .leading)
                 mapColumn.frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            if reference.hasMedia || reference.mapData != nil {
+                noteField
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,6 +110,27 @@ struct ReferenceCardView: View {
                 .help(isMatch
                       ? "The photo and map were captured together"
                       : "The photo and map come from different captures")
+        }
+    }
+
+    // MARK: - Note
+
+    /// A short caption the user adds, shown under this reference's media in the
+    /// PDF, the HTML export and the published web page.
+    private var noteField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("NOTE")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .kerning(0.5)
+            TextField("Add a caption — shown under this reference in exports",
+                      text: Binding(get: { reference.note ?? "" },
+                                    set: { reference.note = $0.isEmpty ? nil : $0 }),
+                      axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .font(.subheadline)
         }
     }
 
