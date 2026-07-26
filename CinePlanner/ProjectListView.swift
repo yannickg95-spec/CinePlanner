@@ -19,6 +19,8 @@ struct ProjectListView: View {
     @State private var importErrorMessage: String?
     @State private var showingRestoreSheet = false
     @State private var recoveryMessage: String?
+    @State private var showingWalkthrough = false
+    @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
     enum ProjectSort: String, CaseIterable, Identifiable {
@@ -75,6 +77,9 @@ struct ProjectListView: View {
             .sheet(isPresented: $showingRestoreSheet) {
                 RestoreBackupSheet()
             }
+            .sheet(isPresented: $showingWalkthrough) {
+                WalkthroughView()
+            }
             .alert("Data Recovery", isPresented: Binding(
                 get: { recoveryMessage != nil },
                 set: { if !$0 { recoveryMessage = nil } }
@@ -88,6 +93,12 @@ struct ProjectListView: View {
                 if let message = UserDefaults.standard.string(forKey: CinePlannerApp.recoveryMessageKey) {
                     recoveryMessage = message
                     UserDefaults.standard.removeObject(forKey: CinePlannerApp.recoveryMessageKey)
+                }
+                // First launch: show the walkthrough once (but never on top of a
+                // recovery alert).
+                if !didShowWalkthrough && recoveryMessage == nil {
+                    didShowWalkthrough = true
+                    showingWalkthrough = true
                 }
             }
         }
@@ -159,6 +170,21 @@ struct ProjectListView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Restore from Backup — roll your data back to an earlier snapshot")
+
+                Button {
+                    showingWalkthrough = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.secondary.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("How CinePlanner works — a quick visual walkthrough")
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -276,6 +302,15 @@ struct ProjectListView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .padding(.top, 4)
+
+            Button {
+                showingWalkthrough = true
+            } label: {
+                Label("How it works", systemImage: "questionmark.circle")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
 
             Spacer()
         }
