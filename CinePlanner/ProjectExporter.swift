@@ -451,7 +451,7 @@ struct ProjectExporter {
         let scenes = snapshotScenesForMedia()
 
         let fm = FileManager.default
-        let staging = fm.temporaryDirectory.appendingPathComponent("netlify-\(UUID().uuidString)", isDirectory: true)
+        let staging = fm.temporaryDirectory.appendingPathComponent("web-publish-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
 
         let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
