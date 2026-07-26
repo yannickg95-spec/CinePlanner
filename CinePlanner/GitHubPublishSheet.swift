@@ -231,7 +231,9 @@ struct GitHubPublishSheet: View {
             await Task.yield()
             do {
                 let exporter = ProjectExporter(project: project, version: version)
-                let siteDir = try exporter.buildSiteDirectory()
+                let siteDir = try await exporter.buildSiteDirectory(onCompress: { done, total in
+                    phase = .compressing(done: done, total: total)
+                })
                 defer { try? FileManager.default.removeItem(at: siteDir) }
                 result = try await GitHubPublisher.publish(
                     siteDirectory: siteDir,

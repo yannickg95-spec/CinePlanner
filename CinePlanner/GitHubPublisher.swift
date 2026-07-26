@@ -20,6 +20,7 @@ enum GitHubError: LocalizedError {
     case http(Int, String)
     case badResponse
     case pagesBuildFailed
+    case fileTooLarge(name: String, bytes: Int)
 
     var errorDescription: String? {
         switch self {
@@ -30,6 +31,9 @@ enum GitHubError: LocalizedError {
             return "GitHub returned an error (\(code))." + (detail.map { " \($0)" } ?? "")
         case .badResponse: return "Unexpected response from GitHub."
         case .pagesBuildFailed: return "GitHub couldn't build the page. Check the repository's Pages settings."
+        case .fileTooLarge(let name, let bytes):
+            let mb = Double(bytes) / 1_048_576
+            return String(format: "“%@” is %.0f MB, over GitHub's 100 MB limit even after compression. Trim or shorten that video, then publish again.", name, mb)
         }
     }
 
@@ -43,6 +47,7 @@ enum GitHubError: LocalizedError {
 /// Coarse progress through a publish, used to drive the sheet's progress bar.
 enum GitHubPublishPhase: Equatable {
     case preparing
+    case compressing(done: Int, total: Int)
     case uploading(done: Int, total: Int)
     case enablingPages
     case building(seconds: Int)
@@ -51,7 +56,10 @@ enum GitHubPublishPhase: Equatable {
     /// reaches — full, so the bar only completes once the link is really live.
     var fraction: Double {
         switch self {
-        case .preparing: return 0.04
+        case .preparing: return 0.03
+        case .compressing(let done, let total):
+            let p = total > 0 ? Double(done) / Double(total) : 0
+            return 0.04 + 0.05 * p                    // 0.04 → 0.09
         case .uploading(let done, let total):
             let p = total > 0 ? Double(done) / Double(total) : 0
             return 0.10 + 0.45 * p                    // 0.10 → 0.55
@@ -65,6 +73,8 @@ enum GitHubPublishPhase: Equatable {
     var label: String {
         switch self {
         case .preparing: return "Preparing files…"
+        case .compressing(let done, let total):
+            return total > 1 ? "Compressing video (\(done)/\(total))…" : "Compressing video…"
         case .uploading(let done, let total):
             return total > 1 ? "Uploading files (\(done)/\(total))…" : "Uploading…"
         case .enablingPages: return "Turning on GitHub Pages…"
@@ -148,6 +158,15 @@ enum GitHubPublisher {
         //    so Pages serves the folder verbatim instead of running it through Jekyll.
         var files = try collectFiles(in: siteDirectory)
         files[".nojekyll"] = Data()
+
+        // Backstop: an oversized video that even the smallest transcode couldn't
+        // shrink (a very long clip) would make GitHub reject the whole push. Catch
+        // it here with a clear, per-file message instead.
+        let hardLimit = 100 * 1_024 * 1_024
+        if let big = files.max(by: { $0.value.count < $1.value.count }), big.value.count > hardLimit {
+            let name = big.key.split(separator: "/").last.map(String.init) ?? big.key
+            throw GitHubError.fileTooLarge(name: name, bytes: big.value.count)
+        }
 
         // 3. Atomic commit via the Git Data API.
         try await commitFiles(owner: owner, repo: repo, files: files, token: token, onProgress: onProgress)

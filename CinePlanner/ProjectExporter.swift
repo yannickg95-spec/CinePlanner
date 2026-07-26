@@ -441,10 +441,12 @@ struct ProjectExporter {
 
     /// Builds a self-contained website folder — index.html at the root plus a
     /// media/ folder for any videos — in a fresh temp directory, ready to deploy.
-    /// Photos are embedded in the page; only videos live as sibling files. The
-    /// caller is responsible for removing the returned directory.
+    /// Photos are embedded in the page; only videos live as sibling files. Videos
+    /// over GitHub's file limit are transcoded down so publishing can't fail on an
+    /// oversized file. The caller is responsible for removing the returned directory.
+    /// `onCompress(done, total)` fires as each over-limit video is transcoded.
     @MainActor
-    func buildSiteDirectory() throws -> URL {
+    func buildSiteDirectory(onCompress: @escaping (Int, Int) -> Void = { _, _ in }) async throws -> URL {
         let filmName = project.filmName
         let versionName = version?.name
         let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
@@ -460,6 +462,14 @@ struct ProjectExporter {
                                    withIntermediateDirectories: true)
         }
 
+        // How many videos will need transcoding — for accurate progress.
+        let oversizedTotal = scenes.reduce(0) { acc, scene in
+            acc + scene.shots.reduce(0) { a, shot in
+                a + shot.references.filter { ($0.videoData?.count ?? 0) > Self.gitHubVideoLimit }.count
+            }
+        }
+        var compressedDone = 0
+
         var rendered: [String: RenderedMedia] = [:]
         for scene in scenes {
             for shot in scene.shots {
@@ -467,10 +477,20 @@ struct ProjectExporter {
                     var videoPath: String?
                     var posterURI: String?
                     if let data = reference.videoData {
-                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(reference.videoExtension)"
-                        try data.write(to: staging.appendingPathComponent(name))
+                        var outData = data
+                        var outExt = reference.videoExtension
+                        if data.count > Self.gitHubVideoLimit {
+                            compressedDone += 1
+                            onCompress(compressedDone, oversizedTotal)   // announce before the slow transcode
+                            let result = await Self.videoForWeb(data: data, ext: reference.videoExtension,
+                                                                maxBytes: Self.gitHubVideoLimit)
+                            outData = result.data
+                            outExt = result.ext
+                        }
+                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(outExt)"
+                        try outData.write(to: staging.appendingPathComponent(name))
                         videoPath = name
-                        if let poster = Self.posterFrame(fromVideoData: data, ext: reference.videoExtension) {
+                        if let poster = Self.posterFrame(fromVideoData: outData, ext: outExt) {
                             posterURI = Self.dataURI(poster)
                         }
                     }
@@ -491,6 +511,50 @@ struct ProjectExporter {
         }
         try data.write(to: staging.appendingPathComponent("index.html"))
         return staging
+    }
+
+    // MARK: - Web video compression
+
+    /// GitHub rejects files over 100 MB. Transcode reference videos larger than
+    /// this to a web-friendly H.264 MP4 so a publish can't fail on one big clip.
+    /// Kept below 100 MB for headroom (base64 upload, container overhead). If real
+    /// uploads ever reject smaller blobs, lower this one constant.
+    static let gitHubVideoLimit = 90 * 1_024 * 1_024
+
+    /// Transcodes video data down to an H.264 MP4 that fits under `maxBytes`,
+    /// stepping resolution down until it does. Returns the smallest result it
+    /// managed (still MP4) even if nothing fit — the caller enforces the hard
+    /// limit and reports a clear error for a clip that's simply too long.
+    static func videoForWeb(data: Data, ext: String, maxBytes: Int) async -> (data: Data, ext: String) {
+        let fm = FileManager.default
+        let src = fm.temporaryDirectory.appendingPathComponent("src_\(UUID().uuidString).\(ext)")
+        guard (try? data.write(to: src)) != nil else { return (data, ext) }
+        defer { try? fm.removeItem(at: src) }
+
+        let asset = AVURLAsset(url: src)
+        let presets = [AVAssetExportPreset1280x720, AVAssetExportPreset960x540, AVAssetExportPreset640x480]
+        var smallest: Data?
+        for preset in presets {
+            guard let out = await Self.transcode(asset: asset, preset: preset) else { continue }
+            if smallest == nil || out.count < smallest!.count { smallest = out }
+            if out.count <= maxBytes { return (out, "mp4") }
+        }
+        // Best effort: hand back the smallest transcode if it beat the original.
+        if let smallest, smallest.count < data.count { return (smallest, "mp4") }
+        return (data, ext)
+    }
+
+    private static func transcode(asset: AVURLAsset, preset: String) async -> Data? {
+        guard let session = AVAssetExportSession(asset: asset, presetName: preset) else { return nil }
+        session.shouldOptimizeForNetworkUse = true
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("out_\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: out) }
+        do {
+            try await session.export(to: out, as: .mp4)
+        } catch {
+            return nil
+        }
+        return try? Data(contentsOf: out)
     }
 
     /// Writes "<name>.html" + media/ into a temp folder and zips it to `destination`.
