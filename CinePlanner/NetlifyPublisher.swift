@@ -104,6 +104,77 @@ enum NetlifyPublisher {
         return Result(url: siteURL, siteID: siteID, adminURL: adminURL)
     }
 
+    // MARK: - Account status (diagnostic)
+
+    struct SiteInfo: Identifiable {
+        let id: String
+        let name: String
+        let url: String
+        let adminURL: String?
+        let state: String
+        /// HTTP status the public URL returns right now (429 = Netlify is
+        /// throttling this account's pages; 200 = live). nil if unreachable.
+        var serveStatus: Int?
+    }
+
+    struct AccountInfo {
+        let email: String?
+        let fullName: String?
+        var sites: [SiteInfo]
+    }
+
+    /// Looks up who the stored token belongs to and lists every site it owns,
+    /// probing each public URL so the caller can see throttled (429) pages. This
+    /// answers "where did my pages go?" — usually the token is on a different
+    /// account than the dashboard the user is looking at.
+    static func fetchAccountStatus() async throws -> AccountInfo {
+        guard let token = token else { throw NetlifyError.notAuthenticated }
+
+        var userReq = URLRequest(url: base.appending(path: "user"))
+        userReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let user = (try? await sendJSON(userReq)) ?? [:]
+
+        var sitesReq = URLRequest(url: base.appending(path: "sites"))
+        sitesReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await sendRaw(sitesReq)
+        let arr = ((try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]) ?? []
+
+        var sites: [SiteInfo] = []
+        for s in arr {
+            guard let id = s["id"] as? String else { continue }
+            let url = ((s["ssl_url"] ?? s["url"]) as? String) ?? ""
+            sites.append(SiteInfo(
+                id: id,
+                name: (s["name"] as? String) ?? id,
+                url: url,
+                adminURL: s["admin_url"] as? String,
+                state: (s["state"] as? String) ?? "unknown",
+                serveStatus: url.isEmpty ? nil : await probeServe(url)))
+        }
+        return AccountInfo(email: user["email"] as? String,
+                           fullName: user["full_name"] as? String,
+                           sites: sites)
+    }
+
+    /// GETs a public site URL (no auth, the CDN edge) just to read its status code.
+    private static func probeServe(_ urlString: String) async -> Int? {
+        guard let url = URL(string: urlString) else { return nil }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse else { return nil }
+        return http.statusCode
+    }
+
+    /// Deletes a site (used to clear out throwaway test sites).
+    static func deleteSite(id: String) async throws {
+        guard let token = token else { throw NetlifyError.notAuthenticated }
+        var req = URLRequest(url: base.appending(path: "sites/\(id)"))
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        _ = try await sendRaw(req)
+    }
+
     // MARK: - Files
 
     private static func collectFiles(in root: URL) throws -> [String: Data] {

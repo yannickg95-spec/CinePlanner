@@ -19,6 +19,7 @@ struct NetlifyPublishSheet: View {
     @State private var isPublishing = false
     @State private var result: NetlifyPublisher.Result?
     @State private var errorMessage: String?
+    @State private var showingAccount = false
 
     private var existingSiteID: String? { NetlifyPublisher.savedSiteID(forProjectUID: project.uid) }
 
@@ -55,6 +56,11 @@ struct NetlifyPublishSheet: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .font(.caption)
+                    Button("Check Account…") { showingAccount = true }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .help("See which Netlify account this token belongs to and list its sites")
                 }
                 Spacer()
                 Button("Done") { dismiss() }
@@ -63,6 +69,9 @@ struct NetlifyPublishSheet: View {
             .padding(16)
         }
         .frame(width: 500, height: 430)
+        .sheet(isPresented: $showingAccount) {
+            NetlifyAccountStatusView()
+        }
     }
 
     // MARK: - Token entry
@@ -208,6 +217,156 @@ struct NetlifyPublishSheet: View {
                 errorMessage = error.localizedDescription
             }
             isPublishing = false
+        }
+    }
+}
+
+// MARK: - Account status (diagnostic)
+
+/// Shows which Netlify account the stored token belongs to and lists its sites,
+/// probing each so throttled (429) pages are obvious. This is the answer to
+/// "my pages are blank / I can't find them" — usually the token is on a
+/// different account than the dashboard the user is signed into.
+struct NetlifyAccountStatusView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var info: NetlifyPublisher.AccountInfo?
+    @State private var errorMessage: String?
+    @State private var loading = true
+    @State private var deletingID: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Netlify Account")
+                .font(.title2).fontWeight(.semibold)
+
+            if loading {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking your token…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let info {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This token belongs to:")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(info.email ?? info.fullName ?? "Unknown account")
+                        .font(.body.monospaced()).textSelection(.enabled)
+                    Text("Your pages are created under this account. If it isn't the one you're viewing in the Netlify dashboard, that's why you can't find them — switch to this account (or team) in the browser.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                Divider()
+
+                if info.sites.isEmpty {
+                    Text("No sites found under this account.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Text("\(info.sites.count) site\(info.sites.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(info.sites) { site in
+                                siteRow(site)
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 540, height: 500)
+        .task { await load() }
+    }
+
+    @ViewBuilder
+    private func siteRow(_ site: NetlifyPublisher.SiteInfo) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(site.name).fontWeight(.medium)
+                Text(site.url)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                serveBadge(site.serveStatus)
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 6) {
+                if let admin = site.adminURL, let url = URL(string: admin) {
+                    Link("Open", destination: url).font(.caption)
+                }
+                if deletingID == site.id {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(role: .destructive) {
+                        delete(site)
+                    } label: {
+                        Image(systemName: "trash").font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete this site on Netlify")
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func serveBadge(_ status: Int?) -> some View {
+        let (text, color): (String, Color) = {
+            switch status {
+            case 200: return ("Live", .green)
+            case 429: return ("Throttled by Netlify (429)", .red)
+            case .some(let code): return ("HTTP \(code)", .orange)
+            case nil: return ("Unreachable", .secondary)
+            }
+        }()
+        Text(text)
+            .font(.caption2).fontWeight(.semibold)
+            .foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(color.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        do {
+            info = try await NetlifyPublisher.fetchAccountStatus()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func delete(_ site: NetlifyPublisher.SiteInfo) {
+        deletingID = site.id
+        Task { @MainActor in
+            do {
+                try await NetlifyPublisher.deleteSite(id: site.id)
+                info?.sites.removeAll { $0.id == site.id }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            deletingID = nil
         }
     }
 }
