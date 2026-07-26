@@ -11,7 +11,7 @@ struct ExportOptionsSheet: View {
     let project: Project
     let version: ScriptVersion?
 
-    @State private var selected: Set<ExportFormat> = [.htmlWithMedia]
+    @State private var selected: Set<ExportFormat> = []
     @State private var showingPublish = false
 
     /// Selected formats in the order they're listed.
@@ -113,9 +113,14 @@ struct ExportOptionsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
+                        sectionHeader("SHARE ONLINE")
+                        publishFeatureCard
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
-                            sectionHeader("SHOT LIST")
-                            Text("· in recommended order")
+                            sectionHeader("SAVE A FILE")
+                            Text("· shot list")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -138,13 +143,6 @@ struct ExportOptionsSheet: View {
 
             // Footer
             HStack {
-                Button {
-                    showingPublish = true
-                } label: {
-                    Label("Publish to Web…", systemImage: "globe")
-                }
-                .help("Put the web shot list online on your own GitHub account (GitHub Pages)")
-
                 if orderedSelection.count > 1 {
                     Text("You'll choose one folder for all \(orderedSelection.count) files.")
                         .font(.caption)
@@ -160,7 +158,7 @@ struct ExportOptionsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 580, height: 560)
+        .frame(width: 600, height: 720)
         .sheet(isPresented: $showingPublish) {
             GitHubPublishSheet(project: project, version: version)
         }
@@ -172,6 +170,52 @@ struct ExportOptionsSheet: View {
             .fontWeight(.semibold)
             .foregroundStyle(.secondary)
             .kerning(0.5)
+    }
+
+    /// The hero action: publishing online is the richest way to share a shot
+    /// list, so it leads the sheet. It's an action (not a selectable format), so
+    /// the accent lives in the Publish button — the tinted-blue "selected" look
+    /// is reserved for the file checkboxes below.
+    private var publishFeatureCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "globe")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Publish to Web")
+                        .fontWeight(.semibold)
+                    Text("Best way to share")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                Text("Put your shot list online and get a link to share — searchable and filterable, with reference photos and video, opening on any device. Re-publishing updates the same link.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Button("Publish…") { showingPublish = true }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
     }
 
     @ViewBuilder
