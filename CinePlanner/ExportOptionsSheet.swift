@@ -143,7 +143,7 @@ struct ExportOptionsSheet: View {
                 } label: {
                     Label("Publish to Web…", systemImage: "globe")
                 }
-                .help("Put the web shot list online on your own Netlify account")
+                .help("Put the web shot list online on your own GitHub account (GitHub Pages)")
 
                 if orderedSelection.count > 1 {
                     Text("You'll choose one folder for all \(orderedSelection.count) files.")
@@ -162,7 +162,7 @@ struct ExportOptionsSheet: View {
         }
         .frame(width: 580, height: 560)
         .sheet(isPresented: $showingPublish) {
-            NetlifyPublishSheet(project: project, version: version)
+            GitHubPublishSheet(project: project, version: version)
         }
     }
 
