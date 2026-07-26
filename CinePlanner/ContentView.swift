@@ -913,6 +913,7 @@ struct ShotDetailView: View {
                 
                 Text("mm")
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
             
             // Arrow and second field (only for zoom)
@@ -1187,13 +1188,19 @@ struct ShotDetailView: View {
                     // stacked when it isn't.
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 16) {
+                            // Shot setup takes the room it needs; the camera column is
+                            // capped narrow (its fields are only ~200pt) so setup has
+                            // space for multiple sizes/types and the zoom range on one
+                            // line. When even this doesn't fit, ViewThatFits stacks.
                             shotSetupCard
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             // Shot setup is the taller card, so coverage fills the
                             // space beneath camera information rather than leaving a gap.
                             VStack(alignment: .leading, spacing: 16) {
                                 cameraInformationCard
                                 scriptCoverageCard
                             }
+                            .frame(width: 340)
                         }
                         VStack(alignment: .leading, spacing: 16) {
                             shotSetupCard
@@ -1341,6 +1348,10 @@ struct OptionPickerView: View {
             HStack {
                 Text(currentLabel)
                     .foregroundStyle(hasValue ? .primary : .secondary)
+                    // One line, sized to its text — the card is given enough width
+                    // (camera card is capped narrower) so labels never wrap or clip.
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption)
                     .foregroundStyle(.secondary)
