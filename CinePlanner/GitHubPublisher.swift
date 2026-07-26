@@ -40,6 +40,43 @@ enum GitHubError: LocalizedError {
     }
 }
 
+/// Coarse progress through a publish, used to drive the sheet's progress bar.
+enum GitHubPublishPhase: Equatable {
+    case preparing
+    case uploading(done: Int, total: Int)
+    case enablingPages
+    case building(seconds: Int)
+
+    /// 0…1 for a determinate bar. The build phase eases toward — but never
+    /// reaches — full, so the bar only completes once the link is really live.
+    var fraction: Double {
+        switch self {
+        case .preparing: return 0.04
+        case .uploading(let done, let total):
+            let p = total > 0 ? Double(done) / Double(total) : 0
+            return 0.10 + 0.45 * p                    // 0.10 → 0.55
+        case .enablingPages: return 0.58
+        case .building(let seconds):
+            let t = min(Double(seconds) / 35.0, 1.0)  // ~35s typical build
+            return 0.60 + 0.37 * t                    // 0.60 → 0.97
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .preparing: return "Preparing files…"
+        case .uploading(let done, let total):
+            return total > 1 ? "Uploading files (\(done)/\(total))…" : "Uploading…"
+        case .enablingPages: return "Turning on GitHub Pages…"
+        case .building(let seconds): return "GitHub is building the page… (\(seconds)s)"
+        }
+    }
+}
+
+/// Progress callback. May be invoked off the main thread, so the receiver is
+/// responsible for hopping to the main actor before touching UI state.
+typealias GitHubProgress = (GitHubPublishPhase) -> Void
+
 enum GitHubPublisher {
 
     // MARK: - Token (Keychain)
@@ -88,7 +125,8 @@ enum GitHubPublisher {
     /// Builds files from `siteDirectory`, commits them to the project's repo
     /// (creating it the first time), enables Pages, and waits for the build.
     static func publish(siteDirectory: URL, existingRepo: String?,
-                        projectName: String, projectUID: String) async throws -> Result {
+                        projectName: String, projectUID: String,
+                        onProgress: @escaping GitHubProgress = { _ in }) async throws -> Result {
         guard let token = token else { throw GitHubError.notAuthenticated }
 
         let login = try await fetchLogin(token: token)
@@ -112,14 +150,15 @@ enum GitHubPublisher {
         files[".nojekyll"] = Data()
 
         // 3. Atomic commit via the Git Data API.
-        try await commitFiles(owner: owner, repo: repo, files: files, token: token)
+        try await commitFiles(owner: owner, repo: repo, files: files, token: token, onProgress: onProgress)
 
         // 4. Enable Pages if it isn't already, and learn the public URL.
+        onProgress(.enablingPages)
         let pagesURL = try await ensurePages(owner: owner, repo: repo, token: token)
             ?? "https://\(owner.lowercased()).github.io/\(repo)/"
 
         // 5. Wait for the build so we only hand back a link that's actually live.
-        let isLive = await waitForPagesBuild(owner: owner, repo: repo, token: token)
+        let isLive = await waitForPagesBuild(owner: owner, repo: repo, token: token, onProgress: onProgress)
 
         return Result(url: pagesURL,
                       repoFullName: "\(owner)/\(repo)",
@@ -181,7 +220,8 @@ enum GitHubPublisher {
 
     // MARK: - Commit (Git Data API)
 
-    private static func commitFiles(owner: String, repo: String, files: [String: Data], token: String) async throws {
+    private static func commitFiles(owner: String, repo: String, files: [String: Data],
+                                    token: String, onProgress: @escaping GitHubProgress) async throws {
         let repoPath = "repos/\(owner)/\(repo)"
 
         // Current tip of the default branch (auto_init leaves "main" with one commit).
@@ -190,17 +230,24 @@ enum GitHubPublisher {
             throw GitHubError.badResponse
         }
 
-        // A blob per file.
+        // A blob per file, uploaded concurrently — a big win when there are videos.
+        // Blobs are content-addressed, so order doesn't matter; we collect
+        // (path, sha) as each finishes and report progress.
+        let total = files.count
+        onProgress(.uploading(done: 0, total: total))
         var tree: [[String: Any]] = []
-        for (path, data) in files {
-            var blobReq = post("\(repoPath)/git/blobs", token: token)
-            blobReq.httpBody = try JSONSerialization.data(withJSONObject: [
-                "content": data.base64EncodedString(),
-                "encoding": "base64",
-            ])
-            let blob = try await sendJSON(blobReq)
-            guard let sha = blob["sha"] as? String else { throw GitHubError.badResponse }
-            tree.append(["path": path, "mode": "100644", "type": "blob", "sha": sha])
+        try await withThrowingTaskGroup(of: (String, String).self) { group in
+            for (path, data) in files {
+                group.addTask {
+                    (path, try await uploadBlob(repoPath: repoPath, data: data, token: token))
+                }
+            }
+            var done = 0
+            for try await (path, sha) in group {
+                done += 1
+                onProgress(.uploading(done: done, total: total))
+                tree.append(["path": path, "mode": "100644", "type": "blob", "sha": sha])
+            }
         }
 
         // A tree with no base — it contains exactly these files, dropping anything
@@ -225,6 +272,18 @@ enum GitHubPublisher {
         _ = try await sendRaw(refReq)
     }
 
+    /// Uploads one file's bytes as a base64 blob, returning its SHA.
+    private static func uploadBlob(repoPath: String, data: Data, token: String) async throws -> String {
+        var request = post("\(repoPath)/git/blobs", token: token)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "content": data.base64EncodedString(),
+            "encoding": "base64",
+        ])
+        let blob = try await sendJSON(request)
+        guard let sha = blob["sha"] as? String else { throw GitHubError.badResponse }
+        return sha
+    }
+
     // MARK: - Pages
 
     /// Enables Pages (branch main, root) if needed. Returns the public URL GitHub
@@ -247,10 +306,13 @@ enum GitHubPublisher {
 
     /// Polls the latest Pages build until it reports "built". Returns false if it
     /// errors or we time out (the link is still valid; the build just isn't done).
-    private static func waitForPagesBuild(owner: String, repo: String, token: String) async -> Bool {
+    private static func waitForPagesBuild(owner: String, repo: String, token: String,
+                                          onProgress: @escaping GitHubProgress) async -> Bool {
         let path = "repos/\(owner)/\(repo)/pages/builds/latest"
-        for _ in 0..<40 {   // ~2 min
-            if let (data, http) = try? await sendRaw(get(path, token: token)), http.statusCode == 200 {
+        let start = Date()
+        for _ in 0..<60 {   // ~2 min at 2s
+            onProgress(.building(seconds: Int(Date().timeIntervalSince(start))))
+            if let (data, http) = try? await rawSend(get(path, token: token)), http.statusCode == 200 {
                 let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
                 switch json?["status"] as? String {
                 case "built": return true
@@ -258,7 +320,7 @@ enum GitHubPublisher {
                 default: break   // "building"/"queued"/null — keep waiting
                 }
             }
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         return false
     }

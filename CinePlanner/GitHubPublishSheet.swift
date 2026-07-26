@@ -18,6 +18,7 @@ struct GitHubPublishSheet: View {
     @State private var tokenInput = ""
     @State private var hasToken = GitHubPublisher.hasToken
     @State private var isPublishing = false
+    @State private var phase: GitHubPublishPhase?
     @State private var result: GitHubPublisher.Result?
     @State private var errorMessage: String?
 
@@ -183,9 +184,11 @@ struct GitHubPublishSheet: View {
             }
 
             if isPublishing {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Publishing… uploading files, then waiting for GitHub to build the page (about a minute).")
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: phase?.fraction ?? 0)
+                        .progressViewStyle(.linear)
+                        .animation(.easeInOut(duration: 0.3), value: phase?.fraction ?? 0)
+                    Text(phase?.label ?? "Publishing…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -221,7 +224,11 @@ struct GitHubPublishSheet: View {
     private func publish() {
         isPublishing = true
         errorMessage = nil
+        phase = .preparing
         Task { @MainActor in
+            // Let the bar paint "Preparing…" before buildSiteDirectory blocks the
+            // main actor (it reads SwiftData models and rasterises media).
+            await Task.yield()
             do {
                 let exporter = ProjectExporter(project: project, version: version)
                 let siteDir = try exporter.buildSiteDirectory()
@@ -230,10 +237,15 @@ struct GitHubPublishSheet: View {
                     siteDirectory: siteDir,
                     existingRepo: existingRepo,
                     projectName: project.filmName,
-                    projectUID: project.uid)
+                    projectUID: project.uid,
+                    onProgress: { newPhase in
+                        // Called off the main thread; hop back to update UI state.
+                        Task { @MainActor in phase = newPhase }
+                    })
             } catch {
                 errorMessage = error.localizedDescription
             }
+            phase = nil
             isPublishing = false
         }
     }
