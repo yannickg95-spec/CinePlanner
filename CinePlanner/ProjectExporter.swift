@@ -125,6 +125,8 @@ struct ProjectExporter {
         let mapData: Data?          // JPEG
         let videoData: Data?
         let videoExtension: String
+        let mapVideoData: Data?     // a top-down map can be a video too
+        let mapVideoExtension: String
         let note: String?           // user caption shown under the media
     }
 
@@ -156,7 +158,7 @@ struct ProjectExporter {
         // Tested via the extension, not the Data: the two are always written and
         // cleared together, and reading the blob just to see whether it exists
         // would pull every video in the project into memory.
-        exportScenes.contains { $0.shots.contains { $0.references.contains { $0.videoExtension != nil } } }
+        exportScenes.contains { $0.shots.contains { $0.references.contains { $0.videoExtension != nil || $0.mapVideoExtension != nil } } }
     }
 
     /// The name the exported page is saved under, in both the single-file and the
@@ -177,7 +179,7 @@ struct ProjectExporter {
         let versionName = version?.name
         let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
         let scenes = snapshotScenesForMedia()
-        let needsFolder = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
+        let needsFolder = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
         let baseName = webExportBaseName(filmName)
 
         DispatchQueue.main.async {
@@ -340,6 +342,8 @@ struct ProjectExporter {
                             mapData: reference.mapData.flatMap { Self.jpegData(from: $0) },
                             videoData: reference.videoData,
                             videoExtension: reference.videoExtension ?? "mov",
+                            mapVideoData: reference.mapVideoData,
+                            mapVideoExtension: reference.mapVideoExtension ?? "mov",
                             note: Self.cleanNote(reference.note)
                         )
                     }
@@ -413,7 +417,7 @@ struct ProjectExporter {
     /// videos, otherwise a zipped folder holding the page and a media/ directory.
     private func writeWebExport(filmName: String, episodeName: String?, versionName: String?,
                                 scenes: [MediaScene], to destination: URL) throws {
-        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
+        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
         if hasVideo {
             try writeHTMLBundle(filmName: filmName, episodeName: episodeName, versionName: versionName,
                                 scenes: scenes, to: destination)
@@ -459,19 +463,38 @@ struct ProjectExporter {
         let staging = fm.temporaryDirectory.appendingPathComponent("web-publish-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
 
-        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil } } }
+        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
         if hasVideo {
             try fm.createDirectory(at: staging.appendingPathComponent("media", isDirectory: true),
                                    withIntermediateDirectories: true)
         }
 
-        // How many videos will need transcoding — for accurate progress.
+        // How many videos will need transcoding — for accurate progress. Counts
+        // both the reference video and a map video.
         let oversizedTotal = scenes.reduce(0) { acc, scene in
             acc + scene.shots.reduce(0) { a, shot in
-                a + shot.references.filter { ($0.videoData?.count ?? 0) > Self.gitHubVideoLimit }.count
+                a + shot.references.reduce(0) { c, ref in
+                    c + (((ref.videoData?.count ?? 0) > Self.gitHubVideoLimit) ? 1 : 0)
+                      + (((ref.mapVideoData?.count ?? 0) > Self.gitHubVideoLimit) ? 1 : 0)
+                }
             }
         }
         var compressedDone = 0
+
+        // Compresses an oversized clip, writes it into media/, and returns its path
+        // and a poster frame.
+        func writeWebVideo(_ data: Data, ext: String, name: String) async throws -> (path: String, poster: String?) {
+            var outData = data, outExt = ext
+            if data.count > Self.gitHubVideoLimit {
+                compressedDone += 1
+                onCompress(compressedDone, oversizedTotal)
+                let result = await Self.videoForWeb(data: data, ext: ext, maxBytes: Self.gitHubVideoLimit)
+                outData = result.data; outExt = result.ext
+            }
+            let file = "media/\(name).\(outExt)"
+            try outData.write(to: staging.appendingPathComponent(file))
+            return (file, Self.posterFrame(fromVideoData: outData, ext: outExt).map { Self.dataURI($0) })
+        }
 
         var rendered: [String: RenderedMedia] = [:]
         for scene in scenes {
@@ -480,28 +503,24 @@ struct ProjectExporter {
                     var videoPath: String?
                     var posterURI: String?
                     if let data = reference.videoData {
-                        var outData = data
-                        var outExt = reference.videoExtension
-                        if data.count > Self.gitHubVideoLimit {
-                            compressedDone += 1
-                            onCompress(compressedDone, oversizedTotal)   // announce before the slow transcode
-                            let result = await Self.videoForWeb(data: data, ext: reference.videoExtension,
-                                                                maxBytes: Self.gitHubVideoLimit)
-                            outData = result.data
-                            outExt = result.ext
-                        }
-                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(outExt)"
-                        try outData.write(to: staging.appendingPathComponent(name))
-                        videoPath = name
-                        if let poster = Self.posterFrame(fromVideoData: outData, ext: outExt) {
-                            posterURI = Self.dataURI(poster)
-                        }
+                        let out = try await writeWebVideo(data, ext: reference.videoExtension,
+                                                          name: "shot_\(shot.slug)_\(reference.index)_video")
+                        videoPath = out.path; posterURI = out.poster
+                    }
+                    var mapVideoPath: String?
+                    var mapPosterURI: String?
+                    if let mData = reference.mapVideoData {
+                        let out = try await writeWebVideo(mData, ext: reference.mapVideoExtension,
+                                                          name: "shot_\(shot.slug)_\(reference.index)_map")
+                        mapVideoPath = out.path; mapPosterURI = out.poster
                     }
                     rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
                         photoURI: reference.photoData.map { Self.dataURI($0) },
                         topDownURI: reference.mapData.map { Self.dataURI($0) },
                         videoPath: videoPath,
                         posterURI: posterURI,
+                        mapVideoPath: mapVideoPath,
+                        mapPosterURI: mapPosterURI,
                         note: reference.note
                     )
                 }
@@ -582,21 +601,26 @@ struct ProjectExporter {
         for scene in scenes {
             for shot in scene.shots {
                 for reference in shot.references {
-                    var videoPath: String?
-                    var posterURI: String?
-                    if let data = reference.videoData {
-                        let name = "media/shot_\(shot.slug)_\(reference.index)_video.\(reference.videoExtension)"
+                    func writeVideo(_ data: Data, ext: String, suffix: String) throws -> (String, String?) {
+                        let name = "media/shot_\(shot.slug)_\(reference.index)_\(suffix).\(ext)"
                         try data.write(to: staging.appendingPathComponent(name))
-                        videoPath = name
-                        if let poster = Self.posterFrame(fromVideoData: data, ext: reference.videoExtension) {
-                            posterURI = Self.dataURI(poster)
-                        }
+                        return (name, Self.posterFrame(fromVideoData: data, ext: ext).map { Self.dataURI($0) })
+                    }
+                    var videoPath: String?, posterURI: String?
+                    if let data = reference.videoData {
+                        (videoPath, posterURI) = try writeVideo(data, ext: reference.videoExtension, suffix: "video")
+                    }
+                    var mapVideoPath: String?, mapPosterURI: String?
+                    if let mData = reference.mapVideoData {
+                        (mapVideoPath, mapPosterURI) = try writeVideo(mData, ext: reference.mapVideoExtension, suffix: "map")
                     }
                     rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
                         photoURI: reference.photoData.map { Self.dataURI($0) },
                         topDownURI: reference.mapData.map { Self.dataURI($0) },
                         videoPath: videoPath,
                         posterURI: posterURI,
+                        mapVideoPath: mapVideoPath,
+                        mapPosterURI: mapPosterURI,
                         note: reference.note
                     )
                 }
@@ -638,6 +662,8 @@ struct ProjectExporter {
         let topDownURI: String?
         let videoPath: String?   // media/shot_x_1_video.mov
         let posterURI: String?   // data:image/jpeg;base64,… first frame
+        var mapVideoPath: String? = nil   // media/shot_x_1_map.mov (map as video)
+        var mapPosterURI: String? = nil
         var note: String?        // user caption, shown when the media is opened
     }
 
@@ -723,7 +749,7 @@ struct ProjectExporter {
             let shotCount = scene.shots.count
             let mediaCount = scene.shots.filter { m in
                 let r = media[m.slug]
-                return r?.photoURI != nil || r?.topDownURI != nil || r?.videoPath != nil
+                return r?.photoURI != nil || r?.topDownURI != nil || r?.videoPath != nil || r?.mapVideoPath != nil
             }.count
 
             toc += "  <a class=\"toc-item\" data-for=\"\(anchor)\" href=\"#\(anchor)\">"
@@ -751,7 +777,7 @@ struct ProjectExporter {
             }
             for shot in scene.shots {
                 let refs = shot.references.map { (r: MediaReference) in (r, media[Self.mediaKey(shot.slug, r.index)]) }
-                let hasMedia = refs.contains { $0.1?.photoURI != nil || $0.1?.topDownURI != nil || $0.1?.videoPath != nil }
+                let hasMedia = refs.contains { $0.1?.photoURI != nil || $0.1?.topDownURI != nil || $0.1?.videoPath != nil || $0.1?.mapVideoPath != nil }
                 let shotSearch = ([shot.displayNumber, shot.nickname, shot.coverageText ?? ""]
                                   + shot.details.map { "\($0.label) \($0.value)" })
                     .joined(separator: " ").lowercased()
@@ -853,6 +879,18 @@ struct ProjectExporter {
                     }
                     if let topDown = m.topDownURI {
                         body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary>\(noteHTML)</details>\n"
+                    }
+                    if let mapVideo = m.mapVideoPath {
+                        let mime = mapVideo.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
+                        body += "          <details class=\"mi mi-video\">\n            <summary title=\"Play map\">"
+                        if let poster = m.mapPosterURI {
+                            body += "<img src=\"\(poster)\" alt=\"Map video\">"
+                        } else {
+                            body += "<span class=\"thumb-blank\"></span>"
+                        }
+                        body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Map\(tag)</span></summary>\n"
+                        body += "            <video controls playsinline preload=\"none\"><source src=\"\(mapVideo)\" type=\"\(mime)\"></video>\(noteHTML)\n"
+                        body += "          </details>\n"
                     }
                     body += "          </div>\n"
                 }
@@ -1434,7 +1472,7 @@ struct ProjectExporter {
                 // so a .html file can never end up containing a zip.
                 let mediaScenes = snapshotScenesForMedia()
                 let needsFolder = mediaScenes.contains {
-                    $0.shots.contains { $0.references.contains { $0.videoData != nil } }
+                    $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } }
                 }
                 let webURL = folder.appendingPathComponent(
                     "\(project.filmName) - Shot List.\(needsFolder ? "zip" : "html")")

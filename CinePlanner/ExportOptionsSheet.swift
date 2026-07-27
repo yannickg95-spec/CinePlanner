@@ -33,7 +33,7 @@ struct ExportOptionsSheet: View {
     private var hasVideoInShots: Bool {
         // The extension, not the Data — this runs while the view body evaluates,
         // and reading the blobs would load every video just to draw a label.
-        exportScenes.contains { $0.shots.contains { $0.references.contains { $0.videoExtension != nil } } }
+        exportScenes.contains { $0.shots.contains { $0.references.contains { $0.videoExtension != nil || $0.mapVideoExtension != nil } } }
     }
 
     /// Extension shown on the option's badge — accurate per project, not per format.

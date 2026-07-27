@@ -96,6 +96,8 @@ enum ProjectArchive {
         var videoData: Data?
         var videoExtension: String?
         var mapData: Data?
+        var mapVideoData: Data?
+        var mapVideoExtension: String?
         var note: String?
         // Image EXIF
         var cameraFamily: String?
@@ -218,6 +220,7 @@ enum ProjectArchive {
         ReferenceDTO(
             sortOrder: r.sortOrder,
             imageData: r.imageData, videoData: r.videoData, videoExtension: r.videoExtension, mapData: r.mapData,
+            mapVideoData: r.mapVideoData, mapVideoExtension: r.mapVideoExtension,
             note: r.note,
             cameraFamily: r.cameraFamily, cameraFormat: r.cameraFormat, focalLength: r.focalLength,
             lensPreset: r.lensPreset, horizon: r.horizon, tilt: r.tilt, height: r.height,
@@ -312,6 +315,8 @@ enum ProjectArchive {
                             ref.videoData = r.videoData
                             ref.videoExtension = r.videoExtension
                             ref.mapData = r.mapData
+                            ref.mapVideoData = r.mapVideoData
+                            ref.mapVideoExtension = r.mapVideoExtension
                             ref.note = r.note
                             ref.cameraFamily = r.cameraFamily
                             ref.cameraFormat = r.cameraFormat

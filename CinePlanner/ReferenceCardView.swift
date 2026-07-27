@@ -40,11 +40,11 @@ struct ReferenceCardView: View {
             }
 
             // A whole empty reference can be filled in one go from CineStager.
-            if !reference.hasMedia && reference.mapData == nil {
+            if !reference.hasMedia && reference.mapData == nil && reference.mapVideoData == nil {
                 cineStagerImportButton
             }
 
-            if reference.hasMedia || reference.mapData != nil {
+            if reference.hasMedia || reference.mapData != nil || reference.mapVideoData != nil {
                 noteField
             }
         }
@@ -175,7 +175,7 @@ struct ReferenceCardView: View {
         Button {
             presentImporter($isImportingImage)
         } label: {
-            addMediaLabel("Add Photo or Video", systemImage: "photo.badge.plus")
+            addMediaLabel("Photo or Video", systemImage: "photo.badge.plus")
         }
         .buttonStyle(.plain)
         // Finder, not the Photos library: the Photos picker re-encodes the image
@@ -241,7 +241,15 @@ struct ReferenceCardView: View {
     @ViewBuilder
     private var mapColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let data = reference.mapData, let image = NSImage(data: data) {
+            if let data = reference.mapVideoData {
+                ReferenceVideoView(
+                    shotID: reference.uid + "-map",
+                    videoData: data,
+                    fileExtension: reference.mapVideoExtension ?? "mov",
+                    onDelete: { clearMap() }
+                )
+                .frame(maxWidth: .infinity)
+            } else if let data = reference.mapData, let image = NSImage(data: data) {
                 imageView(image, data: data, title: "Top Down Map", isMap: true)
                 if reference.mapMetadata.hasContent {
                     TopDownMetadataView(metadata: reference.mapMetadata)
@@ -251,13 +259,13 @@ struct ReferenceCardView: View {
                 Button {
                     presentImporter($isImportingMap)
                 } label: {
-                    addMediaLabel("Top Down Map", systemImage: "map")
+                    addMediaLabel("Map Image or Video", systemImage: "map")
                 }
                 .buttonStyle(.plain)
                 .fileImporter(isPresented: $isImportingMap,
-                              allowedContentTypes: [.image],
+                              allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
                               allowsMultipleSelection: false) { result in
-                    if let data = readPickedFile(result) { loadMap(data: data) }
+                    handlePickedMap(result)
                 }
             }
         }
@@ -365,6 +373,26 @@ struct ReferenceCardView: View {
         }
     }
 
+    /// A picked map file may be an image or a video (e.g. a Shot Designer top-down
+    /// animation), routed by its type.
+    private func handlePickedMap(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return }
+
+        let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        if let type, type.conforms(to: .movie) || type.conforms(to: .video) {
+            reference.mapData = nil            // the map is an image or a video, not both
+            reference.mapVideoData = data
+            reference.mapVideoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+        } else {
+            reference.mapVideoData = nil
+            reference.mapVideoExtension = nil
+            loadMap(data: data)
+        }
+    }
+
     private func loadMap(data: Data) {
         reference.mapData = data
         guard let metadata = EXIFExtractor.extractMetadata(from: data) else { return }
@@ -414,6 +442,8 @@ struct ReferenceCardView: View {
 
     private func clearMap() {
         reference.mapData = nil
+        reference.mapVideoData = nil
+        reference.mapVideoExtension = nil
         reference.mapCaptureID = nil
         reference.mapCameraPhysicalWidth = nil
         reference.mapCameraPhysicalLength = nil

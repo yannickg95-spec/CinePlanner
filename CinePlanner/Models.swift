@@ -460,8 +460,11 @@ final class ShotReference {
     var videoData: Data?
     var videoExtension: String?     // "mov", "mp4" — used for export filenames
 
-    /// Top-down map belonging to this reference.
+    /// Top-down map belonging to this reference — an image, or a video (e.g. a
+    /// Shot Designer top-down animation). At most one of the two is set.
     var mapData: Data?
+    var mapVideoData: Data?
+    var mapVideoExtension: String?  // "mov", "mp4" — used for export filenames
 
     /// A short user note shown under this reference's media in the PDF, the HTML
     /// export, and the published web page. Distinct from `caption`, which is EXIF
@@ -541,6 +544,8 @@ final class ShotReference {
         copy.videoData = videoData
         copy.videoExtension = videoExtension
         copy.mapData = mapData
+        copy.mapVideoData = mapVideoData
+        copy.mapVideoExtension = mapVideoExtension
         copy.note = note
         copy.cameraFamily = cameraFamily
         copy.cameraFormat = cameraFormat
@@ -1000,5 +1005,5 @@ extension Shot {
     var primaryMapData: Data? { referenceMaps.first }
     /// Total photos attached to the shot (references + their maps).
     var attachedPhotoCount: Int { referenceImages.count + referenceMaps.count }
-    var hasAnyReferenceMedia: Bool { orderedReferences.contains { $0.hasMedia || $0.mapData != nil } }
+    var hasAnyReferenceMedia: Bool { orderedReferences.contains { $0.hasMedia || $0.mapData != nil || $0.mapVideoData != nil } }
 }
