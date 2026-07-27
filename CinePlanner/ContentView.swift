@@ -569,6 +569,11 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         scene.shots.append(newShot)
+        // Start the shot with one empty reference so its card is open and ready
+        // for media, rather than only an "Add Reference" button.
+        let reference = ShotReference(sortOrder: 0)
+        reference.shot = newShot
+        newShot.references.append(reference)
         // Persist now so the new shot — and, on a brand-new project, its new
         // scene — get permanent ids and a settled relationship before the detail
         // pane resolves the selection. Otherwise the very first shot can't be
@@ -665,6 +670,20 @@ struct ShotDetailView: View {
         return Array(lenses).sorted()
     }
 
+    private var previousFrameLinesValues: [String] {
+        guard let project = shot.scene?.project else { return [] }
+
+        var values = Set<String>()
+        for scene in project.scenes {
+            for projectShot in scene.shots {
+                if projectShot.id != shot.id && !projectShot.framelines.isEmpty {
+                    values.insert(projectShot.framelines)
+                }
+            }
+        }
+        return Array(values).sorted()
+    }
+
     // MARK: Visual helpers
 
     /// Uniform card container for a group of related rows.
@@ -713,8 +732,7 @@ struct ShotDetailView: View {
     private static let mediaMaxWidth: CGFloat = 700
 
     private var addReferenceLabel: some View {
-        Label(shot.references.isEmpty ? "Add Reference Image/Video" : "Add Another Reference Image/Video",
-              systemImage: "plus.circle.fill")
+        Label("Add Reference Image/Video", systemImage: "plus.circle.fill")
             .font(.headline)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
@@ -1106,16 +1124,33 @@ struct ShotDetailView: View {
             }
         }
 
-        // Framelines - Only show if metadata is available
-        if !shot.framelines.isEmpty {
-            HStack {
-                Text("Framelines")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 92, alignment: .leading)
+        // Framelines - Always editable
+        HStack {
+            Text("Framelines")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
 
-                Text(shot.framelines)
-                    .font(.body)
+            HStack(spacing: 4) {
+                TextField("Framelines", text: $shot.framelines)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+
+                // Show suggestions menu if there are previous values
+                if !previousFrameLinesValues.isEmpty {
+                    Menu {
+                        ForEach(previousFrameLinesValues, id: \.self) { value in
+                            Button(value) {
+                                shot.framelines = value
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Select from previously used framelines")
+                }
             }
         }
 
