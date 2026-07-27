@@ -15,8 +15,8 @@ final class Project {
     /// temporary until the first save), this never changes — safe to key SwiftUI
     /// selection and ForEach on. Backfilled for pre-existing rows at launch.
     var uid: String = UUID().uuidString
-    var filmName: String
-    var createdDate: Date
+    var filmName: String = ""
+    var createdDate: Date = Date()
     var lastOpenedDate: Date?   // Updated when the editor opens; drives "last opened" in the project list
     var isSeries: Bool = false  // Series projects have multiple episodes, each with its own script + versions
 
@@ -108,9 +108,9 @@ final class Project {
 @Model
 final class Episode {
     var uid: String = UUID().uuidString
-    var episodeNumber: Int
-    var title: String
-    var createdDate: Date
+    var episodeNumber: Int = 1
+    var title: String = ""
+    var createdDate: Date = Date()
 
     var project: Project?
 
@@ -135,9 +135,9 @@ final class Episode {
 @Model
 final class ScriptVersion {
     var uid: String = UUID().uuidString
-    var versionNumber: Int
-    var name: String
-    var createdDate: Date
+    var versionNumber: Int = 1
+    var name: String = ""
+    var createdDate: Date = Date()
 
     @Attribute(.externalStorage)
     var pdfData: Data?
@@ -167,7 +167,7 @@ final class ScriptVersion {
 @Model
 final class Scene {
     var uid: String = UUID().uuidString
-    var sceneNumber: Int
+    var sceneNumber: Int = 0
     var project: Project?
     var scriptVersion: ScriptVersion?
     var sortOrder: Int = 0  // Explicit sort order to maintain list position
@@ -542,8 +542,8 @@ final class ShotReference {
 @Model
 final class Shot {
     var uid: String = UUID().uuidString
-    var shotNumber: Int
-    var shotInformation: String
+    var shotNumber: Int = 0
+    var shotInformation: String = ""
     private var numberingStyleRaw: String = "numbers"
     private var sizeRaw: String = ""
     private var secondSizeRaw: String = ""
