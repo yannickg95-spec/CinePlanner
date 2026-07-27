@@ -205,7 +205,7 @@ struct ExportOptionsSheet: View {
 
             Spacer(minLength: 12)
 
-            Button("Publish…") { showingPublish = true }
+            Button("Publish") { showingPublish = true }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
