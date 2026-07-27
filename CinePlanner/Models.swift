@@ -33,15 +33,31 @@ final class Project {
     var scriptPDFData: Data?
     var scriptPDFPageOffset: Int = 0  // Absolute PDF page index (0-based) of the first scene
 
-    @Relationship(deleteRule: .cascade, inverse: \Scene.project)
-    var scenes: [Scene] = []
+    // CloudKit requires to-many relationships to be optional. The stored arrays
+    // are optional (originalName keeps them bound to the existing relationships,
+    // so no data is lost); a computed wrapper preserves the non-optional API used
+    // throughout the app.
+    @Relationship(deleteRule: .cascade, originalName: "scenes", inverse: \Scene.project)
+    var scenesStore: [Scene]?
+    var scenes: [Scene] {
+        get { scenesStore ?? [] }
+        set { scenesStore = newValue }
+    }
 
-    @Relationship(deleteRule: .cascade, inverse: \Episode.project)
-    var episodes: [Episode] = []
+    @Relationship(deleteRule: .cascade, originalName: "episodes", inverse: \Episode.project)
+    var episodesStore: [Episode]?
+    var episodes: [Episode] {
+        get { episodesStore ?? [] }
+        set { episodesStore = newValue }
+    }
 
     // Legacy pre-episode versions (migrated into episode 1). Kept only for data migration.
-    @Relationship(deleteRule: .cascade, inverse: \ScriptVersion.project)
-    var scriptVersions: [ScriptVersion] = []
+    @Relationship(deleteRule: .cascade, originalName: "scriptVersions", inverse: \ScriptVersion.project)
+    var scriptVersionsStore: [ScriptVersion]?
+    var scriptVersions: [ScriptVersion] {
+        get { scriptVersionsStore ?? [] }
+        set { scriptVersionsStore = newValue }
+    }
 
     init(filmName: String, isSeries: Bool = false, createdDate: Date = Date()) {
         self.filmName = filmName
@@ -114,8 +130,12 @@ final class Episode {
 
     var project: Project?
 
-    @Relationship(deleteRule: .cascade, inverse: \ScriptVersion.episode)
-    var scriptVersions: [ScriptVersion] = []
+    @Relationship(deleteRule: .cascade, originalName: "scriptVersions", inverse: \ScriptVersion.episode)
+    var scriptVersionsStore: [ScriptVersion]?
+    var scriptVersions: [ScriptVersion] {
+        get { scriptVersionsStore ?? [] }
+        set { scriptVersionsStore = newValue }
+    }
 
     init(episodeNumber: Int, title: String? = nil, createdDate: Date = Date()) {
         self.episodeNumber = episodeNumber
@@ -146,8 +166,12 @@ final class ScriptVersion {
     var project: Project?   // Legacy (nil after migration; ownership is via `episode`)
     var episode: Episode?
 
-    @Relationship(deleteRule: .cascade, inverse: \Scene.scriptVersion)
-    var scenes: [Scene] = []
+    @Relationship(deleteRule: .cascade, originalName: "scenes", inverse: \Scene.scriptVersion)
+    var scenesStore: [Scene]?
+    var scenes: [Scene] {
+        get { scenesStore ?? [] }
+        set { scenesStore = newValue }
+    }
 
     init(versionNumber: Int, name: String? = nil, createdDate: Date = Date()) {
         self.versionNumber = versionNumber
@@ -194,8 +218,12 @@ final class Scene {
     // Kept so projects imported by older versions keep working.
     var pdfPageOffset: Int = 0  // Absolute PDF page of first scene (0-based)
     
-    @Relationship(deleteRule: .cascade, inverse: \Shot.scene)
-    var shots: [Shot] = []
+    @Relationship(deleteRule: .cascade, originalName: "shots", inverse: \Shot.scene)
+    var shotsStore: [Shot]?
+    var shots: [Shot] {
+        get { shotsStore ?? [] }
+        set { shotsStore = newValue }
+    }
     
     init(sceneNumber: Int) {
         self.sceneNumber = sceneNumber
@@ -629,8 +657,12 @@ final class Shot {
     
     /// Reference photos/videos, each with an optional top-down map. Replaces the
     /// fixed photo1/photo2/video slots; those are migrated on first open.
-    @Relationship(deleteRule: .cascade, inverse: \ShotReference.shot)
-    var references: [ShotReference] = []
+    @Relationship(deleteRule: .cascade, originalName: "references", inverse: \ShotReference.shot)
+    var referencesStore: [ShotReference]?
+    var references: [ShotReference] {
+        get { referencesStore ?? [] }
+        set { referencesStore = newValue }
+    }
 
     var orderedReferences: [ShotReference] {
         references.sorted { $0.sortOrder < $1.sortOrder }

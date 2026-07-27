@@ -14,12 +14,12 @@ struct CinePlannerApp: App {
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(versionedSchema: SchemaV1.self)
-        // Keep the local store LOCAL. The iCloud entitlement (added so we can read
-        // CineStager's iCloud Drive files) would otherwise flip SwiftData's default
-        // cloudKitDatabase: .automatic into CloudKit mirroring — which fails to load
-        // because these models aren't CloudKit-compatible. .none opts out explicitly.
+        // Sync the store across the user's Macs via CloudKit. An explicit private
+        // container (not .automatic) because the entitlement also lists CineStager's
+        // CloudDocuments container — .automatic could pick the wrong one. The models
+        // are CloudKit-compatible (every attribute optional or defaulted).
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false,
-                                        cloudKitDatabase: .none)
+                                        cloudKitDatabase: .private("iCloud.YannickGiraud.CinePlanner"))
 
         // Before the store is opened (the only safe moment to touch its files):
         // apply a queued restore, then snapshot the last good state ahead of any
