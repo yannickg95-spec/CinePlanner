@@ -21,7 +21,6 @@ struct ReferenceCardView: View {
 
     @State private var isImportingImage = false
     @State private var isImportingMap = false
-    @State private var isImportingVideo = false
     @State private var showingCineStagerImport = false
     @State private var previewImage: NSImage?
     @State private var previewTitle = ""
@@ -38,6 +37,11 @@ struct ReferenceCardView: View {
             HStack(alignment: .top, spacing: 16) {
                 mediaColumn.frame(maxWidth: .infinity, alignment: .leading)
                 mapColumn.frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // A whole empty reference can be filled in one go from CineStager.
+            if !reference.hasMedia && reference.mapData == nil {
+                cineStagerImportButton
             }
 
             if reference.hasMedia || reference.mapData != nil {
@@ -166,45 +170,33 @@ struct ReferenceCardView: View {
         }
     }
 
-    /// Nothing added yet: one row offering either kind of media.
+    /// Nothing added yet: one button offering either kind of media.
     private var emptyMediaRow: some View {
-        VStack(spacing: 8) {
-            Button {
-                presentImporter($isImportingImage)
-            } label: {
-                addMediaLabel("Add Photo", systemImage: "photo")
-            }
-            .buttonStyle(.plain)
-            // Finder, not the Photos library: the Photos picker re-encodes the
-            // image and drops the EXIF that carries the camera/lens metadata.
-            .fileImporter(isPresented: $isImportingImage,
-                          allowedContentTypes: [.image],
-                          allowsMultipleSelection: false) { result in
-                if let data = readPickedFile(result) { loadImage(data: data) }
-            }
-
-            Button {
-                presentImporter($isImportingVideo)
-            } label: {
-                addMediaLabel("Add Video", systemImage: "video")
-            }
-            .buttonStyle(.plain)
-            .fileImporter(isPresented: $isImportingVideo,
-                          allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie],
-                          allowsMultipleSelection: false) { result in
-                handleVideoImport(result)
-            }
-
-            // Pull an AR shot (image/video + top-down map + metadata) straight from
-            // the CineStager library.
-            Button {
-                showingCineStagerImport = true
-            } label: {
-                addMediaLabel("Import from CineStager", systemImage: "camera.viewfinder",
-                              tint: CineStagerImportSheet.cineStagerBlue)
-            }
-            .buttonStyle(.plain)
+        Button {
+            presentImporter($isImportingImage)
+        } label: {
+            addMediaLabel("Add Photo or Video", systemImage: "photo.badge.plus")
         }
+        .buttonStyle(.plain)
+        // Finder, not the Photos library: the Photos picker re-encodes the image
+        // and drops the EXIF that carries the camera/lens metadata.
+        .fileImporter(isPresented: $isImportingImage,
+                      allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                      allowsMultipleSelection: false) { result in
+            handlePickedMedia(result)
+        }
+    }
+
+    /// Full-width action across the whole card: an AR shot fills both the media
+    /// and the map, so it isn't confined to the media column.
+    private var cineStagerImportButton: some View {
+        Button {
+            showingCineStagerImport = true
+        } label: {
+            addMediaLabel("Import from CineStager", systemImage: "camera.viewfinder",
+                          tint: CineStagerImportSheet.cineStagerBlue)
+        }
+        .buttonStyle(.plain)
     }
 
     /// Shared dashed drop-zone label used by every "add media" button, so the
@@ -377,13 +369,21 @@ struct ReferenceCardView: View {
         reference.mapLocationHeight = metadata.locationHeight
     }
 
-    private func handleVideoImport(_ result: Result<[URL], Error>) {
+    /// Handles a picked file that may be a photo or a video, routing by its type.
+    private func handlePickedMedia(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result, let url = urls.first else { return }
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else { return }
-        reference.videoData = data
-        reference.videoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+
+        let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        if let type, type.conforms(to: .movie) || type.conforms(to: .video) {
+            reference.imageData = nil          // a reference holds one or the other
+            reference.videoData = data
+            reference.videoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+        } else {
+            loadImage(data: data)              // sets imageData + extracts EXIF, clears video
+        }
     }
 
     private func clearImage() {
