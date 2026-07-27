@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		8C819A8A2EF043DF009E48CD /* CineStager 2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C46A16730165D7500A99C96 /* CineStager 2.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CineStager 2.entitlements"; sourceTree = "<group>"; };
+		8C819A8A2EF043DF009E48CD /* CinePlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +33,8 @@
 		8C819A812EF043DF009E48CD = {
 			isa = PBXGroup;
 			children = (
-				8C819A8C2EF043DF009E48CD /* CineStager 2 */,
+				8C46A16730165D7500A99C96 /* CineStager 2.entitlements */,
+				8C819A8C2EF043DF009E48CD /* CinePlanner */,
 				8C819A8B2EF043DF009E48CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +42,7 @@
 		8C819A8B2EF043DF009E48CD /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8C819A8A2EF043DF009E48CD /* CineStager 2.app */,
+				8C819A8A2EF043DF009E48CD /* CinePlanner.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,13 +63,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				8C819A8C2EF043DF009E48CD /* CineStager 2 */,
+				8C819A8C2EF043DF009E48CD /* CinePlanner */,
 			);
 			name = "CineStager 2";
 			packageProductDependencies = (
 			);
 			productName = "CineStager 2";
-			productReference = 8C819A8A2EF043DF009E48CD /* CineStager 2.app */;
+			productReference = 8C819A8A2EF043DF009E48CD /* CinePlanner.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +87,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 8C819A852EF043DF009E48CD /* Build configuration list for PBXProject "CineStager 2" */;
+			buildConfigurationList = 8C819A852EF043DF009E48CD /* Build configuration list for PBXProject "CinePlanner" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -246,6 +248,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 65W863L6A3;
@@ -296,6 +299,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 65W863L6A3;
@@ -344,7 +348,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		8C819A852EF043DF009E48CD /* Build configuration list for PBXProject "CineStager 2" */ = {
+		8C819A852EF043DF009E48CD /* Build configuration list for PBXProject "CinePlanner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				8C819A932EF043E0009E48CD /* Debug */,

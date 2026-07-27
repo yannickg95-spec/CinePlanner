@@ -1,0 +1,147 @@
+//
+//  CineStagerLibrary.swift
+//  CinePlanner
+//
+//  Reads the shot library that CineStager (the AR viewfinder app) syncs to its
+//  iCloud Drive container. CineStager stores plain files:
+//    <ubiquity>/Documents/shots.json          — array of ShotItem
+//    <ubiquity>/Documents/ShotLibrary/*.jpg    — stills, videos, top-down maps
+//    <ubiquity>/Documents/ShotThumbnails/*.jpg — thumbnails
+//
+//  Because both apps are on the same Apple team, CinePlanner can declare
+//  CineStager's container in its iCloud entitlement and read these files
+//  directly — no changes to CineStager, no manual export.
+//
+//  Requires the iCloud capability with the container below. Until that's set up
+//  (or if iCloud is signed out), the container URL is nil and `state` is
+//  `.unavailable` — the UI explains how to enable it.
+//
+
+import Foundation
+import Combine
+
+/// One shot from CineStager's library — mirrors CineStager's `ShotItem` so the
+/// same `shots.json` decodes directly.
+struct CineStagerShot: Codable, Identifiable {
+    let id: UUID
+    let captureID: String
+    let type: String            // "image" | "video"
+    let mode: String            // "ar" | "game"
+    let timestamp: Date
+    let fileName: String
+    let thumbnailFileName: String?
+    let topDownMapFileName: String?
+    let cameraFamily: String
+    let cameraFormat: String
+    let framelines: String?
+    let focalLengthMM: Int?
+    let lensPresetName: String?
+    let pitchDeg: Double?
+    let rollDeg: Double?
+    let yawDeg: Double?
+    let heightCM: Double?
+    let locationModelName: String?
+    let durationSeconds: Double?
+
+    var isVideo: Bool { type == "video" }
+    var hasMap: Bool { topDownMapFileName != nil }
+}
+
+@MainActor
+final class CineStagerLibrary: ObservableObject {
+    /// CineStager's iCloud Drive container (its entitlement declares this id).
+    static let containerID = "iCloud.YannickGiraud.CinemaAR"
+
+    enum LoadState: Equatable { case loading, unavailable, loaded }
+
+    @Published private(set) var state: LoadState = .loading
+    @Published private(set) var shots: [CineStagerShot] = []
+
+    private var documentsURL: URL?
+    private var shotsDir: URL? { documentsURL?.appendingPathComponent("ShotLibrary") }
+    private var thumbsDir: URL? { documentsURL?.appendingPathComponent("ShotThumbnails") }
+    private var metadataURL: URL? { documentsURL?.appendingPathComponent("shots.json") }
+
+    /// Resolves the shared container (off the main thread — it can block) and
+    /// loads the shot metadata.
+    func refresh() async {
+        state = .loading
+        let containerID = Self.containerID
+        let url = await Task.detached { () -> URL? in
+            FileManager.default.url(forUbiquityContainerIdentifier: containerID)?
+                .appendingPathComponent("Documents")
+        }.value
+
+        guard let url else {
+            documentsURL = nil
+            shots = []
+            state = .unavailable
+            return
+        }
+        documentsURL = url
+        await loadShots()
+    }
+
+    private func loadShots() async {
+        guard let metadataURL else { state = .unavailable; return }
+        try? await ensureDownloaded(metadataURL)
+        guard let data = try? Data(contentsOf: metadataURL) else {
+            shots = []
+            state = .loaded          // container reachable, just nothing captured yet
+            return
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601   // matches CineStager's encoder
+        let decoded = (try? decoder.decode([CineStagerShot].self, from: data)) ?? []
+        shots = decoded.sorted { $0.timestamp > $1.timestamp }
+        state = .loaded
+    }
+
+    // MARK: - File access
+
+    func imageURL(for shot: CineStagerShot) -> URL? {
+        shotsDir?.appendingPathComponent(shot.fileName)
+    }
+    func mapURL(for shot: CineStagerShot) -> URL? {
+        shot.topDownMapFileName.flatMap { shotsDir?.appendingPathComponent($0) }
+    }
+    func thumbnailURL(for shot: CineStagerShot) -> URL? {
+        shot.thumbnailFileName.flatMap { thumbsDir?.appendingPathComponent($0) }
+    }
+
+    /// Downloads the item if it's still cloud-only, then returns its bytes.
+    func data(at url: URL?) async -> Data? {
+        guard let url else { return nil }
+        try? await ensureDownloaded(url)
+        return try? Data(contentsOf: url)
+    }
+
+    /// Best thumbnail bytes for a shot — the small thumbnail, falling back to the
+    /// full image.
+    func thumbnailData(for shot: CineStagerShot) async -> Data? {
+        if let t = await data(at: thumbnailURL(for: shot)) { return t }
+        return await data(at: imageURL(for: shot))
+    }
+
+    // MARK: - iCloud download
+
+    private func ensureDownloaded(_ url: URL, timeout: TimeInterval = 60) async throws {
+        if isDownloaded(url) { return }
+        try FileManager.default.startDownloadingUbiquitousItem(at: url)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isDownloaded(url) { return }
+            try await Task.sleep(nanoseconds: 400_000_000)
+        }
+        throw NSError(domain: "CineStager", code: -1,
+                      userInfo: [NSLocalizedDescriptionKey: "iCloud file download timed out."])
+    }
+
+    private func isDownloaded(_ url: URL) -> Bool {
+        if let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+            .ubiquitousItemDownloadingStatus {
+            return status == .current
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+}
