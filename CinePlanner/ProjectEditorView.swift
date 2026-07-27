@@ -207,16 +207,19 @@ struct ProjectEditorView: View {
                 } else {
                     Image("GitHubLogo")
                         .resizable().scaledToFit()
-                        .frame(width: 16, height: 16)
+                        .frame(width: 22, height: 22)
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 36, height: 36)
             .background(Circle().fill(Color.secondary.opacity(0.12)))
+            .contentShape(Circle())
         }
-        .menuStyle(.borderlessButton)
+        // .button menu style + plain button style honours the label's real size,
+        // unlike .borderlessButton which collapses it to a default control height.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .fixedSize()
         .disabled(isDeletingPage)
         .help("Published page — open, copy the link, or delete it online")
     }
