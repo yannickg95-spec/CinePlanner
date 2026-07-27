@@ -118,12 +118,7 @@ struct ExportOptionsSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            sectionHeader("SAVE A FILE")
-                            Text("· shot list")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
+                        sectionHeader("SHOTLIST AS FILE")
                         ForEach(shotListOptions) { option in
                             optionRow(option)
                         }
