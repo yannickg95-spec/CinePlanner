@@ -90,12 +90,16 @@ struct ReferenceCardView: View {
 
             Spacer()
 
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.caption)
+            // A shot always keeps at least one reference card, so the last one
+            // can't be removed.
+            if totalCount > 1 {
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this reference")
             }
-            .buttonStyle(.borderless)
-            .help("Remove this reference")
         }
     }
 
