@@ -21,8 +21,16 @@ struct GitHubPublishSheet: View {
     @State private var phase: GitHubPublishPhase?
     @State private var result: GitHubPublisher.Result?
     @State private var errorMessage: String?
+    @State private var enableComments: Bool
+
+    init(project: Project, version: ScriptVersion?) {
+        self.project = project
+        self.version = version
+        _enableComments = State(initialValue: GitHubPublisher.commentsEnabled(forProjectUID: project.uid))
+    }
 
     private var existingRepo: String? { GitHubPublisher.savedRepo(forProjectUID: project.uid) }
+    private let giscusAppURL = URL(string: "https://github.com/apps/giscus")!
 
     /// A classic token pre-filled with the one scope we need. Public repos only.
     private let tokenURL = URL(string: "https://github.com/settings/tokens/new?scopes=public_repo&description=CinePlanner")!
@@ -99,6 +107,31 @@ struct GitHubPublishSheet: View {
         }
     }
 
+    // MARK: - Comments option
+
+    private var commentsOption: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $enableComments) {
+                Text("Enable comments").fontWeight(.medium)
+            }
+            .onChange(of: enableComments) { _, on in
+                GitHubPublisher.setCommentsEnabled(on, forProjectUID: project.uid)
+            }
+            if enableComments {
+                Text("Adds a comment box using GitHub Discussions. One-time setup: install the free giscus app on the repository. Viewers sign in with a GitHub account to comment.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("Install the giscus app ↗", destination: giscusAppURL)
+                    .font(.caption)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
     // MARK: - Publish body
 
     private var publishBody: some View {
@@ -162,6 +195,8 @@ struct GitHubPublishSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                commentsOption
 
                 Button { publish() } label: {
                     Label(existingRepo == nil ? "Publish" : "Update Page", systemImage: "globe")
@@ -240,6 +275,7 @@ struct GitHubPublishSheet: View {
                     existingRepo: existingRepo,
                     projectName: project.filmName,
                     projectUID: project.uid,
+                    enableComments: enableComments,
                     onProgress: { newPhase in
                         // Called off the main thread; hop back to update UI state.
                         Task { @MainActor in phase = newPhase }

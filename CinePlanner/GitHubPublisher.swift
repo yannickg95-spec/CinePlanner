@@ -121,6 +121,15 @@ enum GitHubPublisher {
         UserDefaults.standard.removeObject(forKey: "githubRepo-\(uid)")
     }
 
+    // MARK: - Comments (Giscus / GitHub Discussions)
+
+    static func commentsEnabled(forProjectUID uid: String) -> Bool {
+        UserDefaults.standard.bool(forKey: "githubComments-\(uid)")
+    }
+    static func setCommentsEnabled(_ on: Bool, forProjectUID uid: String) {
+        UserDefaults.standard.set(on, forKey: "githubComments-\(uid)")
+    }
+
     // MARK: - Publish
 
     struct Result {
@@ -135,7 +144,7 @@ enum GitHubPublisher {
     /// Builds files from `siteDirectory`, commits them to the project's repo
     /// (creating it the first time), enables Pages, and waits for the build.
     static func publish(siteDirectory: URL, existingRepo: String?,
-                        projectName: String, projectUID: String,
+                        projectName: String, projectUID: String, enableComments: Bool = false,
                         onProgress: @escaping GitHubProgress = { _ in }) async throws -> Result {
         guard let token = token else { throw GitHubError.notAuthenticated }
 
@@ -152,6 +161,16 @@ enum GitHubPublisher {
             owner = login
             repo = try await createRepo(desiredName: repoName(for: projectName), token: token)
             saveRepo("\(owner)/\(repo)", forProjectUID: projectUID)
+        }
+
+        // 1b. Optionally wire up Giscus comments (GitHub Discussions). Best effort:
+        //     the page still publishes if this can't be set up. Comments render once
+        //     the giscus GitHub App is installed on the repo (a one-time user step).
+        if enableComments {
+            try? await enableDiscussions(owner: owner, repo: repo, token: token)
+            if let cfg = try? await giscusConfig(owner: owner, repo: repo, token: token) {
+                injectGiscus(into: siteDirectory, owner: owner, repo: repo, config: cfg)
+            }
         }
 
         // 2. Gather files (relative paths, no leading slash) plus a .nojekyll marker
@@ -321,6 +340,82 @@ enum GitHubPublisher {
         let (data, _) = try await sendRaw(request)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         return json?["html_url"] as? String
+    }
+
+    // MARK: - Comments (Giscus / GitHub Discussions)
+
+    struct GiscusConfig { let repoID: String; let categoryID: String; let categoryName: String }
+
+    /// Turns on the repo's Discussions feature (giscus stores comments there).
+    private static func enableDiscussions(owner: String, repo: String, token: String) async throws {
+        var request = patch("repos/\(owner)/\(repo)", token: token)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["has_discussions": true])
+        _ = try await sendRaw(request)
+    }
+
+    /// Fetches the repo's node id and a discussion category (via GraphQL) — the ids
+    /// giscus needs. Prefers "Announcements" so visitors comment but can't open new
+    /// top-level threads; falls back to "General" or the first category.
+    private static func giscusConfig(owner: String, repo: String, token: String) async throws -> GiscusConfig {
+        let query = """
+        query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id \
+        discussionCategories(first:25){nodes{id name}}}}
+        """
+        var request = URLRequest(url: base.appending(path: "graphql"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("CinePlanner", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "query": query, "variables": ["owner": owner, "name": repo],
+        ])
+        let (data, _) = try await sendRaw(request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let repository = (json["data"] as? [String: Any])?["repository"] as? [String: Any],
+              let repoID = repository["id"] as? String,
+              let nodes = (repository["discussionCategories"] as? [String: Any])?["nodes"] as? [[String: Any]]
+        else { throw GitHubError.badResponse }
+
+        func category(_ name: String) -> [String: Any]? {
+            nodes.first { ($0["name"] as? String)?.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        guard let chosen = category("Announcements") ?? category("General") ?? nodes.first,
+              let categoryID = chosen["id"] as? String,
+              let categoryName = chosen["name"] as? String
+        else { throw GitHubError.badResponse }
+        return GiscusConfig(repoID: repoID, categoryID: categoryID, categoryName: categoryName)
+    }
+
+    /// Injects the giscus widget before </body> in the site's index.html.
+    private static func injectGiscus(into siteDirectory: URL, owner: String, repo: String, config: GiscusConfig) {
+        let indexURL = siteDirectory.appendingPathComponent("index.html")
+        guard var html = try? String(contentsOf: indexURL, encoding: .utf8) else { return }
+        let snippet = """
+        <section style="max-width:900px;margin:48px auto 24px;padding:0 20px;">
+          <h2 style="font:600 20px system-ui,-apple-system,sans-serif;margin:0 0 12px;">Comments</h2>
+          <script src="https://giscus.app/client.js"
+            data-repo="\(owner)/\(repo)"
+            data-repo-id="\(config.repoID)"
+            data-category="\(config.categoryName)"
+            data-category-id="\(config.categoryID)"
+            data-mapping="pathname"
+            data-strict="0"
+            data-reactions-enabled="1"
+            data-emit-metadata="0"
+            data-input-position="top"
+            data-theme="preferred_color_scheme"
+            data-lang="en"
+            crossorigin="anonymous"
+            async>
+          </script>
+        </section>
+        """
+        if let range = html.range(of: "</body>", options: .backwards) {
+            html.replaceSubrange(range, with: snippet + "\n</body>")
+        } else {
+            html += snippet
+        }
+        try? html.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 
     /// Polls the latest Pages build until it reports "built". Returns false if it
