@@ -178,10 +178,11 @@ struct ExportOptionsSheet: View {
     /// is reserved for the file checkboxes below.
     private var publishFeatureCard: some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "globe")
-                .font(.title2)
+            Image("GitHubLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 24, height: 24)
                 .foregroundStyle(Color.accentColor)
-                .frame(width: 26)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
