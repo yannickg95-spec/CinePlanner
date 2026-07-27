@@ -176,7 +176,7 @@ struct ProjectEditorView: View {
             Button("Delete", role: .destructive) { deletePublishedPage() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This takes the online shot list offline — anyone with the link will get a 404. Your project in CinePlanner is untouched.")
+            Text("This permanently deletes the GitHub repository and takes the online page offline. Your project in CinePlanner is untouched.")
         }
         .alert("Couldn't delete the page", isPresented: Binding(
             get: { deletePageError != nil }, set: { if !$0 { deletePageError = nil } }

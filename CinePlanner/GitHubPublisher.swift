@@ -21,6 +21,7 @@ enum GitHubError: LocalizedError {
     case badResponse
     case pagesBuildFailed
     case fileTooLarge(name: String, bytes: Int)
+    case cannotDeleteRepo(scopes: String?)
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +35,9 @@ enum GitHubError: LocalizedError {
         case .fileTooLarge(let name, let bytes):
             let mb = Double(bytes) / 1_048_576
             return String(format: "“%@” is %.0f MB, over GitHub's 100 MB limit even after compression. Trim or shorten that video, then publish again.", name, mb)
+        case .cannotDeleteRepo(let scopes):
+            let have = (scopes?.isEmpty ?? true) ? "none" : scopes!
+            return "This GitHub token can't delete repositories — its permissions are: \(have). It needs “delete_repo”. Tokens are shared across all your projects, so open the publish window, tap “Change Token”, and create a new one from the pre-filled link (it now requests delete_repo)."
         }
     }
 
@@ -129,21 +133,23 @@ enum GitHubPublisher {
         return "https://\(owner).github.io/\(name)/"
     }
 
-    /// Takes the project's published page offline. Deletes the whole repository
-    /// when the token has the delete_repo scope; otherwise disables Pages (which
-    /// the publish scope already allows) so the page 404s. Forgets the local
-    /// mapping either way, so a later publish starts fresh.
+    /// Permanently deletes the project's whole GitHub repository (page included).
+    /// Requires the delete_repo scope; throws a clear error if the token lacks it,
+    /// leaving the repo — and the local mapping — intact. Forgets the mapping only
+    /// once the repo is actually gone.
     static func deletePublishedPage(forProjectUID uid: String) async throws {
         guard let token = token else { throw GitHubError.notAuthenticated }
         guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return }
         let owner = String(full[..<slash])
         let name = String(full[full.index(after: slash)...])
 
-        // Try a full repo delete (needs delete_repo scope).
-        let (_, repoHTTP) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
-        if !(200..<300).contains(repoHTTP.statusCode) {
-            // No delete_repo scope — at least take the page offline.
-            _ = try? await rawSend(request("repos/\(owner)/\(name)/pages", method: "DELETE", token: token))
+        let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 403 {
+                throw GitHubError.cannotDeleteRepo(scopes: http.value(forHTTPHeaderField: "X-OAuth-Scopes"))
+            }
+            if http.statusCode == 404 { forgetRepo(forProjectUID: uid); return }   // already gone
+            throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         forgetRepo(forProjectUID: uid)
     }
