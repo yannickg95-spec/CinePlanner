@@ -194,18 +194,26 @@ struct ReferenceCardView: View {
             showingCineStagerImport = true
         } label: {
             addMediaLabel("Import from CineStager", systemImage: "camera.viewfinder",
-                          tint: CineStagerImportSheet.cineStagerBlue)
+                          tint: CineStagerImportSheet.cineStagerBlue, assetImage: "CineStagerLogo")
         }
         .buttonStyle(.plain)
     }
 
     /// Shared dashed drop-zone label used by every "add media" button, so the
     /// photo, video and map placeholders read as one style.
-    private func addMediaLabel(_ title: String, systemImage: String, tint: Color? = nil) -> some View {
+    private func addMediaLabel(_ title: String, systemImage: String, tint: Color? = nil,
+                               assetImage: String? = nil) -> some View {
         let fg = tint ?? .secondary
         return HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .foregroundStyle(fg)
+            if let assetImage {
+                Image(assetImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: systemImage)
+                    .foregroundStyle(fg)
+            }
             Text(title)
                 .fontWeight(.medium)
                 .foregroundStyle(fg)
