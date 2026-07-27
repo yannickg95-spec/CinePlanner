@@ -20,6 +20,7 @@ struct ProjectListView: View {
     @State private var showingRestoreSheet = false
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
+    @StateObject private var syncMonitor = CloudSyncMonitor()
     @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
@@ -152,6 +153,8 @@ struct ProjectListView: View {
                 .frame(maxWidth: 320)
 
                 Spacer()
+
+                CloudSyncBadge(monitor: syncMonitor)
 
                 Button {
                     showingRestoreSheet = true
