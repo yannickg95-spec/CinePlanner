@@ -12,14 +12,17 @@ import SwiftData
 import AppKit
 
 struct CineStagerImportSheet: View {
-    let scene: Scene
+    /// The reference this sheet fills with the chosen CineStager shot.
+    let reference: ShotReference
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var library = CineStagerLibrary()
-    @State private var selection: Set<UUID> = []
+    @State private var selectedID: UUID?
     @State private var isImporting = false
-    @State private var importedCount = 0
     @State private var grouping: Grouping = .latest
+
+    /// CineStager's brand blue (#3ECFFF).
+    static let cineStagerBlue = Color(red: 0.243, green: 0.812, blue: 1.0)
 
     enum Grouping: String, CaseIterable, Identifiable {
         case latest = "Latest"
@@ -43,13 +46,6 @@ struct CineStagerImportSheet: View {
                 if b.name == "No location" { return true }
                 return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
-    }
-
-    private var sceneTitle: String {
-        var t = "Scene \(scene.sceneNumber)\(scene.suffix)"
-        let loc = scene.nickname.trimmingCharacters(in: .whitespaces)
-        if !loc.isEmpty { t += " · \(loc)" }
-        return t
     }
 
     var body: some View {
@@ -81,7 +77,7 @@ struct CineStagerImportSheet: View {
                         .help("Reload the library from iCloud")
                 }
             }
-            Text("Shots you framed in CineStager, synced from iCloud. Pick the ones to add to “\(sceneTitle)”.")
+            Text("Shots you framed in CineStager, synced from iCloud. Pick one to use as this reference.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -148,9 +144,9 @@ struct CineStagerImportSheet: View {
     }
 
     private func cell(_ shot: CineStagerShot) -> some View {
-        let isSelected = selection.contains(shot.id)
+        let isSelected = selectedID == shot.id
         return Button {
-            if isSelected { selection.remove(shot.id) } else { selection.insert(shot.id) }
+            selectedID = isSelected ? nil : shot.id   // single-select
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing) {
@@ -255,64 +251,43 @@ struct CineStagerImportSheet: View {
                 ProgressView().controlSize(.small)
                 Text("Importing… downloading media from iCloud.")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if !selection.isEmpty {
-                Text("\(selection.count) selected")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button(selection.count > 1 ? "Import \(selection.count) Shots" : "Import Shot") {
-                importSelected()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(selection.isEmpty || isImporting)
+            Button("Use This Shot") { useSelected() }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedID == nil || isImporting)
         }
         .padding(16)
     }
 
     // MARK: - Import
 
-    private func importSelected() {
+    private func useSelected() {
+        guard let cs = library.shots.first(where: { $0.id == selectedID }) else { return }
         isImporting = true
-        let chosen = library.shots.filter { selection.contains($0.id) }
-            .sorted { $0.timestamp < $1.timestamp }   // oldest first → stable shot order
         Task { @MainActor in
-            var nextNumber = (scene.shots.map(\.shotNumber).max() ?? 0) + 1
-            for cs in chosen {
-                await importShot(cs, shotNumber: nextNumber)
-                nextNumber += 1
-            }
-            try? scene.modelContext?.save()
+            await fill(reference, from: cs)
+            try? reference.modelContext?.save()
             isImporting = false
             dismiss()
         }
     }
 
-    private func importShot(_ cs: CineStagerShot, shotNumber: Int) async {
-        let shot = Shot(shotNumber: shotNumber)
-        shot.scene = scene
-        // Shot-level camera info, mirroring how a photo import seeds these fields.
-        shot.camera = cs.cameraFamily
-        shot.format = cs.cameraFormat
-        if let lines = cs.framelines { shot.framelines = lines }
-        if let lens = cs.lensPresetName { shot.lensPreset = lens }
-        if let focal = cs.focalLengthMM, focal > 0 {
-            shot.lensfocal = focal
-            shot.lensIsPrime = true
-        }
-        if let loc = cs.locationModelName, !loc.isEmpty { shot.nickname = loc }
-
-        // The reference: media + map + pose/camera metadata.
-        let ref = ShotReference(sortOrder: 0)
-        ref.shot = shot
+    /// Populates `ref` (and its parent shot's empty camera fields) from a
+    /// CineStager shot — media, top-down map, and pose/camera metadata.
+    private func fill(_ ref: ShotReference, from cs: CineStagerShot) async {
         if let media = await library.data(at: library.imageURL(for: cs)) {
             if cs.isVideo {
                 ref.videoData = media
-                ref.videoExtension = (cs.fileName as NSString).pathExtension.lowercased().isEmpty
-                    ? "mp4" : (cs.fileName as NSString).pathExtension.lowercased()
+                let ext = (cs.fileName as NSString).pathExtension.lowercased()
+                ref.videoExtension = ext.isEmpty ? "mp4" : ext
+                ref.imageData = nil
             } else {
                 ref.imageData = media
+                ref.videoData = nil
+                ref.videoExtension = nil
             }
         }
         if cs.hasMap, let mapData = await library.data(at: library.mapURL(for: cs)) {
@@ -333,9 +308,17 @@ struct CineStagerImportSheet: View {
         ref.captureType = cs.type
         ref.dateTimeOriginal = cs.timestamp
 
-        shot.references.append(ref)
-        scene.shots.append(shot)
-        importedCount += 1
+        // Seed the parent shot's camera fields if empty, like a photo import does.
+        if let shot = ref.shot {
+            if shot.camera.isEmpty { shot.camera = cs.cameraFamily }
+            if shot.format.isEmpty { shot.format = cs.cameraFormat }
+            if let lines = cs.framelines, shot.framelines.isEmpty { shot.framelines = lines }
+            if let lens = cs.lensPresetName, shot.lensPreset.isEmpty { shot.lensPreset = lens }
+            if let focal = cs.focalLengthMM, focal > 0, shot.lensfocal == 0 {
+                shot.lensfocal = focal
+                shot.lensIsPrime = true
+            }
+        }
     }
 }
 

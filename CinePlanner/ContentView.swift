@@ -422,7 +422,6 @@ struct ShotListView: View {
     @Binding var selectedShots: Set<String>
     var onEditShot: ((Shot) -> Void)? = nil
     var onDeleteShots: (([Shot]) -> Void)? = nil
-    @State private var showingCineStagerImport = false
 
     var sortedShots: [Shot] {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
@@ -514,24 +513,8 @@ struct ShotListView: View {
                 }
             }
             .buttonStyle(.plain)
-
-            // Import shots framed in CineStager (via its shared iCloud library).
-            Button {
-                showingCineStagerImport = true
-            } label: {
-                HStack {
-                    Image(systemName: "camera.viewfinder")
-                        .foregroundStyle(.secondary)
-                    Text("Import from CineStager")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
         }
         .navigationTitle(scene.project?.filmName ?? "")
-        .sheet(isPresented: $showingCineStagerImport) {
-            CineStagerImportSheet(scene: scene)
-        }
         .onDeleteCommand {
             if !selectedShots.isEmpty {
                 onDeleteShots?(sortedShots.filter { selectedShots.contains($0.uid) })

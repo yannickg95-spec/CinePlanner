@@ -22,6 +22,7 @@ struct ReferenceCardView: View {
     @State private var isImportingImage = false
     @State private var isImportingMap = false
     @State private var isImportingVideo = false
+    @State private var showingCineStagerImport = false
     @State private var previewImage: NSImage?
     @State private var previewTitle = ""
 
@@ -54,6 +55,9 @@ struct ReferenceCardView: View {
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
                              set: { if $0 == nil { previewImage = nil } })) { preview in
             ImagePreviewSheet(preview: preview)
+        }
+        .sheet(isPresented: $showingCineStagerImport) {
+            CineStagerImportSheet(reference: reference)
         }
     }
 
@@ -190,18 +194,29 @@ struct ReferenceCardView: View {
                           allowsMultipleSelection: false) { result in
                 handleVideoImport(result)
             }
+
+            // Pull an AR shot (image/video + top-down map + metadata) straight from
+            // the CineStager library.
+            Button {
+                showingCineStagerImport = true
+            } label: {
+                addMediaLabel("Import from CineStager", systemImage: "camera.viewfinder",
+                              tint: CineStagerImportSheet.cineStagerBlue)
+            }
+            .buttonStyle(.plain)
         }
     }
 
     /// Shared dashed drop-zone label used by every "add media" button, so the
     /// photo, video and map placeholders read as one style.
-    private func addMediaLabel(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 8) {
+    private func addMediaLabel(_ title: String, systemImage: String, tint: Color? = nil) -> some View {
+        let fg = tint ?? .secondary
+        return HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(fg)
             Text(title)
                 .fontWeight(.medium)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(fg)
             Spacer(minLength: 0)
             Text("Add")
                 .font(.caption)
@@ -215,7 +230,8 @@ struct ReferenceCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                .stroke((tint ?? .secondary).opacity(tint == nil ? 0.3 : 0.55),
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
         }
         .contentShape(RoundedRectangle(cornerRadius: 8))
     }
