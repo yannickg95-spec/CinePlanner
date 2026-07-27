@@ -70,15 +70,15 @@ struct ExportOptionsSheet: View {
         [
             Option(format: .htmlWithMedia, icon: "photo.on.rectangle.angled", title: "Webpage",
                    detail: hasVideoInShots
-                       ? "The richest format — searchable and filterable, with reference photos, playable video and script coverage. Saved as a zipped folder (the page plus the videos); photos are built into the page. Opens on any device."
-                       : "The richest format — searchable and filterable, with reference photos and script coverage, all in one self-contained page. Nothing to unpack. Opens on any device.",
+                       ? "Searchable, filterable page with photos, playable video and coverage. Saved as a zipped folder. Opens anywhere."
+                       : "Searchable, filterable page with photos and coverage — one self-contained file. Opens anywhere.",
                    requiresScript: false,
                    badge: "Recommended"),
             Option(format: .pdf, icon: "doc.richtext", title: "PDF",
-                   detail: "A clean, printable shot list with reference photos and script coverage. Best for printing or handing out on set. Can't include video.",
+                   detail: "Clean, printable shot list with photos and coverage. No video.",
                    requiresScript: false),
             Option(format: .text, icon: "doc.plaintext", title: "Text File",
-                   detail: "Plain text to paste into an email or message. No photos or video — media is only noted as present.",
+                   detail: "Plain text for an email or message. Media is noted, not included.",
                    requiresScript: false)
         ]
     }

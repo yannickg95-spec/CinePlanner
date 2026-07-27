@@ -38,6 +38,12 @@ struct ProjectEditorView: View {
     @State private var showTransferSheet = false
     @State private var requestScriptImport = false
     @State private var showExportSheet = false
+    @State private var showPublishSheet = false
+    @State private var showingDeletePageConfirm = false
+    @State private var isDeletingPage = false
+    @State private var deletePageError: String?
+
+    private var publishedURL: String? { GitHubPublisher.publishedURL(forProjectUID: project.uid) }
     @State private var sceneForShotImport: Scene?
     @State private var versionPendingDeletion: ScriptVersion?
     @State private var versionToRename: ScriptVersion?
@@ -84,7 +90,12 @@ struct ProjectEditorView: View {
             }
 
             ToolbarItem(placement: .primaryAction) {
-                exportButton
+                HStack(spacing: 8) {
+                    if let url = publishedURL {
+                        publishedPageMenu(url: url)
+                    }
+                    exportButton
+                }
             }
         }
         .onAppear {
@@ -157,6 +168,68 @@ struct ProjectEditorView: View {
         }
         .sheet(isPresented: $showExportSheet) {
             ExportOptionsSheet(project: project, version: selectedVersion)
+        }
+        .sheet(isPresented: $showPublishSheet) {
+            GitHubPublishSheet(project: project, version: selectedVersion)
+        }
+        .alert("Delete the published page?", isPresented: $showingDeletePageConfirm) {
+            Button("Delete", role: .destructive) { deletePublishedPage() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This takes the online shot list offline — anyone with the link will get a 404. Your project in CinePlanner is untouched.")
+        }
+        .alert("Couldn't delete the page", isPresented: Binding(
+            get: { deletePageError != nil }, set: { if !$0 { deletePageError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(deletePageError ?? "")
+        }
+    }
+
+    /// Small round GitHub button next to Export — opens/copies/deletes the online page.
+    private func publishedPageMenu(url: String) -> some View {
+        Menu {
+            if let u = URL(string: url) {
+                Link(destination: u) { Label("Open Published Page", systemImage: "safari") }
+            }
+            Button { showPublishSheet = true } label: {
+                Label("Update Page", systemImage: "arrow.clockwise")
+            }
+            Divider()
+            Button(role: .destructive) { showingDeletePageConfirm = true } label: {
+                Label("Delete Published Page", systemImage: "trash")
+            }
+        } label: {
+            Group {
+                if isDeletingPage {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image("GitHubLogo")
+                        .resizable().scaledToFit()
+                        .frame(width: 16, height: 16)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .background(Circle().fill(Color.secondary.opacity(0.12)))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(isDeletingPage)
+        .help("Published page — open, copy the link, or delete it online")
+    }
+
+    private func deletePublishedPage() {
+        isDeletingPage = true
+        Task { @MainActor in
+            do {
+                try await GitHubPublisher.deletePublishedPage(forProjectUID: project.uid)
+            } catch {
+                deletePageError = error.localizedDescription
+            }
+            isDeletingPage = false
         }
     }
 

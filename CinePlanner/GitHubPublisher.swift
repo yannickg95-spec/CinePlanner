@@ -121,6 +121,33 @@ enum GitHubPublisher {
         UserDefaults.standard.removeObject(forKey: "githubRepo-\(uid)")
     }
 
+    /// The public URL of a project's published page, if any.
+    static func publishedURL(forProjectUID uid: String) -> String? {
+        guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return nil }
+        let owner = String(full[..<slash]).lowercased()
+        let name = String(full[full.index(after: slash)...])
+        return "https://\(owner).github.io/\(name)/"
+    }
+
+    /// Takes the project's published page offline. Deletes the whole repository
+    /// when the token has the delete_repo scope; otherwise disables Pages (which
+    /// the publish scope already allows) so the page 404s. Forgets the local
+    /// mapping either way, so a later publish starts fresh.
+    static func deletePublishedPage(forProjectUID uid: String) async throws {
+        guard let token = token else { throw GitHubError.notAuthenticated }
+        guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return }
+        let owner = String(full[..<slash])
+        let name = String(full[full.index(after: slash)...])
+
+        // Try a full repo delete (needs delete_repo scope).
+        let (_, repoHTTP) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
+        if !(200..<300).contains(repoHTTP.statusCode) {
+            // No delete_repo scope — at least take the page offline.
+            _ = try? await rawSend(request("repos/\(owner)/\(name)/pages", method: "DELETE", token: token))
+        }
+        forgetRepo(forProjectUID: uid)
+    }
+
     // MARK: - Publish
 
     struct Result {

@@ -23,8 +23,9 @@ struct GitHubPublishSheet: View {
     @State private var errorMessage: String?
     private var existingRepo: String? { GitHubPublisher.savedRepo(forProjectUID: project.uid) }
 
-    /// A classic token pre-filled with the one scope we need. Public repos only.
-    private let tokenURL = URL(string: "https://github.com/settings/tokens/new?scopes=public_repo&description=CinePlanner")!
+    /// A classic token pre-filled with the scopes we need: public_repo to publish,
+    /// delete_repo so "Delete Published Page" can fully remove the repository.
+    private let tokenURL = URL(string: "https://github.com/settings/tokens/new?scopes=public_repo,delete_repo&description=CinePlanner")!
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,85 +102,55 @@ struct GitHubPublishSheet: View {
     // MARK: - Publish body
 
     private var publishBody: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             if let result {
-                if result.isLive {
-                    Label("Published", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.headline)
-                } else {
-                    Label("Uploaded — GitHub is building the page", systemImage: "clock.badge.checkmark")
-                        .foregroundStyle(.orange)
-                        .font(.headline)
-                }
-
-                Text(result.url)
-                    .font(.body.monospaced())
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.10))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
+                // Just published this session.
+                Label(result.isLive ? "Published" : "Building on GitHub…",
+                      systemImage: result.isLive ? "checkmark.circle.fill" : "clock.badge.checkmark")
+                    .foregroundStyle(result.isLive ? .green : .orange)
+                    .font(.headline)
+                linkAndActions(url: result.url, repoURL: result.repoURL)
                 if !result.isLive {
-                    Text("The link is set — it usually goes live within a minute of finishing the build. If it shows a 404 at first, wait a moment and refresh.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("The link goes live within a minute; if it 404s at first, refresh.")
+                        .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                HStack {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(result.url, forType: .string)
-                    } label: { Label("Copy Link", systemImage: "doc.on.doc") }
-
-                    Button {
-                        if let url = URL(string: result.url) { NSWorkspace.shared.open(url) }
-                    } label: { Label("Open", systemImage: "safari") }
-
-                    if let repoURL = URL(string: result.repoURL) {
-                        Link(destination: repoURL) { Label("Repository", systemImage: "chevron.left.forwardslash.chevron.right") }
+                newRepoButton
+            } else if let existingURL {
+                // Already has a published page — show it, ready to open or update.
+                Text("YOUR PUBLISHED PAGE")
+                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary).kerning(0.5)
+                linkAndActions(url: existingURL, repoURL: existingRepoURL)
+                newRepoButton
+            } else {
+                // First publish — a hero, then the action.
+                VStack(spacing: 14) {
+                    ZStack {
+                        Circle().fill(Color.accentColor.opacity(0.12)).frame(width: 76, height: 76)
+                        Image("GitHubLogo")
+                            .resizable().scaledToFit()
+                            .frame(width: 36, height: 36)
+                            .foregroundStyle(Color.accentColor)
                     }
-
-                    Spacer()
+                    Text("Ready to publish")
+                        .font(.headline)
+                    Text("One click puts your shot list on your GitHub and gives you a link to share.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Button { publish() } label: {
-                        Label("Update Page", systemImage: "arrow.clockwise")
+                        Label("Publish", systemImage: "globe").frame(maxWidth: .infinity)
                     }
-                    .disabled(isPublishing)
-                }
-            } else {
-                Text(existingRepo == nil
-                     ? "This creates a repository on your GitHub account, turns on Pages, and gives you a link to share. Re-publishing later updates the same page."
-                     : "This project already has a published page. Publishing updates it at the same link.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(isPublishing)
+                    .padding(.top, 4)
 
-                Label("Heads up: GitHub builds the page after uploading, so publishing takes about a minute.", systemImage: "clock")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button { publish() } label: {
-                    Label(existingRepo == nil ? "Publish" : "Update Page", systemImage: "globe")
-                        .frame(maxWidth: .infinity)
+                    Label("Building the page takes about a minute.", systemImage: "clock")
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(isPublishing)
-
-                if existingRepo != nil {
-                    Button("Publish to a new repository instead") {
-                        GitHubPublisher.forgetRepo(forProjectUID: project.uid)
-                        publish()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .disabled(isPublishing)
-                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
             }
 
             if isPublishing {
@@ -188,22 +159,80 @@ struct GitHubPublishSheet: View {
                         .progressViewStyle(.linear)
                         .animation(.easeInOut(duration: 0.3), value: phase?.fraction ?? 0)
                     Text(phase?.label ?? "Publishing…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.caption).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 0)
         }
     }
+
+    /// The published link in a box, with Open/Copy/Repository and a prominent
+    /// Update button — shared by the "just published" and "already published" states.
+    @ViewBuilder
+    private func linkAndActions(url: String, repoURL: String?) -> some View {
+        Text(url)
+            .font(.callout.monospaced())
+            .textSelection(.enabled)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+        HStack(spacing: 10) {
+            Button {
+                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+            } label: { Label("Open", systemImage: "safari") }
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+            } label: { Label("Copy", systemImage: "doc.on.doc") }
+
+            if let repoURL, let u = URL(string: repoURL) {
+                Link(destination: u) { Label("Repository", systemImage: "chevron.left.forwardslash.chevron.right") }
+            }
+
+            Spacer()
+
+            Button { publish() } label: {
+                Label("Update", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isPublishing)
+        }
+    }
+
+    /// Subtle "start over on a fresh repo" action.
+    private var newRepoButton: some View {
+        Button("Publish to a new repository instead") {
+            GitHubPublisher.forgetRepo(forProjectUID: project.uid)
+            result = nil
+            publish()
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .disabled(isPublishing)
+    }
+
+    // The existing page's public URL, derived from the saved "owner/repo".
+    private var existingURL: String? {
+        guard let repo = existingRepo, let slash = repo.firstIndex(of: "/") else { return nil }
+        let owner = String(repo[..<slash]).lowercased()
+        let name = String(repo[repo.index(after: slash)...])
+        return "https://\(owner).github.io/\(name)/"
+    }
+    private var existingRepoURL: String? { existingRepo.map { "https://github.com/\($0)" } }
 
     // MARK: - Actions
 
