@@ -41,6 +41,7 @@ struct ReferenceCardView: View {
 
             // A whole empty reference can be filled in one go from CineStager.
             if !reference.hasMedia && reference.mapData == nil && reference.mapVideoData == nil {
+                orDivider
                 cineStagerImportButton
             }
 
@@ -188,6 +189,17 @@ struct ReferenceCardView: View {
                       allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
                       allowsMultipleSelection: false) { result in
             handlePickedMedia(result)
+        }
+    }
+
+    /// "──── or ────" separating the manual add buttons from the CineStager import.
+    private var orDivider: some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 1)
+            Text("or")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 1)
         }
     }
 
