@@ -949,6 +949,7 @@ struct ScriptPDFViewer: View {
                         version: version,
                         cachedDocument: $cachedPDFDocument
                     )
+                    .clipped()
                 }
             }
         }
@@ -1248,7 +1249,10 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let containerView = NSView()
-        
+        // Clip to bounds so coverage lines/highlights for text scrolled above the
+        // viewport don't spill upward over the "Script" header.
+        containerView.clipsToBounds = true
+
         let pdfView = PDFView()
         pdfView.document = document
         pdfView.autoScales = true
