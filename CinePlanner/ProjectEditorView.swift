@@ -526,13 +526,13 @@ struct ProjectEditorView: View {
                 renameText = version.name
                 versionToRename = version
             } label: {
-                Label("Rename…", systemImage: "pencil")
+                Text("Rename…")
             }
             Divider()
             Button(role: .destructive) {
                 versionPendingDeletion = version
             } label: {
-                Label("Delete Version…", systemImage: "trash")
+                Text("Delete Version…")
             }
             .disabled(currentVersions.count <= 1)
         }

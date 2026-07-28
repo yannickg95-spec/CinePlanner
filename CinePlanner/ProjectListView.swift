@@ -369,27 +369,6 @@ struct ProjectCardView: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Shared by the top-right options button and the right-click menu.
-    @ViewBuilder
-    private var optionsMenuItems: some View {
-        Button {
-            showingEditSheet = true
-        } label: {
-            Label("Rename…", systemImage: "pencil")
-        }
-        Button {
-            exportProject()
-        } label: {
-            Label("Export Project…", systemImage: "square.and.arrow.up")
-        }
-        Divider()
-        Button(role: .destructive) {
-            showingDeleteAlert = true
-        } label: {
-            Label("Delete Project…", systemImage: "trash")
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
@@ -450,9 +429,6 @@ struct ProjectCardView: View {
                 .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 10))
-        .contextMenu {
-            optionsMenuItems
-        }
         .sheet(isPresented: $showingEditSheet) {
             EditProjectNameSheet(project: project, isPresented: $showingEditSheet)
         }

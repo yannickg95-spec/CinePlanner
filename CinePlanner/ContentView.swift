@@ -238,20 +238,20 @@ struct SceneListView: View {
             Button {
                 onEditScene?(scene)
             } label: {
-                Label("Edit Scene", systemImage: "pencil")
+                Text("Edit Scene")
             }
             if canImportShots {
                 Button {
                     onImportShots?(scene)
                 } label: {
-                    Label("Import Shots from Version…", systemImage: "square.and.arrow.down.on.square")
+                    Text("Import Shots from Version…")
                 }
             }
             Divider()
             Button(role: .destructive) {
                 onDeleteScenes?(deletionTargets(for: scene))
             } label: {
-                Label(sceneDeleteLabel(for: scene), systemImage: "trash")
+                Text(sceneDeleteLabel(for: scene))
             }
         }
     }
@@ -485,13 +485,13 @@ struct ShotListView: View {
                     Button {
                         onEditShot?(shot)
                     } label: {
-                        Label("Edit Shot", systemImage: "pencil")
+                        Text("Edit Shot")
                     }
                     Divider()
                     Button(role: .destructive) {
                         onDeleteShots?(deletionTargets(for: shot))
                     } label: {
-                        Label(shotDeleteLabel(for: shot), systemImage: "trash")
+                        Text(shotDeleteLabel(for: shot))
                     }
                 }
             }
