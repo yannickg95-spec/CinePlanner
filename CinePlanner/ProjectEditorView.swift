@@ -42,6 +42,7 @@ struct ProjectEditorView: View {
     @State private var showingDeletePageConfirm = false
     @State private var isDeletingPage = false
     @State private var deletePageError: String?
+    @State private var pageIsLive = false
 
     private var publishedURL: String? { GitHubPublisher.publishedURL(forProjectUID: project.uid) }
     @State private var sceneForShotImport: Scene?
@@ -211,10 +212,35 @@ struct ProjectEditorView: View {
             }
             .frame(width: 36, height: 36)
             .background(Circle().fill(Color.secondary.opacity(0.12)))
+            // A green check in the corner when the page is confirmed live.
+            .overlay(alignment: .topTrailing) {
+                if pageIsLive && !isDeletingPage {
+                    Image(systemName: "checkmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .green)
+                        .font(.system(size: 13, weight: .bold))
+                        .padding(1)
+                        .background(Circle().fill(.white))
+                        .offset(x: 4, y: -4)
+                }
+            }
             .contentShape(Circle())
         }
         .disabled(isDeletingPage)
-        .help("Published page — open, update, or delete it online")
+        .help(pageIsLive ? "Published page is live — open, update, or delete it"
+                         : "Published page — open, update, or delete it online")
+        .task(id: url) { await checkPageLive(url) }
+    }
+
+    /// Probes the published URL; the corner check shows when it responds live.
+    @MainActor
+    private func checkPageLive(_ urlString: String) async {
+        guard let url = URL(string: urlString) else { pageIsLive = false; return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        let response = try? await URLSession.shared.data(for: request)
+        let code = (response?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        pageIsLive = (200..<400).contains(code)
     }
 
     private func deletePublishedPage() {
