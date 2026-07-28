@@ -200,7 +200,9 @@ struct ExportOptionsSheet: View {
 
             Spacer(minLength: 12)
 
-            Button("Publish") { showingPublish = true }
+            Button(GitHubPublisher.savedRepo(forProjectUID: project.uid) != nil ? "Update" : "Publish") {
+                showingPublish = true
+            }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
