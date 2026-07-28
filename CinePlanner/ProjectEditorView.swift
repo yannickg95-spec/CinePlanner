@@ -39,6 +39,7 @@ struct ProjectEditorView: View {
     @State private var requestScriptImport = false
     @State private var showExportSheet = false
     @State private var showPublishSheet = false
+    @State private var showingPageMenu = false
     @State private var showingDeletePageConfirm = false
     @State private var isDeletingPage = false
     @State private var deletePageError: String?
@@ -189,17 +190,8 @@ struct ProjectEditorView: View {
 
     /// Small round GitHub button next to Export — opens/copies/deletes the online page.
     private func publishedPageMenu(url: String) -> some View {
-        Menu {
-            if let u = URL(string: url) {
-                Link(destination: u) { Label("Open Published Page", systemImage: "safari") }
-            }
-            Button { showPublishSheet = true } label: {
-                Label("Update Page", systemImage: "arrow.clockwise")
-            }
-            Divider()
-            Button(role: .destructive) { showingDeletePageConfirm = true } label: {
-                Label("Delete Published Page", systemImage: "trash")
-            }
+        Button {
+            showingPageMenu = true
         } label: {
             Group {
                 if isDeletingPage {
@@ -215,13 +207,50 @@ struct ProjectEditorView: View {
             .background(Circle().fill(Color.secondary.opacity(0.12)))
             .contentShape(Circle())
         }
-        // .button menu style + plain button style honours the label's real size,
-        // unlike .borderlessButton which collapses it to a default control height.
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .disabled(isDeletingPage)
-        .help("Published page — open, copy the link, or delete it online")
+        .help("Published page — open, update, or delete it online")
+        // A custom popover styled like the size/type/grip dropdowns, not a native menu.
+        .popover(isPresented: $showingPageMenu, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                pageMenuRow("Open Published Page", systemImage: "safari") {
+                    if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                }
+                pageMenuRow("Update Page", systemImage: "arrow.clockwise") {
+                    // Let the popover dismiss before presenting the sheet.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showPublishSheet = true }
+                }
+                Divider().padding(.vertical, 2)
+                pageMenuRow("Delete Published Page", systemImage: "trash", destructive: true) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showingDeletePageConfirm = true }
+                }
+            }
+            .padding(10)
+            .frame(width: 230)
+        }
+    }
+
+    /// One row in the published-page popover — matches the option chips in the
+    /// shot-setup dropdowns (rounded background, whole row clickable).
+    private func pageMenuRow(_ title: String, systemImage: String, destructive: Bool = false,
+                             action: @escaping () -> Void) -> some View {
+        Button {
+            showingPageMenu = false
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage).frame(width: 16)
+                Text(title).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(destructive ? Color.red : Color.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func deletePublishedPage() {
