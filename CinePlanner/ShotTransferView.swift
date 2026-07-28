@@ -307,19 +307,16 @@ struct ShotTransferView: View {
 
             Spacer(minLength: 4)
 
-            Menu {
-                Button("Don't copy") {
-                    assignments[target.persistentModelID] = nil
-                }
-                Divider()
-                ForEach(sourceScenes.filter { !$0.shots.isEmpty }, id: \.uid) { candidate in
-                    Button {
-                        assign(candidate, to: target)
-                    } label: {
-                        Text("Scene \(candidate.sceneNumber)\(candidate.suffix) — \(SceneMatcher.displayName(candidate)) (\(candidate.shots.count) shot\(candidate.shots.count == 1 ? "" : "s"))")
-                    }
-                }
-            } label: {
+            ChipMenu(items:
+                [ChipMenuItem(title: "Don't copy") { assignments[target.persistentModelID] = nil }, .divider]
+                + sourceScenes.filter { !$0.shots.isEmpty }.map { candidate in
+                    ChipMenuItem(
+                        title: "Scene \(candidate.sceneNumber)\(candidate.suffix) — \(SceneMatcher.displayName(candidate)) (\(candidate.shots.count) shot\(candidate.shots.count == 1 ? "" : "s"))",
+                        isSelected: candidate.uid == source?.uid
+                    ) { assign(candidate, to: target) }
+                },
+                width: 340
+            ) {
                 if let source {
                     Label(
                         "Scene \(source.sceneNumber)\(source.suffix) (\(source.shots.count) shot\(source.shots.count == 1 ? "" : "s"))",

@@ -39,7 +39,6 @@ struct ProjectEditorView: View {
     @State private var requestScriptImport = false
     @State private var showExportSheet = false
     @State private var showPublishSheet = false
-    @State private var showingPageMenu = false
     @State private var showingDeletePageConfirm = false
     @State private var isDeletingPage = false
     @State private var deletePageError: String?
@@ -188,11 +187,18 @@ struct ProjectEditorView: View {
         }
     }
 
-    /// Small round GitHub button next to Export — opens/copies/deletes the online page.
+    /// Small round GitHub button next to Export — opens/updates/deletes the online page.
     private func publishedPageMenu(url: String) -> some View {
-        Button {
-            showingPageMenu = true
-        } label: {
+        ChipMenu(items: [
+            ChipMenuItem(title: "Open Published Page", systemImage: "safari") {
+                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+            },
+            ChipMenuItem(title: "Update Page", systemImage: "arrow.clockwise") { showPublishSheet = true },
+            .divider,
+            ChipMenuItem(title: "Delete Published Page", systemImage: "trash", role: .destructive) {
+                showingDeletePageConfirm = true
+            },
+        ], width: 230) {
             Group {
                 if isDeletingPage {
                     ProgressView().controlSize(.small)
@@ -207,50 +213,8 @@ struct ProjectEditorView: View {
             .background(Circle().fill(Color.secondary.opacity(0.12)))
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
         .disabled(isDeletingPage)
         .help("Published page — open, update, or delete it online")
-        // A custom popover styled like the size/type/grip dropdowns, not a native menu.
-        .popover(isPresented: $showingPageMenu, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                pageMenuRow("Open Published Page", systemImage: "safari") {
-                    if let u = URL(string: url) { NSWorkspace.shared.open(u) }
-                }
-                pageMenuRow("Update Page", systemImage: "arrow.clockwise") {
-                    // Let the popover dismiss before presenting the sheet.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showPublishSheet = true }
-                }
-                Divider().padding(.vertical, 2)
-                pageMenuRow("Delete Published Page", systemImage: "trash", destructive: true) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showingDeletePageConfirm = true }
-                }
-            }
-            .padding(10)
-            .frame(width: 230)
-        }
-    }
-
-    /// One row in the published-page popover — matches the option chips in the
-    /// shot-setup dropdowns (rounded background, whole row clickable).
-    private func pageMenuRow(_ title: String, systemImage: String, destructive: Bool = false,
-                             action: @escaping () -> Void) -> some View {
-        Button {
-            showingPageMenu = false
-            action()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage).frame(width: 16)
-                Text(title).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(destructive ? Color.red : Color.primary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func deletePublishedPage() {
@@ -448,40 +412,28 @@ struct ProjectEditorView: View {
     }
 
     private var episodeMenu: some View {
-        Menu {
-            ForEach(project.orderedEpisodes, id: \.uid) { episode in
-                Button {
+        ChipMenu(items:
+            project.orderedEpisodes.map { episode in
+                ChipMenuItem(title: episode.title, isSelected: selectedEpisode === episode) {
                     selectedEpisode = episode
-                } label: {
-                    if selectedEpisode === episode {
-                        Label(episode.title, systemImage: "checkmark")
-                    } else {
-                        Text(episode.title)
+                }
+            }
+            + [
+                .divider,
+                ChipMenuItem(title: "New Episode…", systemImage: "plus") { addEpisode() },
+                ChipMenuItem(title: "Rename Episode…", systemImage: "pencil",
+                             isDisabled: selectedEpisode == nil) {
+                    if let episode = selectedEpisode {
+                        renameText = episode.title
+                        episodeToRename = episode
                     }
-                }
-            }
-            Divider()
-            Button {
-                addEpisode()
-            } label: {
-                Label("New Episode…", systemImage: "plus")
-            }
-            Button {
-                if let episode = selectedEpisode {
-                    renameText = episode.title
-                    episodeToRename = episode
-                }
-            } label: {
-                Label("Rename Episode…", systemImage: "pencil")
-            }
-            .disabled(selectedEpisode == nil)
-            Button(role: .destructive) {
-                episodePendingDeletion = selectedEpisode
-            } label: {
-                Label("Delete Episode…", systemImage: "trash")
-            }
-            .disabled(project.episodes.count <= 1)
-        } label: {
+                },
+                ChipMenuItem(title: "Delete Episode…", systemImage: "trash", role: .destructive,
+                             isDisabled: project.episodes.count <= 1) {
+                    episodePendingDeletion = selectedEpisode
+                },
+            ]
+        ) {
             HStack(spacing: 6) {
                 Image(systemName: "tv")
                     .font(.caption)
@@ -498,7 +450,6 @@ struct ProjectEditorView: View {
                 }
             }
         }
-        .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Switch episode, or add/rename/delete episodes")
     }

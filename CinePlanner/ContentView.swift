@@ -1078,17 +1078,12 @@ struct ShotDetailView: View {
 
                 // Show suggestions menu if there are previous values
                 if !previousCameraValues.isEmpty {
-                    Menu {
-                        ForEach(previousCameraValues, id: \.self) { camera in
-                            Button(camera) {
-                                shot.camera = camera
-                            }
-                        }
-                    } label: {
+                    ChipMenu(items: previousCameraValues.map { v in
+                        ChipMenuItem(title: v) { shot.camera = v }
+                    }) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                     .help("Select from previously used cameras")
                 }
             }
@@ -1108,17 +1103,12 @@ struct ShotDetailView: View {
 
                 // Show suggestions menu if there are previous values
                 if !previousFormatValues.isEmpty {
-                    Menu {
-                        ForEach(previousFormatValues, id: \.self) { format in
-                            Button(format) {
-                                shot.format = format
-                            }
-                        }
-                    } label: {
+                    ChipMenu(items: previousFormatValues.map { v in
+                        ChipMenuItem(title: v) { shot.format = v }
+                    }) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                     .help("Select from previously used formats")
                 }
             }
@@ -1138,17 +1128,12 @@ struct ShotDetailView: View {
 
                 // Show suggestions menu if there are previous values
                 if !previousFrameLinesValues.isEmpty {
-                    Menu {
-                        ForEach(previousFrameLinesValues, id: \.self) { value in
-                            Button(value) {
-                                shot.framelines = value
-                            }
-                        }
-                    } label: {
+                    ChipMenu(items: previousFrameLinesValues.map { v in
+                        ChipMenuItem(title: v) { shot.framelines = v }
+                    }) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                     .help("Select from previously used framelines")
                 }
             }
@@ -1168,17 +1153,12 @@ struct ShotDetailView: View {
 
                 // Show suggestions menu if there are previous values
                 if !previousLensValues.isEmpty {
-                    Menu {
-                        ForEach(previousLensValues, id: \.self) { lens in
-                            Button(lens) {
-                                shot.lensPreset = lens
-                            }
-                        }
-                    } label: {
+                    ChipMenu(items: previousLensValues.map { v in
+                        ChipMenuItem(title: v) { shot.lensPreset = v }
+                    }) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                     .help("Select from previously used lenses")
                 }
             }

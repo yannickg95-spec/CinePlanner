@@ -404,18 +404,18 @@ struct ProjectCardView: View {
                 Spacer(minLength: 0)
 
                 // Same actions as the right-click menu, always visible.
-                Menu {
-                    optionsMenuItems
-                } label: {
+                ChipMenu(items: [
+                    ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
+                    ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() },
+                    .divider,
+                    ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
+                ], width: 210) {
                     Image(systemName: "ellipsis")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
                 .help("Project options")
             }
 
