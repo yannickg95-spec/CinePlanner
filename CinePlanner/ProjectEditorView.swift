@@ -448,7 +448,19 @@ struct ProjectEditorView: View {
                         .background(Color.secondary.opacity(0.15))
                         .clipShape(Capsule())
                 }
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .fixedSize()
         .help("Switch episode, or add/rename/delete episodes")
