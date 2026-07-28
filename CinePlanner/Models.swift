@@ -253,7 +253,10 @@ enum ShotSize: String, Codable, CaseIterable {
     case longShot = "LS"
     case wideShot = "WS"
     case extremeWideShot = "XWS"
-    
+    // Framing shots — a second group in the size picker, not part of the scale.
+    case establishingShot = "Establishing Shot"
+    case insert = "Insert"
+
     var shortVersion: String {
         switch self {
         case .none: return ""
@@ -265,9 +268,11 @@ enum ShotSize: String, Codable, CaseIterable {
         case .longShot: return "LS"
         case .wideShot: return "WS"
         case .extremeWideShot: return "XWS"
+        case .establishingShot: return "Est. Shot"
+        case .insert: return "Insert"
         }
     }
-    
+
     var displayName: String {
         switch self {
         case .none: return "Select size"
@@ -279,6 +284,8 @@ enum ShotSize: String, Codable, CaseIterable {
         case .longShot: return "Long Shot (LS)"
         case .wideShot: return "Wide Shot (WS)"
         case .extremeWideShot: return "Extreme Wide Shot (XWS)"
+        case .establishingShot: return "Establishing Shot"
+        case .insert: return "Insert"
         }
     }
 
@@ -288,10 +295,24 @@ enum ShotSize: String, Codable, CaseIterable {
         (raw.isEmpty || raw == "none") ? "" : (ShotSize(rawValue: raw)?.shortVersion ?? raw)
     }
 
-    /// Built-in sizes for the picker, as (menu label, stored value). Sizes are a
-    /// single ordered scale, so they aren't subdivided into groups.
+    /// The size scale — the main group in the picker.
+    static let scaleCases: [ShotSize] = [
+        .extremeCloseUp, .closeUp, .mediumCloseUp, .mediumShot,
+        .mediumLongShot, .longShot, .wideShot, .extremeWideShot,
+    ]
+
+    /// Framing shots — the picker's second group.
+    static let framingCases: [ShotSize] = [.establishingShot, .insert]
+
     static var pickerOptions: [(label: String, value: String)] {
-        allCases.filter { $0 != .none }.map { (label: $0.displayName, value: $0.rawValue) }
+        // Full name without the "(CU)" abbreviation, e.g. "Close Up".
+        scaleCases.map { size in
+            (label: size.displayName.replacingOccurrences(of: " (\(size.shortVersion))", with: ""),
+             value: size.rawValue)
+        }
+    }
+    static var framingOptions: [(label: String, value: String)] {
+        framingCases.map { (label: $0.displayName, value: $0.rawValue) }
     }
 }
 
@@ -438,9 +459,9 @@ enum ShotTypeCategory: String, Codable, CaseIterable {
             cases.map { (label: $0.displayName, value: $0.rawValue) }
         }
         return [
-            ("Coverage", opts([.establishingShot, .single, .overTheShoulder, .twoShot, .threeShot, .groupShot, .POV, .insert, .profileShot])),
-            ("Angle",    opts([.lowAngle, .highAngle, .dutchAngle, .topShot, .overhead, .aerial])),
+            ("Coverage", opts([.single, .overTheShoulder, .twoShot, .threeShot, .groupShot, .POV, .profileShot])),
             ("Movement", opts([.pushIn, .pushOut, .zoomIn, .zoomOut])),
+            ("Angle",    opts([.lowAngle, .highAngle, .dutchAngle, .topShot, .overhead, .aerial])),
         ]
     }
 }

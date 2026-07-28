@@ -776,8 +776,9 @@ struct ShotDetailView: View {
             OptionPickerView(
                 noun: "size",
                 placeholder: "Select size",
-                sections: [(title: "", options: ShotSize.pickerOptions)],
-                grouped: false,
+                sections: [(title: "Sizes", options: ShotSize.pickerOptions),
+                           (title: "Other", options: ShotSize.framingOptions)],
+                grouped: true,
                 value: $shot.sizeName,
                 customKey: "customSizes"
             )
@@ -1403,8 +1404,16 @@ struct OptionPickerView: View {
                     sectionColumn(split.right)
                 }
             } else {
-                // No subdivisions: a single vertical list, no section headers.
-                itemColumn(flatItems)
+                // A single column of titled sections (e.g. Sizes and Framing),
+                // like the grouped picker but not split into two columns.
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(sections, id: \.title) { section in
+                        optionSection(section)
+                    }
+                    if !customOptions.isEmpty {
+                        optionSection((title: "Custom", options: customOptions.map { (label: $0, value: $0) }))
+                    }
+                }
             }
 
             Divider()
