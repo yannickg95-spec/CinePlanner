@@ -1481,29 +1481,21 @@ struct OptionPickerView: View {
 
     private func optionChip(_ option: Option, removable: Bool = false) -> some View {
         let selected = option.value.caseInsensitiveCompare(value) == .orderedSame
-        return HStack(spacing: 4) {
-            Button {
-                select(option.value)
-            } label: {
-                Text(option.label)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-
-            if removable {
-                Button {
-                    removeCustom(option.value)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Remove this custom \(noun)")
-            }
+        // The whole padded chip is the button (contentShape covers it), so a click
+        // anywhere on the row selects — not just on the text. The remove-× floats
+        // on top as its own button.
+        return Button {
+            select(option.value)
+        } label: {
+            Text(option.label)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 8)
+                .padding(.trailing, removable ? 26 : 8)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .buttonStyle(.plain)
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
@@ -1512,6 +1504,19 @@ struct OptionPickerView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(selected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
         )
+        .overlay(alignment: .trailing) {
+            if removable {
+                Button {
+                    removeCustom(option.value)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+                .help("Remove this custom \(noun)")
+            }
+        }
     }
 
     private func select(_ newValue: String) {
