@@ -352,6 +352,7 @@ struct ProjectCardView: View {
     @Bindable var project: Project
     @State private var showingEditSheet = false
     @State private var showingDeleteAlert = false
+    @State private var showingSeriesToFilmBlocked = false
     @State private var exportErrorMessage: String?
     @Environment(\.modelContext) private var modelContext
 
@@ -385,6 +386,8 @@ struct ProjectCardView: View {
                 // Same actions as the right-click menu, always visible.
                 ChipMenu(items: [
                     ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
+                    ChipMenuItem(title: project.isSeries ? "Change to Film" : "Change to Series",
+                                 systemImage: project.isSeries ? "film" : "tv") { toggleProjectType() },
                     ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() },
                     .divider,
                     ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
@@ -448,6 +451,11 @@ struct ProjectCardView: View {
         } message: {
             Text("This permanently deletes the project with all its episodes, scenes and shots. This cannot be undone.")
         }
+        .alert("Can't switch to a film", isPresented: $showingSeriesToFilmBlocked) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("A film has a single episode, but this series has \(project.episodes.count). Open it and delete the extra episodes first, then switch to a film.")
+        }
     }
 
     private var lastOpenedText: String {
@@ -475,6 +483,28 @@ struct ProjectCardView: View {
         } catch {
             exportErrorMessage = error.localizedDescription
         }
+    }
+
+    /// Switches a project between film and series. Film→series always works
+    /// (the lone episode becomes "Episode 1"). Series→film only when there's a
+    /// single episode — otherwise the extras would be orphaned, so it's blocked.
+    private func toggleProjectType() {
+        if project.isSeries {
+            guard project.episodes.count <= 1 else {
+                showingSeriesToFilmBlocked = true
+                return
+            }
+            project.isSeries = false
+            if let episode = project.orderedEpisodes.first, episode.title == "Episode 1" {
+                episode.title = "Main Feature"
+            }
+        } else {
+            project.isSeries = true
+            if let episode = project.orderedEpisodes.first, episode.title == "Main Feature" {
+                episode.title = "Episode 1"
+            }
+        }
+        try? modelContext.save()
     }
 }
 
