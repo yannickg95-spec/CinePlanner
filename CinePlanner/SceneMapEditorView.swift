@@ -11,6 +11,8 @@ import SwiftUI
 import SwiftData
 
 struct SceneMapEditorView: View {
+    static let canvasSpace = "sceneMapCanvas"
+
     let scene: Scene
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -18,7 +20,6 @@ struct SceneMapEditorView: View {
     @State private var doc: SceneMapDoc
     @State private var selectedID: UUID?
     @State private var canvasSize: CGSize = .zero
-    @State private var dragOrigin: [UUID: CGPoint] = [:]
 
     init(scene: Scene) {
         self.scene = scene
@@ -83,20 +84,24 @@ struct SceneMapEditorView: View {
     private var canvas: some View {
         GeometryReader { geo in
             ZStack {
+                // Static grid only — kept free of `doc` so it never redraws
+                // while a marker is being dragged.
                 Canvas { ctx, size in
                     drawGrid(ctx, size)
-                    for cam in doc.elements where cam.kind == .camera {
-                        drawFOV(ctx, cam)
-                    }
                 }
-                ForEach($doc.elements) { $element in
-                    marker(for: $element)
-                        .position(x: element.x, y: element.y)
+                ForEach(doc.elements) { element in
+                    MapMarkerView(
+                        element: element,
+                        isSelected: selectedID == element.id,
+                        onSelect: { selectedID = element.id },
+                        onMove: { newPosition in moveElement(element.id, to: newPosition) }
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
+            .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onTapGesture { selectedID = nil }
             .onAppear { canvasSize = geo.size }
             .onChange(of: geo.size) { _, new in canvasSize = new }
@@ -111,81 +116,6 @@ struct SceneMapEditorView: View {
         var y: CGFloat = 0
         while y <= size.height { path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y)); y += step }
         ctx.stroke(path, with: .color(.secondary.opacity(0.12)), lineWidth: 1)
-    }
-
-    private func drawFOV(_ ctx: GraphicsContext, _ cam: MapElement) {
-        let center = CGPoint(x: cam.x, y: cam.y)
-        let fov = cam.horizontalFOV
-        let radius = 240.0
-        let left = MapGeometry.point(from: center, angleDeg: cam.rotation - fov / 2, radius: radius)
-        let right = MapGeometry.point(from: center, angleDeg: cam.rotation + fov / 2, radius: radius)
-        var path = Path()
-        path.move(to: center)
-        path.addLine(to: left)
-        path.addLine(to: right)
-        path.closeSubpath()
-        let color = Color(hex: cam.colorHex)
-        ctx.fill(path, with: .color(color.opacity(0.15)))
-        ctx.stroke(path, with: .color(color.opacity(0.4)), lineWidth: 1)
-    }
-
-    // MARK: - Element markers
-
-    @ViewBuilder
-    private func marker(for binding: Binding<MapElement>) -> some View {
-        let element = binding.wrappedValue
-        let color = Color(hex: element.colorHex)
-        let isSelected = selectedID == element.id
-
-        VStack(spacing: 3) {
-            ZStack {
-                if isSelected {
-                    Circle().stroke(Color.accentColor, lineWidth: 2)
-                        .frame(width: 40, height: 40)
-                }
-                Group {
-                    if element.kind == .character {
-                        ZStack {
-                            Circle().fill(color)
-                                .overlay(Circle().stroke(.white, lineWidth: 2))
-                                .frame(width: 28, height: 28)
-                            Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
-                        }
-                    } else {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.85))
-                                .frame(width: 30, height: 20)
-                            Image(systemName: "video.fill").foregroundStyle(.white).font(.caption)
-                        }
-                    }
-                }
-                .rotationEffect(.degrees(element.rotation))
-            }
-            if !element.label.isEmpty {
-                Text(element.label)
-                    .font(.caption2).fontWeight(.medium)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(.thinMaterial, in: Capsule())
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { selectedID = element.id }
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    selectedID = element.id
-                    if dragOrigin[element.id] == nil {
-                        dragOrigin[element.id] = CGPoint(x: element.x, y: element.y)
-                    }
-                    let origin = dragOrigin[element.id]!
-                    binding.wrappedValue.x = origin.x + value.translation.width
-                    binding.wrappedValue.y = origin.y + value.translation.height
-                }
-                .onEnded { _ in
-                    dragOrigin[element.id] = nil
-                    persist()
-                }
-        )
     }
 
     // MARK: - Inspector
@@ -268,9 +198,139 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Commit a marker's new position once its drag ends (mid-drag movement is
+    /// handled locally inside MapMarkerView so the canvas doesn't re-render).
+    private func moveElement(_ id: UUID, to position: CGPoint) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].x = position.x
+        doc.elements[index].y = position.y
+        persist()
+    }
+
     private func persist() {
         scene.sceneMapJSON = doc.jsonString
         try? scene.modelContext?.save()
+    }
+}
+
+// MARK: - Marker
+
+/// One draggable token on the map. Owns its drag offset locally so that
+/// dragging re-renders only this view — the grid and the other markers stay
+/// put — and commits the final position to the document on release.
+private struct MapMarkerView: View {
+    let element: MapElement
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onMove: (CGPoint) -> Void
+
+    /// Live position while dragging, in canvas-space. `nil` = not dragging, so
+    /// the committed `element` position is used.
+    @State private var livePosition: CGPoint?
+    /// Pointer-to-center offset captured when the drag begins, so the token
+    /// keeps its grab point instead of snapping its center to the cursor.
+    @State private var grabOffset: CGSize = .zero
+
+    private var color: Color { Color(hex: element.colorHex) }
+
+    var body: some View {
+        // The cone rides along as a background so it doesn't enlarge the token's
+        // hit area.
+        token
+            .background {
+                if element.kind == .camera {
+                    coneView.allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { onSelect() }
+            .gesture(dragGesture)
+            .position(livePosition ?? CGPoint(x: element.x, y: element.y))
+    }
+
+    private var dragGesture: some Gesture {
+        // Positioned from the pointer's ABSOLUTE location in the fixed canvas
+        // space — never from translation/offset — so the moving token can't
+        // shift its own reference frame (which is what caused the jumping).
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                if livePosition == nil {
+                    onSelect()
+                    grabOffset = CGSize(width: element.x - value.location.x,
+                                        height: element.y - value.location.y)
+                }
+                livePosition = CGPoint(x: value.location.x + grabOffset.width,
+                                       y: value.location.y + grabOffset.height)
+            }
+            .onEnded { value in
+                let final = CGPoint(x: value.location.x + grabOffset.width,
+                                    y: value.location.y + grabOffset.height)
+                livePosition = nil
+                onMove(final)
+            }
+    }
+
+    // The tappable/draggable icon plus its label.
+    private var token: some View {
+        VStack(spacing: 3) {
+            ZStack {
+                if isSelected {
+                    Circle().stroke(Color.accentColor, lineWidth: 2)
+                        .frame(width: 40, height: 40)
+                }
+                Group {
+                    if element.kind == .character {
+                        ZStack {
+                            Circle().fill(color)
+                                .overlay(Circle().stroke(.white, lineWidth: 2))
+                                .frame(width: 28, height: 28)
+                            Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
+                        }
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.85))
+                                .frame(width: 30, height: 20)
+                            Image(systemName: "video.fill").foregroundStyle(.white).font(.caption)
+                        }
+                    }
+                }
+                .rotationEffect(.degrees(element.rotation))
+            }
+            if !element.label.isEmpty {
+                Text(element.label)
+                    .font(.caption2).fontWeight(.medium)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(.thinMaterial, in: Capsule())
+            }
+        }
+    }
+
+    // The field-of-view cone, drawn behind the camera icon and rotated with it.
+    private var coneView: some View {
+        let cone = ConeShape(fovDegrees: element.horizontalFOV, radius: 240)
+        return cone
+            .fill(color.opacity(0.15))
+            .overlay(cone.stroke(color.opacity(0.4), lineWidth: 1))
+            .frame(width: 520, height: 520)
+            .rotationEffect(.degrees(element.rotation))
+    }
+}
+
+/// A wedge pointing up from the center, used for a camera's field of view.
+struct ConeShape: Shape {
+    var fovDegrees: Double
+    var radius: Double
+
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let left = MapGeometry.point(from: center, angleDeg: -fovDegrees / 2, radius: radius)
+        let right = MapGeometry.point(from: center, angleDeg: fovDegrees / 2, radius: radius)
+        var path = Path()
+        path.move(to: center)
+        path.addLine(to: left)
+        path.addLine(to: right)
+        path.closeSubpath()
+        return path
     }
 }
 
