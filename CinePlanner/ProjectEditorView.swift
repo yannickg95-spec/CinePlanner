@@ -25,6 +25,10 @@ struct ProjectEditorView: View {
     @State private var selectedScenes: Set<String> = []
     @State private var selectedShots: Set<String> = []
 
+    /// Which view fills the flexible detail pane on the right.
+    private enum DetailTab: Hashable { case shot, map }
+    @State private var detailTab: DetailTab = .shot
+
     // Edit / delete targets (driven by right-click context menus on rows)
     @State private var sceneToEdit: Scene?
     @State private var shotToEdit: Shot?
@@ -648,15 +652,15 @@ struct ProjectEditorView: View {
 
             Divider()
             
-            // Detail - Shot information (Resizable width)
+            // Detail - Shot information / Scene Map (Resizable width)
             Group {
-                if let shot = selectedShot {
-                    ShotDetailView(shot: shot)
+                if let scene = selectedScene {
+                    detailPane(for: scene)
                 } else {
                     ContentUnavailableView(
-                        "No Shot Selected",
-                        systemImage: "camera.circle.fill",
-                        description: Text("Select a shot to view its details")
+                        "No Scene Selected",
+                        systemImage: "film",
+                        description: Text("Select a scene from the sidebar or create a new one")
                     )
                 }
             }
@@ -696,6 +700,46 @@ struct ProjectEditorView: View {
             )
             .frame(minWidth: Self.paneMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
             .clipped()
+        }
+    }
+
+    /// The flexible right pane, tabbed between the selected shot's details and
+    /// the scene-level top-down map.
+    @ViewBuilder
+    private func detailPane(for scene: Scene) -> some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $detailTab) {
+                Text("Shot Details").tag(DetailTab.shot)
+                Text("Scene Map").tag(DetailTab.map)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            switch detailTab {
+            case .shot:
+                if let shot = selectedShot {
+                    ShotDetailView(shot: shot)
+                } else {
+                    ContentUnavailableView(
+                        "No Shot Selected",
+                        systemImage: "camera.circle.fill",
+                        description: Text("Select a shot to view its details")
+                    )
+                }
+            case .map:
+                // Keyed by scene so switching scenes reloads the map document.
+                SceneMapEditorView(scene: scene, embedded: true)
+                    .id(scene.uid)
+            }
+        }
+        // Selecting a shot jumps back to its details, so a click in the shot
+        // column always shows what you clicked.
+        .onChange(of: selectedShots) { _, new in
+            if !new.isEmpty { detailTab = .shot }
         }
     }
 

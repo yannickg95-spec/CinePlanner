@@ -14,6 +14,9 @@ struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
 
     let scene: Scene
+    /// When embedded in a pane (vs. presented as a sheet), drop the title bar,
+    /// the Done button, and the fixed minimum size.
+    var embedded: Bool = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -21,8 +24,9 @@ struct SceneMapEditorView: View {
     @State private var selectedID: UUID?
     @State private var canvasSize: CGSize = .zero
 
-    init(scene: Scene) {
+    init(scene: Scene, embedded: Bool = false) {
         self.scene = scene
+        self.embedded = embedded
         _doc = State(initialValue: SceneMapDoc.load(from: scene.sceneMapJSON))
     }
 
@@ -35,8 +39,10 @@ struct SceneMapEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if !embedded {
+                header
+                Divider()
+            }
             toolbar
             Divider()
             HStack(spacing: 0) {
@@ -48,7 +54,7 @@ struct SceneMapEditorView: View {
                 }
             }
         }
-        .frame(minWidth: 920, minHeight: 660)
+        .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
         .onDisappear { persist() }
     }
 
