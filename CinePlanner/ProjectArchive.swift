@@ -63,6 +63,7 @@ enum ProjectArchive {
         var scriptTimeOfDay: String
         var manualAnnotationY: Double
         var pdfPageOffset: Int
+        var sceneMapJSON: String?
         var shots: [ShotDTO]
     }
 
@@ -185,6 +186,7 @@ enum ProjectArchive {
             scriptTimeOfDay: scene.scriptTimeOfDay,
             manualAnnotationY: scene.manualAnnotationY,
             pdfPageOffset: scene.pdfPageOffset,
+            sceneMapJSON: scene.sceneMapJSON,
             shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO)
         )
     }
@@ -285,6 +287,7 @@ enum ProjectArchive {
                     scene.scriptTimeOfDay = s.scriptTimeOfDay
                     scene.manualAnnotationY = s.manualAnnotationY
                     scene.pdfPageOffset = s.pdfPageOffset
+                    scene.sceneMapJSON = s.sceneMapJSON
 
                     for sh in s.shots {
                         let shot = Shot(shotNumber: sh.shotNumber, shotInformation: sh.shotInformation)

@@ -40,6 +40,7 @@ struct SceneListView: View {
     var onDeleteScenes: (([Scene]) -> Void)? = nil
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
+    @State private var sceneMapTarget: Scene?
 
     var orderedScenes: [Scene] {
         (version?.scenes ?? project.scenes).sorted { $0.sortOrder < $1.sortOrder }
@@ -94,6 +95,9 @@ struct SceneListView: View {
             .padding(.vertical, 8)
 
             sceneList
+        }
+        .sheet(item: $sceneMapTarget) { scene in
+            SceneMapEditorView(scene: scene)
         }
     }
 
@@ -239,6 +243,11 @@ struct SceneListView: View {
                 onEditScene?(scene)
             } label: {
                 Text("Edit Scene")
+            }
+            Button {
+                sceneMapTarget = scene
+            } label: {
+                Text("Scene Map…")
             }
             if canImportShots {
                 Button {

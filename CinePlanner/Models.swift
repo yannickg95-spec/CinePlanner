@@ -201,6 +201,9 @@ final class Scene {
     var nickname: String = ""
     var suffix: String = ""
 
+    /// Top-down blocking map (characters + cameras) as a JSON SceneMapDoc.
+    var sceneMapJSON: String?
+
     /// Scenes kept from a previous import of this version (they still hold shots).
     /// Replaces the old "[OLD] " nickname prefix.
     var isArchived: Bool = false
