@@ -73,10 +73,25 @@ struct SceneMapEditorView: View {
         .padding(16)
     }
 
+    private var sceneShots: [Shot] {
+        scene.shots.sorted { $0.shotNumber < $1.shotNumber }
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
             Button { add(.character) } label: { Label("Add Character", systemImage: "person.fill") }
-            Button { add(.camera) } label: { Label("Add Camera", systemImage: "video.fill") }
+            Menu {
+                if sceneShots.isEmpty {
+                    Text("No shots in this scene")
+                } else {
+                    ForEach(sceneShots, id: \.uid) { shot in
+                        Button("Shot \(shot.displayNumber)") { addCamera(for: shot) }
+                    }
+                }
+            } label: {
+                Label("Add Camera", systemImage: "video.fill")
+            }
+            .fixedSize()
             Spacer()
             Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -100,7 +115,8 @@ struct SceneMapEditorView: View {
                         element: element,
                         isSelected: selectedID == element.id,
                         onSelect: { selectedID = element.id },
-                        onMove: { newPosition in moveElement(element.id, to: newPosition) }
+                        onMove: { newPosition in moveElement(element.id, to: newPosition) },
+                        onRotate: { newRotation in rotateElement(element.id, to: newRotation) }
                     )
                 }
             }
@@ -146,28 +162,14 @@ struct SceneMapEditorView: View {
                             .textFieldStyle(.roundedBorder)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Facing \(Int(element.rotation.rounded()))°")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Slider(value: selected.rotation, in: 0...360) { editing in
-                            if !editing { persist() }
-                        }
-                    }
-
                     ColorPicker("Color", selection: Binding(
                         get: { Color(hex: selected.wrappedValue.colorHex) },
                         set: { selected.wrappedValue.colorHex = $0.hexString; persist() }
                     ))
 
-                    if element.kind == .camera {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Lens \(Int(element.focalLengthMM.rounded()))mm · FOV \(Int(element.horizontalFOV.rounded()))°")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Slider(value: selected.focalLengthMM, in: 8...200) { editing in
-                                if !editing { persist() }
-                            }
-                        }
-                    }
+                    Text("Drag the handle above the icon to rotate.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Divider()
 
@@ -189,16 +191,32 @@ struct SceneMapEditorView: View {
 
     // MARK: - Actions
 
-    private func add(_ kind: MapElement.Kind) {
+    /// Spawn point for a new element: near the canvas center, nudged so
+    /// successive additions don't stack exactly on top of each other.
+    private var newElementPoint: CGPoint {
         let center = CGPoint(x: (canvasSize.width == 0 ? 400 : canvasSize.width / 2),
                              y: (canvasSize.height == 0 ? 300 : canvasSize.height / 2))
         let jitter = Double(doc.elements.count % 6) * 26
+        return CGPoint(x: center.x - 60 + jitter, y: center.y - 40 + jitter)
+    }
+
+    private func add(_ kind: MapElement.Kind) {
+        let point = newElementPoint
         let count = doc.elements.filter { $0.kind == kind }.count + 1
-        var element = MapElement(kind: kind,
-                                 x: center.x - 60 + jitter,
-                                 y: center.y - 40 + jitter)
+        var element = MapElement(kind: kind, x: point.x, y: point.y)
         element.label = kind == .character ? "Character \(count)" : "Cam \(count)"
         element.colorHex = kind == .character ? "#4C8DFF" : "#FF9500"
+        doc.elements.append(element)
+        selectedID = element.id
+        persist()
+    }
+
+    /// Add a camera named for a specific shot.
+    private func addCamera(for shot: Shot) {
+        let point = newElementPoint
+        var element = MapElement(kind: .camera, x: point.x, y: point.y)
+        element.label = shot.displayNumber
+        element.colorHex = "#FF9500"
         doc.elements.append(element)
         selectedID = element.id
         persist()
@@ -210,6 +228,12 @@ struct SceneMapEditorView: View {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].x = position.x
         doc.elements[index].y = position.y
+        persist()
+    }
+
+    private func rotateElement(_ id: UUID, to rotation: Double) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].rotation = rotation
         persist()
     }
 
@@ -229,6 +253,7 @@ private struct MapMarkerView: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onMove: (CGPoint) -> Void
+    let onRotate: (Double) -> Void
 
     /// Live position while dragging, in canvas-space. `nil` = not dragging, so
     /// the committed `element` position is used.
@@ -236,22 +261,93 @@ private struct MapMarkerView: View {
     /// Pointer-to-center offset captured when the drag begins, so the token
     /// keeps its grab point instead of snapping its center to the cursor.
     @State private var grabOffset: CGSize = .zero
+    /// Live facing while the rotation handle is being dragged; `nil` otherwise.
+    @State private var liveRotation: Double?
 
     private var color: Color { Color(hex: element.colorHex) }
+    private var displayRotation: Double { liveRotation ?? element.rotation }
+    private var center: CGPoint { CGPoint(x: element.x, y: element.y) }
+
+    /// Distance from the icon center to the rotation handle, past the cone tip.
+    private static let handleDistance: CGFloat = 74
 
     var body: some View {
-        // The cone rides along as a background so it doesn't enlarge the token's
-        // hit area.
-        token
-            .background {
+        ZStack {
+            // Selection ring — a circle, so it needn't rotate.
+            if isSelected {
+                Circle().stroke(Color.accentColor, lineWidth: 2)
+                    .frame(width: 40, height: 40)
+            }
+
+            // Cone + icon share one center and rotate together as a single unit,
+            // so the triangle's apex stays locked to the top of the icon.
+            ZStack {
                 if element.kind == .camera {
                     coneView.allowsHitTesting(false)
                 }
+                iconGraphic
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSelect() }
+                    .gesture(dragGesture)
             }
-            .contentShape(Rectangle())
-            .onTapGesture { onSelect() }
-            .gesture(dragGesture)
-            .position(livePosition ?? CGPoint(x: element.x, y: element.y))
+            .rotationEffect(.degrees(displayRotation))
+
+            // Label floats below the center without shifting it (an upright
+            // caption, never rotated).
+            if !element.label.isEmpty {
+                labelView.offset(y: 26)
+            }
+
+            if isSelected {
+                rotationHandle.offset(handleOffset)
+            }
+        }
+        .position(livePosition ?? center)
+    }
+
+    // MARK: Rotation handle
+
+    private var handleOffset: CGSize {
+        let r = displayRotation * .pi / 180
+        return CGSize(width: Self.handleDistance * sin(r),
+                      height: -Self.handleDistance * cos(r))
+    }
+
+    private var rotationHandle: some View {
+        Circle()
+            .fill(Color.accentColor)
+            .overlay(Circle().stroke(.white, lineWidth: 1.5))
+            .overlay(
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+            )
+            .frame(width: 16, height: 16)
+            .contentShape(Circle())
+            .gesture(rotationGesture)
+            .help("Drag to rotate")
+    }
+
+    private var rotationGesture: some Gesture {
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                onSelect()
+                liveRotation = Self.angle(from: center, to: value.location)
+            }
+            .onEnded { value in
+                let final = Self.angle(from: center, to: value.location)
+                liveRotation = nil
+                onRotate(final)
+            }
+    }
+
+    /// Compass-style angle (0° = up, clockwise positive) from `center` to `point`.
+    private static func angle(from center: CGPoint, to point: CGPoint) -> Double {
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        var deg = atan2(dx, -dy) * 180 / .pi
+        if deg < 0 { deg += 360 }
+        return deg
     }
 
     private var dragGesture: some Gesture {
@@ -276,63 +372,61 @@ private struct MapMarkerView: View {
             }
     }
 
-    // The tappable/draggable icon plus its label.
-    private var token: some View {
-        VStack(spacing: 3) {
-            ZStack {
-                if isSelected {
-                    Circle().stroke(Color.accentColor, lineWidth: 2)
-                        .frame(width: 40, height: 40)
+    // The draggable icon (no rotation of its own — the parent unit rotates it).
+    private var iconGraphic: some View {
+        Group {
+            if element.kind == .character {
+                ZStack {
+                    Circle().fill(color)
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .frame(width: 28, height: 28)
+                    Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
                 }
-                Group {
-                    if element.kind == .character {
-                        ZStack {
-                            Circle().fill(color)
-                                .overlay(Circle().stroke(.white, lineWidth: 2))
-                                .frame(width: 28, height: 28)
-                            Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
-                        }
-                    } else {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.85))
-                                .frame(width: 30, height: 20)
-                            Image(systemName: "video.fill").foregroundStyle(.white).font(.caption)
-                        }
-                    }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.85))
+                        .frame(width: 24, height: 24)
+                    Image(systemName: "video.fill").foregroundStyle(.white).font(.caption)
                 }
-                .rotationEffect(.degrees(element.rotation))
-            }
-            if !element.label.isEmpty {
-                Text(element.label)
-                    .font(.caption2).fontWeight(.medium)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(.thinMaterial, in: Capsule())
             }
         }
     }
 
-    // The field-of-view cone, drawn behind the camera icon and rotated with it.
+    private var labelView: some View {
+        Text(element.label)
+            .font(.caption2).fontWeight(.medium)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .background(.thinMaterial, in: Capsule())
+    }
+
+    // The field-of-view cone: a small, fixed 39° wedge whose apex starts at the
+    // top of the black camera box and turns with the camera.
     private var coneView: some View {
-        let cone = ConeShape(fovDegrees: element.horizontalFOV, radius: 240)
+        let radius: CGFloat = 58
+        let boxHalfHeight: CGFloat = 12          // black icon box is 24pt square
+        let extent = radius + boxHalfHeight
+        let cone = ConeShape(fovDegrees: 39, radius: Double(radius), apexInset: Double(boxHalfHeight))
         return cone
-            .fill(color.opacity(0.15))
-            .overlay(cone.stroke(color.opacity(0.4), lineWidth: 1))
-            .frame(width: 520, height: 520)
-            .rotationEffect(.degrees(element.rotation))
+            .fill(color.opacity(0.18))
+            .overlay(cone.stroke(color.opacity(0.5), lineWidth: 1))
+            .frame(width: extent * 2, height: extent * 2)
     }
 }
 
-/// A wedge pointing up from the center, used for a camera's field of view.
+/// A wedge pointing up, used for a camera's field of view. Its apex sits
+/// `apexInset` above the rect center (so it can start at the top of the icon)
+/// while the rect center stays the rotation anchor.
 struct ConeShape: Shape {
     var fovDegrees: Double
     var radius: Double
+    var apexInset: Double = 0
 
     func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let left = MapGeometry.point(from: center, angleDeg: -fovDegrees / 2, radius: radius)
-        let right = MapGeometry.point(from: center, angleDeg: fovDegrees / 2, radius: radius)
+        let apex = CGPoint(x: rect.midX, y: rect.midY - apexInset)
+        let left = MapGeometry.point(from: apex, angleDeg: -fovDegrees / 2, radius: radius)
+        let right = MapGeometry.point(from: apex, angleDeg: fovDegrees / 2, radius: radius)
         var path = Path()
-        path.move(to: center)
+        path.move(to: apex)
         path.addLine(to: left)
         path.addLine(to: right)
         path.closeSubpath()
