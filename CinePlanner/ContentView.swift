@@ -422,6 +422,7 @@ struct ShotListView: View {
     @Binding var selectedShots: Set<String>
     var onEditShot: ((Shot) -> Void)? = nil
     var onDeleteShots: (([Shot]) -> Void)? = nil
+    @State private var showCineStagerImport = false
 
     var sortedShots: [Shot] {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
@@ -513,8 +514,26 @@ struct ShotListView: View {
                 }
             }
             .buttonStyle(.plain)
+
+            // Alternative: add a shot straight from a CineStager AR capture.
+            Button {
+                showCineStagerImport = true
+            } label: {
+                HStack {
+                    Image("CineStagerLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                    Text("Add Shot from CineStager")
+                        .foregroundStyle(CineStagerImportSheet.cineStagerBlue)
+                }
+            }
+            .buttonStyle(.plain)
         }
         .navigationTitle(scene.project?.filmName ?? "")
+        .sheet(isPresented: $showCineStagerImport) {
+            CineStagerImportSheet(provideReference: { makeImportedShotReference() })
+        }
         .onDeleteCommand {
             if !selectedShots.isEmpty {
                 onDeleteShots?(sortedShots.filter { selectedShots.contains($0.uid) })
@@ -581,7 +600,23 @@ struct ShotListView: View {
         try? scene.modelContext?.save()
         selectedShots = [newShot.uid]
     }
-    
+
+    /// Creates a new shot with one empty reference, selects it, and returns that
+    /// reference for the CineStager import sheet to fill. Called only when the
+    /// user confirms a capture, so cancelling leaves no empty shot behind.
+    private func makeImportedShotReference() -> ShotReference {
+        let nextNumber = (sortedShots.last?.shotNumber ?? 0) + 1
+        let newShot = Shot(shotNumber: nextNumber)
+        newShot.scene = scene
+        scene.shots.append(newShot)
+        let reference = ShotReference(sortOrder: 0)
+        reference.shot = newShot
+        newShot.references.append(reference)
+        try? scene.modelContext?.save()
+        selectedShots = [newShot.uid]
+        return reference
+    }
+
     private func deleteShots(at offsets: IndexSet) {
         let shotsToDelete = offsets.map { sortedShots[$0] }
         for shot in shotsToDelete {

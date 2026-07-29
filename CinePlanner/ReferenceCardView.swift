@@ -21,7 +21,6 @@ struct ReferenceCardView: View {
 
     @State private var isImportingImage = false
     @State private var isImportingMap = false
-    @State private var showingCineStagerImport = false
     @State private var previewImage: NSImage?
     @State private var previewTitle = ""
 
@@ -39,11 +38,6 @@ struct ReferenceCardView: View {
                 mapColumn.frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // A whole empty reference can be filled in one go from CineStager.
-            if !reference.hasMedia && reference.mapData == nil && reference.mapVideoData == nil {
-                cineStagerImportButton
-            }
-
             if reference.hasMedia || reference.mapData != nil || reference.mapVideoData != nil {
                 noteField
             }
@@ -59,9 +53,6 @@ struct ReferenceCardView: View {
         .sheet(item: Binding(get: { previewImage.map { ImagePreview(image: $0, title: previewTitle) } },
                              set: { if $0 == nil { previewImage = nil } })) { preview in
             ImagePreviewSheet(preview: preview)
-        }
-        .sheet(isPresented: $showingCineStagerImport) {
-            CineStagerImportSheet(reference: reference)
         }
     }
 
@@ -189,18 +180,6 @@ struct ReferenceCardView: View {
                       allowsMultipleSelection: false) { result in
             handlePickedMedia(result)
         }
-    }
-
-    /// Full-width action across the whole card: an AR shot fills both the media
-    /// and the map, so it isn't confined to the media column.
-    private var cineStagerImportButton: some View {
-        Button {
-            showingCineStagerImport = true
-        } label: {
-            addMediaLabel("Import from CineStager", systemImage: "camera.viewfinder",
-                          tint: CineStagerImportSheet.cineStagerBlue, assetImage: "CineStagerLogo")
-        }
-        .buttonStyle(.plain)
     }
 
     /// Shared dashed drop-zone label used by every "add media" button, so the

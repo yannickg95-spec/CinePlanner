@@ -12,8 +12,10 @@ import SwiftData
 import AppKit
 
 struct CineStagerImportSheet: View {
-    /// The reference this sheet fills with the chosen CineStager shot.
-    let reference: ShotReference
+    /// Supplies the reference to fill, called only once the user confirms a
+    /// choice — so picking "Add Shot from CineStager" creates the new shot only
+    /// on import, not when the sheet is cancelled.
+    let provideReference: () -> ShotReference
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var library = CineStagerLibrary()
@@ -267,6 +269,7 @@ struct CineStagerImportSheet: View {
     private func useSelected() {
         guard let cs = library.shots.first(where: { $0.id == selectedID }) else { return }
         isImporting = true
+        let reference = provideReference()
         Task { @MainActor in
             await fill(reference, from: cs)
             try? reference.modelContext?.save()
