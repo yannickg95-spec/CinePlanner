@@ -122,7 +122,9 @@ struct SceneMapEditorView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
+            Spacer()
             Button { add(.character) } label: { Label("+", systemImage: "person.fill") }
+                .fixedSize()
                 .help("Add Character")
             Menu {
                 if sceneShots.isEmpty {
@@ -135,6 +137,7 @@ struct SceneMapEditorView: View {
             } label: {
                 Label("+", systemImage: "video.fill")
             }
+            .menuIndicator(.hidden)
             .fixedSize()
             .help("Add Camera")
 
@@ -148,13 +151,16 @@ struct SceneMapEditorView: View {
                     Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
                 }
             } label: {
-                Label("Add Background", systemImage: "photo.on.rectangle")
+                Text("Background +")
             }
+            .menuIndicator(.hidden)
             .fixedSize()
-
             Spacer()
+        }
+        .overlay(alignment: .trailing) {
             Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
+                .padding(.trailing, 16)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
