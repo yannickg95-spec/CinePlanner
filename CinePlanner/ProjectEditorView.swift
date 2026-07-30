@@ -569,6 +569,8 @@ struct ProjectEditorView: View {
     /// Details pane minimum — set by its content (labelled fields), so the script
     /// only grows past 50% when the window is wide enough to leave this much room.
     private static let detailPaneMinWidth: CGFloat = 340
+    /// Shared height for the detail tab header and the script pane header.
+    static let paneHeaderHeight: CGFloat = 44
 
     /// Space the details and script panes divide between them.
     private func combinedPaneWidth(available: CGFloat) -> CGFloat {
@@ -714,18 +716,31 @@ struct ProjectEditorView: View {
     /// region so it sits above both.
     private var detailTabBar: some View {
         HStack {
-            Picker("", selection: $detailTab) {
-                Text("Shot Details").tag(DetailTab.shot)
-                Text("Scene Map").tag(DetailTab.map)
+            Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                tabButton("Shots", .shot)
+                tabButton("Scene Map", .map)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            .padding(3)
+            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
+        .frame(height: Self.paneHeaderHeight)
+    }
+
+    private func tabButton(_ title: String, _ tab: DetailTab) -> some View {
+        let isSelected = detailTab == tab
+        return Button { detailTab = tab } label: {
+            Text(title)
+                .font(.title3.bold())
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

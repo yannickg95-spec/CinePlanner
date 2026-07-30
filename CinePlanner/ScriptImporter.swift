@@ -917,25 +917,24 @@ struct ScriptPDFViewer: View {
             } else {
                 // PDF Viewer
                 VStack(spacing: 0) {
-                    // Toolbar
-                    HStack {
-                        Text("Script")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        
-                        Spacer()
-                        
-                        Button(role: .destructive) {
-                            showRemoveConfirmation = true
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.caption)
+                    // Toolbar — title centered, remove button on the trailing edge.
+                    Text("Script")
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .trailing) {
+                            Button(role: .destructive) {
+                                showRemoveConfirmation = true
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(12)
-                    .background(Color(nsColor: .controlBackgroundColor))
+                        .padding(.horizontal, 12)
+                        .frame(height: ProjectEditorView.paneHeaderHeight)
+                        .background(Color(nsColor: .controlBackgroundColor))
                     
                     Divider()
                     

@@ -68,30 +68,15 @@ struct SceneListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Search / filter
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .font(.subheadline)
-                TextField("Search Scene", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.subheadline)
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            Text("Scenes")
+                .font(.title3.bold())
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .frame(height: ProjectEditorView.paneHeaderHeight)
+                .background(Color(nsColor: .controlBackgroundColor))
+
+            Divider()
 
             sceneList
         }
@@ -110,10 +95,8 @@ struct SceneListView: View {
                 .onMove { source, destination in
                     moveScenes(from: source, to: destination, in: currentScenes)
                 }
-            } header: {
-                Text("Scenes")
             }
-            
+
             // Add Scene Button
             Button {
                 addScene()
@@ -742,20 +725,6 @@ struct ShotDetailView: View {
         )
     }
 
-    /// Small label chip for the header summary (size, type, grip), matching the
-    /// detail tags in the shot list.
-    private func headerChip(_ text: String) -> some View {
-        Text(text)
-            .font(.caption2)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.secondary.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-    }
-    
-
     // Extracted so both can be laid out either side by side or stacked,
     // depending on how much width the details pane has.
     /// Whether the two photos came from the same capture. It describes the
@@ -1204,34 +1173,9 @@ struct ShotDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Header
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Shot \(shot.displayNumber)")
-                        .font(.largeTitle)
-                        .bold()
+                // The shot number, nickname and size/type/grip already appear in
+                // the shots list, so the detail pane goes straight to the cards.
 
-                    HStack(spacing: 8) {
-                        if !shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(shot.nickname)
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                        }
-                        // At-a-glance summary chips
-                        if shot.hasSize {
-                            headerChip(shot.hasSecondSize
-                                       ? "\(shot.sizeShort) → \(shot.secondSizeShort)"
-                                       : shot.sizeShort)
-                        }
-                        if shot.hasType {
-                            headerChip(shot.typeShort)
-                        }
-                        if shot.hasGrip {
-                            headerChip(shot.gripName)
-                        }
-                    }
-                }
-                .padding(.horizontal)
-                
                 // Settings, grouped into cards
                 VStack(alignment: .leading, spacing: 16) {
                     // Side by side when the details pane is wide enough for both,
