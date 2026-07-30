@@ -41,8 +41,13 @@ struct SceneMapEditorView: View {
     /// An in-progress "move to/from": the next canvas click places the second
     /// marker and connects it to `origin` with an arrow.
     @State private var pendingMove: (origin: UUID, direction: MoveDirection)?
+    /// Last cursor position over an arrow, so "Add Pivot Point" lands where you
+    /// right-clicked.
+    @State private var arrowHover: CGPoint = .zero
     /// Wall selected for editing (reveals all vertex handles).
     @State private var wallSelectedID: UUID?
+    /// Arrow selected for editing (reveals its pivot handles).
+    @State private var arrowSelectedID: UUID?
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -234,6 +239,12 @@ struct SceneMapEditorView: View {
                 if !doc.arrows.isEmpty {
                     Canvas { ctx, _ in drawArrows(ctx, in: rect) }
                         .allowsHitTesting(false)
+                    // Right-click an arrow to add a pivot / delete it.
+                    if !isDrawing && pendingMove == nil {
+                        ForEach(doc.arrows) { arrow in
+                            arrowHitView(arrow, in: rect)
+                        }
+                    }
                 }
                 ForEach(doc.elements) { element in
                     MapMarkerView(
@@ -241,7 +252,7 @@ struct SceneMapEditorView: View {
                         label: resolvedLabel(for: element),
                         isSelected: selectedID == element.id,
                         contentRect: rect,
-                        onSelect: { selectedID = element.id; openingSelectedID = nil; wallSelectedID = nil },
+                        onSelect: { selectedID = element.id; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil },
                         onMove: { normalized in moveElement(element.id, to: normalized) },
                         onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                         onSetColor: { hex in setColor(element.id, hex) },
@@ -255,6 +266,14 @@ struct SceneMapEditorView: View {
                 if !isDrawing {
                     ForEach(floorPlan.openings) { opening in
                         openingHandle(opening, in: rect)
+                    }
+                }
+                // Arrow pivot handles, only for the selected arrow.
+                if !isDrawing && pendingMove == nil, let selectedArrow = arrowSelectedID {
+                    if let arrow = doc.arrows.first(where: { $0.id == selectedArrow }) {
+                        ForEach(Array(arrow.pivots.indices), id: \.self) { index in
+                            pivotHandle(arrowID: arrow.id, index: index, in: rect)
+                        }
                     }
                 }
                 // While drawing, a top layer captures clicks so the markers below
@@ -284,7 +303,7 @@ struct SceneMapEditorView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
-            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil } }
+            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil } }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
@@ -377,6 +396,104 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    // MARK: Arrow pivots
+
+    private func selectArrow(_ id: UUID) {
+        arrowSelectedID = id
+        selectedID = nil
+        openingSelectedID = nil
+        wallSelectedID = nil
+    }
+
+    @ViewBuilder
+    private func arrowHitView(_ arrow: MapArrow, in rect: CGRect) -> some View {
+        if let pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2 {
+            Color.clear
+                .contentShape(ArrowHitShape(points: pts))
+                .onTapGesture { selectArrow(arrow.id) }
+                .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasSpace)) { phase in
+                    if case .active(let location) = phase { arrowHover = location }
+                }
+                .contextMenu {
+                    Button { selectArrow(arrow.id); addPivot(to: arrow.id, at: arrowHover, in: rect) } label: {
+                        Label("Add Pivot Point", systemImage: "smallcircle.filled.circle")
+                    }
+                    Divider()
+                    Button(role: .destructive) { deleteArrow(arrow.id) } label: {
+                        Label("Delete Arrow", systemImage: "trash")
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func pivotHandle(arrowID: UUID, index: Int, in rect: CGRect) -> some View {
+        if let arrow = doc.arrows.first(where: { $0.id == arrowID }), index < arrow.pivots.count {
+            let pivot = arrow.pivots[index]
+            Circle().fill(.white)
+                .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+                .frame(width: 12, height: 12)
+                .contentShape(Circle().inset(by: -7))
+                .gesture(
+                    DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                        .onChanged { value in movePivot(arrowID, index, to: value.location, in: rect) }
+                        .onEnded { _ in persist() }
+                )
+                .contextMenu {
+                    Button(role: .destructive) { removePivot(arrowID, index) } label: {
+                        Label("Remove Pivot", systemImage: "xmark")
+                    }
+                }
+                .position(canvasPoint(pivot.x, pivot.y, in: rect))
+        }
+    }
+
+    /// Inserts a pivot at the clicked point, into the nearest segment.
+    private func addPivot(to arrowID: UUID, at loc: CGPoint, in rect: CGRect) {
+        guard let ai = doc.arrows.firstIndex(where: { $0.id == arrowID }),
+              let from = doc.elements.first(where: { $0.id == doc.arrows[ai].fromID }),
+              let to = doc.elements.first(where: { $0.id == doc.arrows[ai].toID }) else { return }
+        let n = normalizedFromCanvas(loc, in: rect)
+        let full = [CGPoint(x: from.x, y: from.y)] + doc.arrows[ai].pivots + [CGPoint(x: to.x, y: to.y)]
+        var bestSegment = 0
+        var bestDistance = Double.greatestFiniteMagnitude
+        for s in 0..<(full.count - 1) {
+            let d = distanceToSegment(n, full[s], full[s + 1])
+            if d < bestDistance { bestDistance = d; bestSegment = s }
+        }
+        doc.arrows[ai].pivots.insert(n, at: bestSegment)
+        persist()
+    }
+
+    private func movePivot(_ arrowID: UUID, _ index: Int, to loc: CGPoint, in rect: CGRect) {
+        guard let ai = doc.arrows.firstIndex(where: { $0.id == arrowID }),
+              index < doc.arrows[ai].pivots.count else { return }
+        doc.arrows[ai].pivots[index] = normalizedFromCanvas(loc, in: rect)
+    }
+
+    private func removePivot(_ arrowID: UUID, _ index: Int) {
+        guard let ai = doc.arrows.firstIndex(where: { $0.id == arrowID }),
+              index < doc.arrows[ai].pivots.count else { return }
+        doc.arrows[ai].pivots.remove(at: index)
+        persist()
+    }
+
+    private func deleteArrow(_ id: UUID) {
+        doc.arrows.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// Distance from a point to a segment, all in normalized coordinates.
+    private func distanceToSegment(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> Double {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len2 = dx * dx + dy * dy
+        if len2 < 1e-12 { return Double(hypot(p.x - a.x, p.y - a.y)) }
+        var t = Double(((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)
+        t = min(max(t, 0), 1)
+        let cx = a.x + CGFloat(t) * dx, cy = a.y + CGFloat(t) * dy
+        return Double(hypot(p.x - cx, p.y - cy))
+    }
+
     // MARK: - Wall editing
 
     private func canvasPoint(_ nx: Double, _ ny: Double, in rect: CGRect) -> CGPoint {
@@ -447,6 +564,7 @@ struct SceneMapEditorView: View {
         wallSelectedID = id
         openingSelectedID = nil
         selectedID = nil
+        arrowSelectedID = nil
     }
 
     private func moveVertex(_ id: UUID, to loc: CGPoint, in rect: CGRect) {
@@ -589,6 +707,7 @@ struct SceneMapEditorView: View {
         openingSelectedID = id
         selectedID = nil
         wallSelectedID = nil
+        arrowSelectedID = nil
     }
 
     /// Projects a normalized point onto a wall, returning the parameter t.
@@ -954,30 +1073,46 @@ struct SceneMapEditorView: View {
         return m > 0 ? CGPoint(x: v.x / m, y: v.y / m) : CGPoint(x: 1, y: 0)
     }
 
+    /// The arrow's polyline in canvas points: from-marker, its pivots, to-marker.
+    private func arrowCanvasPoints(_ arrow: MapArrow, in rect: CGRect) -> [CGPoint]? {
+        guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
+              let to = doc.elements.first(where: { $0.id == arrow.toID }) else { return nil }
+        var pts = [canvasPoint(from.x, from.y, in: rect)]
+        pts += arrow.pivots.map { canvasPoint($0.x, $0.y, in: rect) }
+        pts.append(canvasPoint(to.x, to.y, in: rect))
+        return pts
+    }
+
     private func drawArrows(_ ctx: GraphicsContext, in rect: CGRect) {
         let lineWidth: CGFloat = 6
         for arrow in doc.arrows {
-            guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
-                  let to = doc.elements.first(where: { $0.id == arrow.toID }) else { continue }
-            // Same colour as the markers it connects.
+            guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
+                  let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
-            let p1 = canvasPoint(from.x, from.y, in: rect)
-            let p2 = canvasPoint(to.x, to.y, in: rect)
-            let dir = unit(CGPoint(x: p2.x - p1.x, y: p2.y - p1.y))
-            // Trim the ends so the shaft doesn't run under the marker icons.
-            let start = CGPoint(x: p1.x + dir.x * 20, y: p1.y + dir.y * 20)
-            let end = CGPoint(x: p2.x - dir.x * 22, y: p2.y - dir.y * 22)
-            guard (end.x - start.x) * dir.x + (end.y - start.y) * dir.y > 6 else { continue }
-            var shaft = Path(); shaft.move(to: start); shaft.addLine(to: end)
-            ctx.stroke(shaft, with: shading, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            let angle = Double(atan2(end.y - start.y, end.x - start.x))
-            let size: CGFloat = 18
-            let left = CGPoint(x: end.x - size * CGFloat(cos(angle - .pi / 6)),
-                               y: end.y - size * CGFloat(sin(angle - .pi / 6)))
-            let right = CGPoint(x: end.x - size * CGFloat(cos(angle + .pi / 6)),
-                                y: end.y - size * CGFloat(sin(angle + .pi / 6)))
-            var head = Path(); head.move(to: left); head.addLine(to: end); head.addLine(to: right)
-            ctx.stroke(head, with: shading, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            // Trim the first/last segment so the shaft clears the marker icons.
+            let n = pts.count
+            let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
+            pts[0] = CGPoint(x: pts[0].x + ds.x * 20, y: pts[0].y + ds.y * 20)
+            let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
+            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * 22, y: pts[n - 1].y - de.y * 22)
+
+            // Solid triangular head; the shaft attaches to its base (not the tip).
+            let tip = pts[n - 1]
+            let headLength: CGFloat = 20
+            let headHalfWidth: CGFloat = 11
+            let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
+            var shaftPts = pts
+            shaftPts[n - 1] = baseCenter
+            ctx.stroke(smoothPolyline(shaftPts), with: shading,
+                       style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+
+            let perp = CGPoint(x: -de.y, y: de.x)
+            var head = Path()
+            head.move(to: tip)
+            head.addLine(to: CGPoint(x: baseCenter.x + perp.x * headHalfWidth, y: baseCenter.y + perp.y * headHalfWidth))
+            head.addLine(to: CGPoint(x: baseCenter.x - perp.x * headHalfWidth, y: baseCenter.y - perp.y * headHalfWidth))
+            head.closeSubpath()
+            ctx.fill(head, with: shading)
         }
     }
 
@@ -1256,5 +1391,36 @@ struct Triangle: Shape {
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         path.closeSubpath()
         return path
+    }
+}
+
+/// A smooth Catmull-Rom curve through the given points (used for movement
+/// arrows so their bends at pivots are rounded, not sharp).
+func smoothPolyline(_ pts: [CGPoint]) -> Path {
+    var path = Path()
+    guard pts.count >= 2 else { return path }
+    guard pts.count > 2 else {
+        path.move(to: pts[0]); path.addLine(to: pts[1]); return path
+    }
+    path.move(to: pts[0])
+    for i in 0..<(pts.count - 1) {
+        let p0 = i > 0 ? pts[i - 1] : pts[i]
+        let p1 = pts[i]
+        let p2 = pts[i + 1]
+        let p3 = i + 2 < pts.count ? pts[i + 2] : pts[i + 1]
+        let c1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
+        let c2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
+        path.addCurve(to: p2, control1: c1, control2: c2)
+    }
+    return path
+}
+
+/// A thick hit region along an arrow's smooth path (canvas points), for
+/// clicking the arrow to add pivots or delete it.
+struct ArrowHitShape: Shape {
+    var points: [CGPoint]
+    func path(in rect: CGRect) -> Path {
+        guard points.count >= 2 else { return Path() }
+        return smoothPolyline(points).strokedPath(StrokeStyle(lineWidth: 20, lineCap: .round, lineJoin: .round))
     }
 }

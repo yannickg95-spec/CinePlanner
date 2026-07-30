@@ -51,6 +51,9 @@ struct MapArrow: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var fromID: UUID
     var toID: UUID
+    /// Optional bend points (normalized 0…1) the arrow routes through, in order
+    /// from `fromID` to `toID`.
+    var pivots: [CGPoint] = []
 }
 
 /// The whole scene map document.
