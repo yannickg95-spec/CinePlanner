@@ -343,7 +343,6 @@ struct CineStagerImportSheet: View {
               let markers = CineStagerMapMetadata.markers(from: mapData) else { return }
 
         var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
-        let hadCharacters = doc.elements.contains { $0.kind == .character }
 
         if let cam = markers.camera {
             var element = MapElement(kind: .camera, x: cam.u, y: cam.v)
@@ -354,16 +353,22 @@ struct CineStagerImportSheet: View {
             doc.elements.append(element)
         }
 
-        // Seed the people once — mannequins are shared across a scene's shots, so
-        // only the first CineStager import that has them adds them.
-        if !hadCharacters {
-            for mannequin in markers.mannequins {
-                // Mannequin markers are shown unlabeled on the map.
-                var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
-                element.colorHex = "#4C8DFF"
-                if let rot = mannequin.rotationDeg { element.rotation = rot }
-                doc.elements.append(element)
+        // Add each mannequin, but skip ones that coincide with a mannequin
+        // already on the map (the same physical mannequin appearing in multiple
+        // shots). Mannequins at a different location are added as new markers.
+        let sameSpot = 0.01   // ~1% of the map
+        for mannequin in markers.mannequins {
+            let duplicate = doc.elements.contains { element in
+                element.kind == .character
+                    && abs(element.x - mannequin.u) < sameSpot
+                    && abs(element.y - mannequin.v) < sameSpot
             }
+            guard !duplicate else { continue }
+            // Mannequin markers are shown unlabeled on the map.
+            var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
+            element.colorHex = "#4C8DFF"
+            if let rot = mannequin.rotationDeg { element.rotation = rot }
+            doc.elements.append(element)
         }
 
         scene.sceneMapJSON = doc.jsonString
