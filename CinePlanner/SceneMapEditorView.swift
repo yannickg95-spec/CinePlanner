@@ -48,17 +48,10 @@ struct SceneMapEditorView: View {
             }
             toolbar
             Divider()
-            HStack(spacing: 0) {
-                canvas
-                if selectedBinding != nil {
-                    Divider()
-                    inspector
-                        .frame(width: 240)
-                }
-            }
+            canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); clearMannequinLabels() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); clearCharacterLabels() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -170,7 +163,9 @@ struct SceneMapEditorView: View {
                         contentRect: rect,
                         onSelect: { selectedID = element.id },
                         onMove: { normalized in moveElement(element.id, to: normalized) },
-                        onRotate: { newRotation in rotateElement(element.id, to: newRotation) }
+                        onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
+                        onSetColor: { hex in setColor(element.id, hex) },
+                        onDelete: { deleteElement(element.id) }
                     )
                 }
             }
@@ -207,67 +202,18 @@ struct SceneMapEditorView: View {
         ctx.stroke(path, with: .color(.secondary.opacity(0.12)), lineWidth: 1)
     }
 
-    // MARK: - Inspector
+    // MARK: - Element actions
 
-    private var selectedBinding: Binding<MapElement>? {
-        guard let id = selectedID, let index = doc.elements.firstIndex(where: { $0.id == id }) else { return nil }
-        return $doc.elements[index]
+    private func setColor(_ id: UUID, _ hex: String) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].colorHex = hex
+        persist()
     }
 
-    @ViewBuilder
-    private var inspector: some View {
-        if let selected = selectedBinding {
-            let element = selected.wrappedValue
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(element.kind == .character ? "Character" : "Camera")
-                        .font(.headline)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Label").font(.caption).foregroundStyle(.secondary)
-                        if element.shotUID != nil {
-                            HStack(spacing: 6) {
-                                Image(systemName: "link").font(.caption2).foregroundStyle(.secondary)
-                                Text(resolvedLabel(for: element))
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 6)
-                            .background(Color.secondary.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            Text("Linked to its shot — the number updates automatically.")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            TextField("Name", text: selected.label, onCommit: persist)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                    }
-
-                    ColorPicker("Color", selection: Binding(
-                        get: { Color(hex: selected.wrappedValue.colorHex) },
-                        set: { selected.wrappedValue.colorHex = $0.hexString; persist() }
-                    ))
-
-                    Text("Drag the handle above the icon to rotate.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        doc.elements.removeAll { $0.id == element.id }
-                        selectedID = nil
-                        persist()
-                    } label: {
-                        Label("Delete", systemImage: "trash").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(16)
-            }
-        }
+    private func deleteElement(_ id: UUID) {
+        doc.elements.removeAll { $0.id == id }
+        if selectedID == id { selectedID = nil }
+        persist()
     }
 
     // MARK: - Actions
@@ -281,9 +227,8 @@ struct SceneMapEditorView: View {
 
     private func add(_ kind: MapElement.Kind) {
         let point = newElementPoint
-        let count = doc.elements.filter { $0.kind == kind }.count + 1
+        // Characters are unlabeled; cameras get their label from their shot.
         var element = MapElement(kind: kind, x: point.x, y: point.y)
-        element.label = kind == .character ? "Character \(count)" : "Cam \(count)"
         element.colorHex = kind == .character ? "#4C8DFF" : "#FF9500"
         doc.elements.append(element)
         selectedID = element.id
@@ -367,12 +312,12 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Clears the "Mannequin" label from imported mannequin markers so they
-    /// show unlabeled on the map (one-time cleanup for maps made before this).
-    private func clearMannequinLabels() {
+    /// Characters (mannequins and hand-placed) are unlabeled, so clear any label
+    /// left on existing maps.
+    private func clearCharacterLabels() {
         var changed = false
         for index in doc.elements.indices where doc.elements[index].kind == .character
-            && doc.elements[index].label.hasPrefix("Mannequin") {
+            && !doc.elements[index].label.isEmpty {
             doc.elements[index].label = ""
             changed = true
         }
@@ -412,6 +357,15 @@ private struct MapMarkerView: View {
     /// Reports the new position in normalized (0…1) content-rect coordinates.
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
+    let onSetColor: (String) -> Void
+    let onDelete: () -> Void
+
+    /// Marker color choices offered in the right-click menu.
+    private static let palette: [(name: String, hex: String)] = [
+        ("Blue", "#4C8DFF"), ("Orange", "#FF9500"), ("Green", "#34C759"),
+        ("Red", "#FF3B30"), ("Purple", "#AF52DE"), ("Yellow", "#FFCC00"),
+        ("Gray", "#8E8E93"), ("White", "#FFFFFF")
+    ]
 
     /// Live position while dragging, in canvas-space. `nil` = not dragging, so
     /// the committed `element` position is used.
@@ -454,6 +408,7 @@ private struct MapMarkerView: View {
                 .onTapGesture { onSelect() }
                 .gesture(dragGesture)
                 .rotationEffect(.degrees(displayRotation))
+                .contextMenu { markerContextMenu }
 
             // Label floats below the center without shifting it (an upright
             // caption, never rotated).
@@ -466,6 +421,30 @@ private struct MapMarkerView: View {
             }
         }
         .position(livePosition ?? center)
+    }
+
+    // MARK: Context menu
+
+    @ViewBuilder
+    private var markerContextMenu: some View {
+        Menu("Color") {
+            ForEach(Self.palette, id: \.hex) { item in
+                Button {
+                    onSetColor(item.hex)
+                } label: {
+                    if element.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame {
+                        Label(item.name, systemImage: "checkmark")
+                    } else {
+                        Text(item.name)
+                    }
+                }
+            }
+        }
+        Button(role: .destructive) {
+            onDelete()
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
     }
 
     // MARK: Rotation handle
