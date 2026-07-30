@@ -91,7 +91,9 @@ struct SceneMapEditorView: View {
         // equality means our own saves don't trigger a redundant reload.
         .onChange(of: scene.sceneMapJSON) { _, newValue in
             let incoming = SceneMapDoc.load(from: newValue)
-            guard incoming != doc else { return }
+            // Never let a stale/empty external value wipe a map we already have;
+            // our own edits go through `doc` directly, not this path.
+            guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty) else { return }
             doc = incoming
             if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
                 selectedID = nil
@@ -102,12 +104,13 @@ struct SceneMapEditorView: View {
         }
         .onChange(of: scene.sceneFloorPlanJSON) { _, newValue in
             let incoming = FloorPlan.load(from: newValue)
-            if incoming != floorPlan { floorPlan = incoming }
+            guard incoming != floorPlan, !(incoming.isEmpty && !floorPlan.isEmpty) else { return }
+            floorPlan = incoming
         }
         .fileImporter(isPresented: $showingImagePicker, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result { setBackground(from: url) }
         }
-        .onDisappear { persist() }
+        .onDisappear { persist(); persistFloorPlan() }
     }
 
     // MARK: - Header & toolbar
@@ -836,12 +839,23 @@ struct SceneMapEditorView: View {
 
     private func persistFloorPlan() {
         scene.sceneFloorPlanJSON = floorPlan.jsonString
-        try? scene.modelContext?.save()
+        saveContext()
     }
 
     private func persist() {
         scene.sceneMapJSON = doc.jsonString
-        try? scene.modelContext?.save()
+        saveContext()
+    }
+
+    /// Flushes the store. Uses the environment context (never nil, unlike a
+    /// detached model's) and logs failures instead of silently dropping them.
+    private func saveContext() {
+        let context = scene.modelContext ?? modelContext
+        do {
+            try context.save()
+        } catch {
+            print("⚠️ Scene map save failed: \(error)")
+        }
     }
 
     // MARK: - Floor plan drawing
