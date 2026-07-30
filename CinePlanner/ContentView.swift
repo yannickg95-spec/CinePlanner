@@ -703,7 +703,7 @@ struct ShotDetailView: View {
 
     // MARK: Visual helpers
 
-    /// Uniform card container for a group of related rows.
+    /// A titled group of rows, used as one section inside the combined card.
     @ViewBuilder
     private func sectionCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -715,12 +715,38 @@ struct ShotDetailView: View {
 
             content()
         }
-        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The shot's setup, camera and coverage sections, unified into one card.
+    private var combinedDetailCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Setup + camera side by side when wide, stacked when narrow.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    shotSetupCard
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider()
+                    cameraInformationCard
+                        .frame(width: 300)
+                }
+                VStack(alignment: .leading, spacing: 18) {
+                    shotSetupCard
+                    Divider()
+                    cameraInformationCard
+                }
+            }
+
+            Divider()
+
+            scriptCoverageCard
+        }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
         )
     }
@@ -1176,34 +1202,9 @@ struct ShotDetailView: View {
                 // The shot number, nickname and size/type/grip already appear in
                 // the shots list, so the detail pane goes straight to the cards.
 
-                // Settings, grouped into cards
-                VStack(alignment: .leading, spacing: 16) {
-                    // Side by side when the details pane is wide enough for both,
-                    // stacked when it isn't.
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 16) {
-                            // Shot setup takes the room it needs; the camera column is
-                            // capped narrow (its fields are only ~200pt) so setup has
-                            // space for multiple sizes/types and the zoom range on one
-                            // line. When even this doesn't fit, ViewThatFits stacks.
-                            shotSetupCard
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            // Shot setup is the taller card, so coverage fills the
-                            // space beneath camera information rather than leaving a gap.
-                            VStack(alignment: .leading, spacing: 16) {
-                                cameraInformationCard
-                                scriptCoverageCard
-                            }
-                            .frame(width: 340)
-                        }
-                        VStack(alignment: .leading, spacing: 16) {
-                            shotSetupCard
-                            cameraInformationCard
-                            scriptCoverageCard
-                        }
-                    }
-                }
-                .padding(.horizontal)
+                // Setup, camera and coverage, unified into one card.
+                combinedDetailCard
+                    .padding(.horizontal)
                 
                 // References: each is a photo or a video with its own optional
                 // top-down map. A shot can carry as many as it needs.
