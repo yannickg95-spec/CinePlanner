@@ -61,6 +61,20 @@ struct SceneMapEditorView: View {
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
         .onChange(of: scene.shots.map(\.uid)) { _, _ in pruneOrphanedShotCameras() }
+        // Reload when the map is changed externally while open — e.g. importing a
+        // shot from CineStager adds markers/background to the scene. Round-trip
+        // equality means our own saves don't trigger a redundant reload.
+        .onChange(of: scene.sceneMapJSON) { _, newValue in
+            let incoming = SceneMapDoc.load(from: newValue)
+            guard incoming != doc else { return }
+            doc = incoming
+            if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
+                selectedID = nil
+            }
+        }
+        .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
+            backgroundImage = newValue.flatMap(NSImage.init(data:))
+        }
         .onDisappear { persist() }
     }
 
