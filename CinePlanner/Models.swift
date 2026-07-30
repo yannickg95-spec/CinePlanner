@@ -204,6 +204,12 @@ final class Scene {
     /// Top-down blocking map (characters + cameras) as a JSON SceneMapDoc.
     var sceneMapJSON: String?
 
+    /// Optional background image for the scene map (e.g. a CineStager clean
+    /// top-down location map). Marker positions in `sceneMapJSON` are normalized
+    /// to this image's fitted rect.
+    @Attribute(.externalStorage)
+    var sceneMapBackgroundData: Data?
+
     /// Scenes kept from a previous import of this version (they still hold shots).
     /// Replaces the old "[OLD] " nickname prefix.
     var isArchived: Bool = false

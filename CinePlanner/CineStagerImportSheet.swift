@@ -272,6 +272,7 @@ struct CineStagerImportSheet: View {
         let reference = provideReference()
         Task { @MainActor in
             await fill(reference, from: cs)
+            await populateSceneMap(for: reference, from: cs)
             try? reference.modelContext?.save()
             isImporting = false
             dismiss()
@@ -322,6 +323,47 @@ struct CineStagerImportSheet: View {
                 shot.lensIsPrime = true
             }
         }
+    }
+
+    /// Populates the parent scene's top-down map: the clean location map as the
+    /// background, plus a camera marker (named for this shot) and mannequin
+    /// markers read from the top-down map image's embedded coordinates.
+    private func populateSceneMap(for ref: ShotReference, from cs: CineStagerShot) async {
+        guard let scene = ref.shot?.scene else { return }
+
+        // Background: the marker-free location map (only set if the scene doesn't
+        // already have one, so re-imports don't clobber a customized background).
+        if scene.sceneMapBackgroundData == nil,
+           let clean = await library.data(at: library.cleanMapURL(for: cs)) {
+            scene.sceneMapBackgroundData = clean
+        }
+
+        // Marker coordinates live in the top-down map image's EXIF.
+        guard let mapData = await library.data(at: library.mapURL(for: cs)),
+              let markers = CineStagerMapMetadata.markers(from: mapData) else { return }
+
+        var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        let hadCharacters = doc.elements.contains { $0.kind == .character }
+
+        if let cam = markers.camera {
+            var element = MapElement(kind: .camera, x: cam.u, y: cam.v)
+            element.label = ref.shot?.displayNumber ?? "Cam"
+            element.colorHex = "#FF9500"
+            doc.elements.append(element)
+        }
+
+        // Seed the people once — mannequins are shared across a scene's shots, so
+        // only the first CineStager import that has them adds them.
+        if !hadCharacters {
+            for (index, mannequin) in markers.mannequins.enumerated() {
+                var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
+                element.label = markers.mannequins.count > 1 ? "Mannequin \(index + 1)" : "Mannequin"
+                element.colorHex = "#4C8DFF"
+                doc.elements.append(element)
+            }
+        }
+
+        scene.sceneMapJSON = doc.jsonString
     }
 }
 

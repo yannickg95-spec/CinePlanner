@@ -22,12 +22,13 @@ struct SceneMapEditorView: View {
 
     @State private var doc: SceneMapDoc
     @State private var selectedID: UUID?
-    @State private var canvasSize: CGSize = .zero
+    @State private var backgroundImage: NSImage?
 
     init(scene: Scene, embedded: Bool = false) {
         self.scene = scene
         self.embedded = embedded
         _doc = State(initialValue: SceneMapDoc.load(from: scene.sceneMapJSON))
+        _backgroundImage = State(initialValue: scene.sceneMapBackgroundData.flatMap(NSImage.init(data:)))
     }
 
     private var sceneTitle: String {
@@ -92,6 +93,11 @@ struct SceneMapEditorView: View {
                 Label("Add Camera", systemImage: "video.fill")
             }
             .fixedSize()
+            if backgroundImage != nil {
+                Button { clearBackground() } label: {
+                    Label("Clear Background", systemImage: "xmark.rectangle")
+                }
+            }
             Spacer()
             Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -104,18 +110,28 @@ struct SceneMapEditorView: View {
 
     private var canvas: some View {
         GeometryReader { geo in
+            let rect = contentRect(in: geo.size)
             ZStack {
-                // Static grid only — kept free of `doc` so it never redraws
-                // while a marker is being dragged.
-                Canvas { ctx, size in
-                    drawGrid(ctx, size)
+                if let backgroundImage {
+                    Image(nsImage: backgroundImage)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                } else {
+                    // A grid stands in for the (missing) background. Kept free of
+                    // `doc` so it never redraws while a marker is being dragged.
+                    Canvas { ctx, size in
+                        drawGrid(ctx, CGRect(origin: .zero, size: size))
+                    }
                 }
                 ForEach(doc.elements) { element in
                     MapMarkerView(
                         element: element,
                         isSelected: selectedID == element.id,
+                        contentRect: rect,
                         onSelect: { selectedID = element.id },
-                        onMove: { newPosition in moveElement(element.id, to: newPosition) },
+                        onMove: { normalized in moveElement(element.id, to: normalized) },
                         onRotate: { newRotation in rotateElement(element.id, to: newRotation) }
                     )
                 }
@@ -125,18 +141,31 @@ struct SceneMapEditorView: View {
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onTapGesture { selectedID = nil }
-            .onAppear { canvasSize = geo.size }
-            .onChange(of: geo.size) { _, new in canvasSize = new }
         }
     }
 
-    private func drawGrid(_ ctx: GraphicsContext, _ size: CGSize) {
+    /// The rect (in canvas points) the map's normalized coordinates map onto:
+    /// the background image's aspect-fit rect, or the whole canvas when there's
+    /// no background.
+    private func contentRect(in size: CGSize) -> CGRect {
+        guard let bg = backgroundImage, bg.size.width > 0, bg.size.height > 0 else {
+            return CGRect(origin: .zero, size: size)
+        }
+        let imageAspect = bg.size.width / bg.size.height
+        let boxAspect = size.width / max(size.height, 1)
+        var w = size.width
+        var h = size.height
+        if imageAspect > boxAspect { h = w / imageAspect } else { w = h * imageAspect }
+        return CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
+    }
+
+    private func drawGrid(_ ctx: GraphicsContext, _ rect: CGRect) {
         let step: CGFloat = 40
         var path = Path()
-        var x: CGFloat = 0
-        while x <= size.width { path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height)); x += step }
-        var y: CGFloat = 0
-        while y <= size.height { path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y)); y += step }
+        var x = rect.minX
+        while x <= rect.maxX { path.move(to: CGPoint(x: x, y: rect.minY)); path.addLine(to: CGPoint(x: x, y: rect.maxY)); x += step }
+        var y = rect.minY
+        while y <= rect.maxY { path.move(to: CGPoint(x: rect.minX, y: y)); path.addLine(to: CGPoint(x: rect.maxX, y: y)); y += step }
         ctx.stroke(path, with: .color(.secondary.opacity(0.12)), lineWidth: 1)
     }
 
@@ -191,13 +220,11 @@ struct SceneMapEditorView: View {
 
     // MARK: - Actions
 
-    /// Spawn point for a new element: near the canvas center, nudged so
-    /// successive additions don't stack exactly on top of each other.
+    /// Spawn point (normalized 0…1) for a new element: near the center, nudged
+    /// so successive additions don't stack exactly on top of each other.
     private var newElementPoint: CGPoint {
-        let center = CGPoint(x: (canvasSize.width == 0 ? 400 : canvasSize.width / 2),
-                             y: (canvasSize.height == 0 ? 300 : canvasSize.height / 2))
-        let jitter = Double(doc.elements.count % 6) * 26
-        return CGPoint(x: center.x - 60 + jitter, y: center.y - 40 + jitter)
+        let jitter = Double(doc.elements.count % 6) * 0.03
+        return CGPoint(x: 0.44 + jitter, y: 0.42 + jitter)
     }
 
     private func add(_ kind: MapElement.Kind) {
@@ -237,6 +264,14 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Removes the background image. Markers keep their normalized positions, now
+    /// relative to the whole canvas instead of the image's fitted rect.
+    private func clearBackground() {
+        backgroundImage = nil
+        scene.sceneMapBackgroundData = nil
+        try? scene.modelContext?.save()
+    }
+
     private func persist() {
         scene.sceneMapJSON = doc.jsonString
         try? scene.modelContext?.save()
@@ -251,7 +286,10 @@ struct SceneMapEditorView: View {
 private struct MapMarkerView: View {
     let element: MapElement
     let isSelected: Bool
+    /// The rect (canvas points) that normalized element coordinates map onto.
+    let contentRect: CGRect
     let onSelect: () -> Void
+    /// Reports the new position in normalized (0…1) content-rect coordinates.
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
 
@@ -266,7 +304,18 @@ private struct MapMarkerView: View {
 
     private var color: Color { Color(hex: element.colorHex) }
     private var displayRotation: Double { liveRotation ?? element.rotation }
-    private var center: CGPoint { CGPoint(x: element.x, y: element.y) }
+    /// The element's committed position in canvas points.
+    private var center: CGPoint {
+        CGPoint(x: contentRect.minX + element.x * contentRect.width,
+                y: contentRect.minY + element.y * contentRect.height)
+    }
+
+    /// Converts a canvas point back to normalized (0…1) content-rect coordinates.
+    private func normalized(_ point: CGPoint) -> CGPoint {
+        let nx = contentRect.width > 0 ? (point.x - contentRect.minX) / contentRect.width : 0
+        let ny = contentRect.height > 0 ? (point.y - contentRect.minY) / contentRect.height : 0
+        return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
+    }
 
     /// Distance from the icon center to the rotation handle, past the cone tip.
     private static let handleDistance: CGFloat = 74
@@ -358,8 +407,8 @@ private struct MapMarkerView: View {
             .onChanged { value in
                 if livePosition == nil {
                     onSelect()
-                    grabOffset = CGSize(width: element.x - value.location.x,
-                                        height: element.y - value.location.y)
+                    grabOffset = CGSize(width: center.x - value.location.x,
+                                        height: center.y - value.location.y)
                 }
                 livePosition = CGPoint(x: value.location.x + grabOffset.width,
                                        y: value.location.y + grabOffset.height)
@@ -368,7 +417,7 @@ private struct MapMarkerView: View {
                 let final = CGPoint(x: value.location.x + grabOffset.width,
                                     y: value.location.y + grabOffset.height)
                 livePosition = nil
-                onMove(final)
+                onMove(normalized(final))
             }
     }
 

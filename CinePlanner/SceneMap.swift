@@ -22,6 +22,9 @@ struct MapElement: Identifiable, Codable, Equatable {
 
     var id: UUID = UUID()
     var kind: Kind
+    // Position normalized 0…1 within the map's content rect (the background
+    // image's fitted rect, or the whole canvas when there's no background).
+    // Origin top-left, matching CineStager's exported map coordinates.
     var x: Double
     var y: Double
     var rotation: Double = 0        // degrees, 0 = facing up, clockwise positive

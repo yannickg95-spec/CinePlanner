@@ -31,6 +31,9 @@ struct CineStagerShot: Codable, Identifiable {
     let fileName: String
     let thumbnailFileName: String?
     let topDownMapFileName: String?
+    /// Top-down map of the location model only — no camera/mannequin/actor
+    /// markers. Used as the scene-map background in CinePlanner.
+    let cleanMapFileName: String?
     let cameraFamily: String
     let cameraFormat: String
     let framelines: String?
@@ -104,6 +107,9 @@ final class CineStagerLibrary: ObservableObject {
     }
     func mapURL(for shot: CineStagerShot) -> URL? {
         shot.topDownMapFileName.flatMap { shotsDir?.appendingPathComponent($0) }
+    }
+    func cleanMapURL(for shot: CineStagerShot) -> URL? {
+        shot.cleanMapFileName.flatMap { shotsDir?.appendingPathComponent($0) }
     }
     func thumbnailURL(for shot: CineStagerShot) -> URL? {
         shot.thumbnailFileName.flatMap { thumbsDir?.appendingPathComponent($0) }
