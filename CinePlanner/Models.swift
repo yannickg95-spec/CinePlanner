@@ -210,6 +210,10 @@ final class Scene {
     @Attribute(.externalStorage)
     var sceneMapBackgroundData: Data?
 
+    /// Optional drawn floor plan (walls + doors/windows) as a JSON FloorPlan,
+    /// used as the scene-map background instead of an image.
+    var sceneFloorPlanJSON: String?
+
     /// Scenes kept from a previous import of this version (they still hold shots).
     /// Replaces the old "[OLD] " nickname prefix.
     var isArchived: Bool = false
