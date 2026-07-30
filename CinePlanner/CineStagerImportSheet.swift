@@ -349,6 +349,7 @@ struct CineStagerImportSheet: View {
             var element = MapElement(kind: .camera, x: cam.u, y: cam.v)
             element.label = ref.shot?.displayNumber ?? "Cam"
             element.colorHex = "#FF9500"
+            if let rot = cam.rotationDeg { element.rotation = rot }
             doc.elements.append(element)
         }
 
@@ -359,6 +360,7 @@ struct CineStagerImportSheet: View {
                 var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
                 element.label = markers.mannequins.count > 1 ? "Mannequin \(index + 1)" : "Mannequin"
                 element.colorHex = "#4C8DFF"
+                if let rot = mannequin.rotationDeg { element.rotation = rot }
                 doc.elements.append(element)
             }
         }

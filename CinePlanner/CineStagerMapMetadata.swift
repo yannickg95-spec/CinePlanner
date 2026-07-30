@@ -19,10 +19,12 @@ import Foundation
 import ImageIO
 
 enum CineStagerMapMetadata {
-    /// A normalized marker position (0…1 from the top-left of the map image).
+    /// A normalized marker position (0…1 from the top-left of the map image),
+    /// with an optional facing (degrees, 0 = up, clockwise positive).
     struct Marker: Equatable {
         var u: Double
         var v: Double
+        var rotationDeg: Double?
     }
 
     struct Markers: Equatable {
@@ -46,14 +48,15 @@ enum CineStagerMapMetadata {
         }
 
         var markers = Markers()
-        if let camera = fields["CameraMap2D"], let point = parsePoints(camera).first {
+        if let camera = fields["CameraMap2D"], var point = parsePoints(camera).first {
+            point.rotationDeg = fields["CameraMapRot"].flatMap { Double($0) }
             markers.camera = point
         }
         if let manns = fields["MannequinsMap2D"] {
-            markers.mannequins = parsePoints(manns)
+            markers.mannequins = applyRotations(parsePoints(manns), fields["MannequinsMapRot"])
         }
         if let actors = fields["ActorsMap2D"] {
-            markers.actors = parsePoints(actors)
+            markers.actors = applyRotations(parsePoints(actors), fields["ActorsMapRot"])
         }
         return markers.isEmpty ? nil : markers
     }
@@ -63,7 +66,18 @@ enum CineStagerMapMetadata {
         raw.components(separatedBy: ";").compactMap { pair in
             let xy = pair.components(separatedBy: ",")
             guard xy.count == 2, let u = Double(xy[0]), let v = Double(xy[1]) else { return nil }
-            return Marker(u: u, v: v)
+            return Marker(u: u, v: v, rotationDeg: nil)
+        }
+    }
+
+    /// Attaches per-marker rotations ("deg;deg;…", index-aligned; empty = none).
+    private static func applyRotations(_ points: [Marker], _ raw: String?) -> [Marker] {
+        guard let raw else { return points }
+        let degrees = raw.components(separatedBy: ";")
+        return points.enumerated().map { index, point in
+            var marker = point
+            if index < degrees.count { marker.rotationDeg = Double(degrees[index]) }
+            return marker
         }
     }
 

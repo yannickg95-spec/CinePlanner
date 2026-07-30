@@ -88,7 +88,7 @@ final class CineStagerLibrary: ObservableObject {
     private func loadShots() async {
         guard let metadataURL else { state = .unavailable; return }
         try? await ensureDownloaded(metadataURL)
-        guard let data = try? Data(contentsOf: metadataURL) else {
+        guard let data = await coordinatedRead(metadataURL) else {
             shots = []
             state = .loaded          // container reachable, just nothing captured yet
             return
@@ -119,7 +119,21 @@ final class CineStagerLibrary: ObservableObject {
     func data(at url: URL?) async -> Data? {
         guard let url else { return nil }
         try? await ensureDownloaded(url)
-        return try? Data(contentsOf: url)
+        return await coordinatedRead(url)
+    }
+
+    /// Reads a file through NSFileCoordinator (off the main thread) so a running
+    /// process gets the current iCloud version rather than a stale cached one —
+    /// important when CineStager replaces shots.json after a new capture.
+    private func coordinatedRead(_ url: URL) async -> Data? {
+        await Task.detached {
+            var data: Data?
+            var coordinationError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
+                data = try? Data(contentsOf: readURL)
+            }
+            return data
+        }.value
     }
 
     /// Best thumbnail bytes for a shot — the small thumbnail, falling back to the
