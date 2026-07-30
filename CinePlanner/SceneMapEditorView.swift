@@ -9,6 +9,7 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
@@ -23,6 +24,7 @@ struct SceneMapEditorView: View {
     @State private var doc: SceneMapDoc
     @State private var selectedID: UUID?
     @State private var backgroundImage: NSImage?
+    @State private var showingImagePicker = false
 
     init(scene: Scene, embedded: Bool = false) {
         self.scene = scene
@@ -75,6 +77,9 @@ struct SceneMapEditorView: View {
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(NSImage.init(data:))
         }
+        .fileImporter(isPresented: $showingImagePicker, allowedContentTypes: [.image]) { result in
+            if case .success(let url) = result { setBackground(from: url) }
+        }
         .onDisappear { persist() }
     }
 
@@ -114,11 +119,22 @@ struct SceneMapEditorView: View {
             }
             .fixedSize()
             .help("Add Camera")
-            if backgroundImage != nil {
-                Button { clearBackground() } label: {
-                    Label("Clear Background", systemImage: "xmark.rectangle")
+
+            Menu {
+                Button { /* TODO: drawing tool */ } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
+                    .disabled(true)
+                Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
+                Button { /* TODO: 3D model */ } label: { Label("Add 3D Model", systemImage: "cube") }
+                    .disabled(true)
+                if backgroundImage != nil {
+                    Divider()
+                    Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
                 }
+            } label: {
+                Label("Add Background", systemImage: "photo.on.rectangle")
             }
+            .fixedSize()
+
             Spacer()
             Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -300,6 +316,16 @@ struct SceneMapEditorView: View {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].rotation = rotation
         persist()
+    }
+
+    /// Sets (replacing any existing) the scene-map background from an image file.
+    private func setBackground(from url: URL) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url), let image = NSImage(data: data) else { return }
+        scene.sceneMapBackgroundData = data
+        backgroundImage = image
+        try? scene.modelContext?.save()
     }
 
     /// Removes the background image. Markers keep their normalized positions, now
