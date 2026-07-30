@@ -43,6 +43,25 @@ struct Opening: Codable, Equatable, Identifiable {
     var hingeAtEnd: Bool = false
     /// Door only: drawn nearly shut (small swing) rather than open.
     var closed: Bool = false
+
+    enum CodingKeys: String, CodingKey { case id, kind, wallID, t, width, flipped, hingeAtEnd, closed }
+
+    init(kind: Kind, wallID: UUID, t: Double = 0.5) {
+        self.kind = kind; self.wallID = wallID; self.t = t
+    }
+
+    // Tolerate missing keys so future fields can't break decoding of old plans.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decode(Kind.self, forKey: .kind)
+        wallID = try c.decode(UUID.self, forKey: .wallID)
+        t = try c.decodeIfPresent(Double.self, forKey: .t) ?? 0.5
+        width = try c.decodeIfPresent(Double.self, forKey: .width) ?? 0.08
+        flipped = try c.decodeIfPresent(Bool.self, forKey: .flipped) ?? false
+        hingeAtEnd = try c.decodeIfPresent(Bool.self, forKey: .hingeAtEnd) ?? false
+        closed = try c.decodeIfPresent(Bool.self, forKey: .closed) ?? false
+    }
 }
 
 struct FloorPlan: Codable, Equatable {
@@ -51,6 +70,17 @@ struct FloorPlan: Codable, Equatable {
     var openings: [Opening] = []
 
     var isEmpty: Bool { vertices.isEmpty && walls.isEmpty && openings.isEmpty }
+
+    enum CodingKeys: String, CodingKey { case vertices, walls, openings }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        vertices = try c.decodeIfPresent([FloorVertex].self, forKey: .vertices) ?? []
+        walls = try c.decodeIfPresent([Wall].self, forKey: .walls) ?? []
+        openings = try c.decodeIfPresent([Opening].self, forKey: .openings) ?? []
+    }
 
     func vertex(_ id: UUID) -> FloorVertex? { vertices.first { $0.id == id } }
     func wall(_ id: UUID) -> Wall? { walls.first { $0.id == id } }

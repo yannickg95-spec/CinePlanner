@@ -48,6 +48,8 @@ struct SceneMapEditorView: View {
     @State private var wallSelectedID: UUID?
     /// Arrow selected for editing (reveals its pivot handles).
     @State private var arrowSelectedID: UUID?
+    /// Furniture selected for editing (reveals rotate/resize handles).
+    @State private var furnitureSelectedID: UUID?
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -167,6 +169,16 @@ struct SceneMapEditorView: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
+
+            Menu {
+                ForEach(Furniture.Kind.allCases, id: \.self) { kind in
+                    Button(kind.rawValue) { addFurniture(kind) }
+                }
+            } label: {
+                Text("Furniture +")
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
             Spacer()
         }
         .overlay(alignment: .trailing) {
@@ -238,6 +250,23 @@ struct SceneMapEditorView: View {
                         }
                     }
                 }
+                // Furniture, below the people/cameras so they read as "on" it.
+                if !isDrawing {
+                    ForEach(doc.furniture) { item in
+                        FurnitureView(
+                            furniture: item,
+                            isSelected: furnitureSelectedID == item.id,
+                            contentRect: rect,
+                            onSelect: { selectFurniture(item.id) },
+                            onMove: { normalized in moveFurniture(item.id, to: normalized) },
+                            onRotate: { r in rotateFurniture(item.id, to: r) },
+                            onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
+                            onSetColor: { hex in setFurnitureColor(item.id, hex) },
+                            onDelete: { deleteFurniture(item.id) }
+                        )
+                        .allowsHitTesting(pendingMove == nil)
+                    }
+                }
                 // Movement arrows between markers, drawn under the markers.
                 if !doc.arrows.isEmpty {
                     Canvas { ctx, _ in drawArrows(ctx, in: rect) }
@@ -255,7 +284,7 @@ struct SceneMapEditorView: View {
                         label: resolvedLabel(for: element),
                         isSelected: selectedID == element.id,
                         contentRect: rect,
-                        onSelect: { selectedID = element.id; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil },
+                        onSelect: { selectedID = element.id; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil },
                         onMove: { normalized in moveElement(element.id, to: normalized) },
                         onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                         onSetColor: { hex in setColor(element.id, hex) },
@@ -306,7 +335,7 @@ struct SceneMapEditorView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
-            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil } }
+            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil } }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
@@ -371,6 +400,53 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    // MARK: - Furniture
+
+    private func addFurniture(_ kind: Furniture.Kind) {
+        let point = newElementPoint
+        let size = kind.defaultSize
+        let item = Furniture(kind: kind, x: point.x, y: point.y,
+                             width: Double(size.width), height: Double(size.height))
+        doc.furniture.append(item)
+        selectFurniture(item.id)
+        persist()
+    }
+
+    private func selectFurniture(_ id: UUID) {
+        furnitureSelectedID = id
+        selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
+    }
+
+    private func moveFurniture(_ id: UUID, to n: CGPoint) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].x = n.x; doc.furniture[i].y = n.y
+        persist()
+    }
+
+    private func rotateFurniture(_ id: UUID, to r: Double) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].rotation = r
+        persist()
+    }
+
+    private func resizeFurniture(_ id: UUID, width: Double, height: Double) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].width = width; doc.furniture[i].height = height
+        persist()
+    }
+
+    private func setFurnitureColor(_ id: UUID, _ hex: String) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].colorHex = hex
+        persist()
+    }
+
+    private func deleteFurniture(_ id: UUID) {
+        doc.furniture.removeAll { $0.id == id }
+        if furnitureSelectedID == id { furnitureSelectedID = nil }
+        persist()
+    }
+
     // MARK: - Movement arrows
 
     /// Begins a move: the next canvas click places the second marker.
@@ -406,6 +482,7 @@ struct SceneMapEditorView: View {
         selectedID = nil
         openingSelectedID = nil
         wallSelectedID = nil
+        furnitureSelectedID = nil
     }
 
     @ViewBuilder
@@ -568,6 +645,7 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil
         selectedID = nil
         arrowSelectedID = nil
+        furnitureSelectedID = nil
     }
 
     private func moveVertex(_ id: UUID, to loc: CGPoint, in rect: CGRect) {
@@ -711,6 +789,7 @@ struct SceneMapEditorView: View {
         selectedID = nil
         wallSelectedID = nil
         arrowSelectedID = nil
+        furnitureSelectedID = nil
     }
 
     /// Projects a normalized point onto a wall, returning the parameter t.
@@ -1405,6 +1484,166 @@ struct Triangle: Shape {
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         path.closeSubpath()
         return path
+    }
+}
+
+/// Shared marker/furniture color choices.
+let sceneMapPalette: [(name: String, hex: String)] = [
+    ("Blue", "#4C8DFF"), ("Orange", "#FF9500"), ("Green", "#34C759"),
+    ("Red", "#FF3B30"), ("Purple", "#AF52DE"), ("Yellow", "#FFCC00"),
+    ("Gray", "#8E8E93"), ("Brown", "#A2845E"), ("White", "#FFFFFF")
+]
+
+/// Compass-style angle (0° = up, clockwise positive) from `center` to `point`.
+func sceneMapAngle(from center: CGPoint, to point: CGPoint) -> Double {
+    let dx = point.x - center.x, dy = point.y - center.y
+    var deg = atan2(dx, -dy) * 180 / .pi
+    if deg < 0 { deg += 360 }
+    return deg
+}
+
+// MARK: - Furniture
+
+/// A movable, rotatable, resizable furniture piece on the map.
+private struct FurnitureView: View {
+    let furniture: Furniture
+    let isSelected: Bool
+    let contentRect: CGRect
+    let onSelect: () -> Void
+    let onMove: (CGPoint) -> Void
+    let onRotate: (Double) -> Void
+    let onResize: (Double, Double) -> Void
+    let onSetColor: (String) -> Void
+    let onDelete: () -> Void
+
+    @State private var livePosition: CGPoint?
+    @State private var grabOffset: CGSize = .zero
+    @State private var liveRotation: Double?
+    @State private var liveSize: CGSize?
+
+    private var color: Color { Color(hex: furniture.colorHex) }
+    private var displayRotation: Double { liveRotation ?? furniture.rotation }
+    private var center: CGPoint {
+        CGPoint(x: contentRect.minX + furniture.x * contentRect.width,
+                y: contentRect.minY + furniture.y * contentRect.height)
+    }
+    private var sizePts: CGSize {
+        liveSize ?? CGSize(width: CGFloat(furniture.width) * contentRect.width,
+                           height: CGFloat(furniture.height) * contentRect.height)
+    }
+    private var shape: AnyShape {
+        furniture.kind.isRound ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    var body: some View {
+        let w = max(sizePts.width, 8), h = max(sizePts.height, 8)
+        ZStack {
+            shape.fill(color.opacity(0.30))
+                .overlay(shape.stroke(isSelected ? Color.accentColor : color, lineWidth: isSelected ? 2.5 : 2))
+                .frame(width: w, height: h)
+                .contentShape(Rectangle())
+                .rotationEffect(.degrees(displayRotation))
+                .onTapGesture { onSelect() }
+                .gesture(dragGesture)
+                .contextMenu { menu }
+            if isSelected {
+                rotationHandle.offset(rotationHandleOffset(h: h))
+                resizeHandle(w: w, h: h)
+            }
+        }
+        .position(livePosition ?? center)
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                onSelect()
+                if livePosition == nil {
+                    grabOffset = CGSize(width: center.x - value.location.x, height: center.y - value.location.y)
+                }
+                livePosition = CGPoint(x: value.location.x + grabOffset.width, y: value.location.y + grabOffset.height)
+            }
+            .onEnded { value in
+                let final = CGPoint(x: value.location.x + grabOffset.width, y: value.location.y + grabOffset.height)
+                livePosition = nil
+                onMove(normalized(final))
+            }
+    }
+
+    private func normalized(_ p: CGPoint) -> CGPoint {
+        let nx = contentRect.width > 0 ? (p.x - contentRect.minX) / contentRect.width : 0
+        let ny = contentRect.height > 0 ? (p.y - contentRect.minY) / contentRect.height : 0
+        return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
+    }
+
+    private func rotationHandleOffset(h: CGFloat) -> CGSize {
+        let d = h / 2 + 24
+        let r = displayRotation * .pi / 180
+        return CGSize(width: d * sin(r), height: -d * cos(r))
+    }
+
+    private var rotationHandle: some View {
+        Circle().fill(Color.accentColor).overlay(Circle().stroke(.white, lineWidth: 1.5))
+            .overlay(Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
+            .frame(width: 16, height: 16)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                    .onChanged { value in onSelect(); liveRotation = sceneMapAngle(from: center, to: value.location) }
+                    .onEnded { value in
+                        let final = sceneMapAngle(from: center, to: value.location)
+                        liveRotation = nil
+                        onRotate(final)
+                    }
+            )
+    }
+
+    private func resizeHandle(w: CGFloat, h: CGFloat) -> some View {
+        let r = displayRotation * .pi / 180
+        let lx = w / 2, ly = h / 2
+        let pos = CGPoint(x: center.x + lx * cos(r) - ly * sin(r),
+                          y: center.y + lx * sin(r) + ly * cos(r))
+        return Circle().fill(.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
+            .frame(width: 13, height: 13)
+            .contentShape(Circle().inset(by: -7))
+            .gesture(
+                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                    .onChanged { value in
+                        onSelect()
+                        let dx = value.location.x - center.x, dy = value.location.y - center.y
+                        // Project into the furniture's unrotated frame.
+                        let localX = dx * cos(r) + dy * sin(r)
+                        let localY = -dx * sin(r) + dy * cos(r)
+                        liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
+                    }
+                    .onEnded { _ in
+                        if let s = liveSize {
+                            liveSize = nil
+                            onResize(min(max(Double(s.width / contentRect.width), 0.02), 1),
+                                     min(max(Double(s.height / contentRect.height), 0.02), 1))
+                        }
+                    }
+            )
+            .position(pos)
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        Menu("Color") {
+            ForEach(sceneMapPalette, id: \.hex) { item in
+                Button {
+                    onSetColor(item.hex)
+                } label: {
+                    if furniture.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame {
+                        Label(item.name, systemImage: "checkmark")
+                    } else {
+                        Text(item.name)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
     }
 }
 
