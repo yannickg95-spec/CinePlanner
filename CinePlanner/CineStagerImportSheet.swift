@@ -357,9 +357,9 @@ struct CineStagerImportSheet: View {
         // Seed the people once — mannequins are shared across a scene's shots, so
         // only the first CineStager import that has them adds them.
         if !hadCharacters {
-            for (index, mannequin) in markers.mannequins.enumerated() {
+            for mannequin in markers.mannequins {
+                // Mannequin markers are shown unlabeled on the map.
                 var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
-                element.label = markers.mannequins.count > 1 ? "Mannequin \(index + 1)" : "Mannequin"
                 element.colorHex = "#4C8DFF"
                 if let rot = mannequin.rotationDeg { element.rotation = rot }
                 doc.elements.append(element)

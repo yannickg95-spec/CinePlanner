@@ -56,7 +56,7 @@ struct SceneMapEditorView: View {
             }
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); clearMannequinLabels() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -327,6 +327,18 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Clears the "Mannequin" label from imported mannequin markers so they
+    /// show unlabeled on the map (one-time cleanup for maps made before this).
+    private func clearMannequinLabels() {
+        var changed = false
+        for index in doc.elements.indices where doc.elements[index].kind == .character
+            && doc.elements[index].label.hasPrefix("Mannequin") {
+            doc.elements[index].label = ""
+            changed = true
+        }
+        if changed { persist() }
+    }
+
     /// Refresh stored labels of shot-linked cameras to their shot's current
     /// number (so the saved map + archive stay correct even when rendered
     /// without a scene, and as a fallback if the shot is later deleted).
@@ -385,8 +397,8 @@ private struct MapMarkerView: View {
         return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
     }
 
-    /// Distance from the icon center to the rotation handle, past the cone tip.
-    private static let handleDistance: CGFloat = 74
+    /// Distance from the icon center to the rotation handle.
+    private static let handleDistance: CGFloat = 40
 
     var body: some View {
         ZStack {
@@ -396,18 +408,12 @@ private struct MapMarkerView: View {
                     .frame(width: 40, height: 40)
             }
 
-            // Cone + icon share one center and rotate together as a single unit,
-            // so the triangle's apex stays locked to the top of the icon.
-            ZStack {
-                if element.kind == .camera {
-                    coneView.allowsHitTesting(false)
-                }
-                iconGraphic
-                    .contentShape(Rectangle())
-                    .onTapGesture { onSelect() }
-                    .gesture(dragGesture)
-            }
-            .rotationEffect(.degrees(displayRotation))
+            // The icon turns to point in its facing direction.
+            iconGraphic
+                .contentShape(Rectangle())
+                .onTapGesture { onSelect() }
+                .gesture(dragGesture)
+                .rotationEffect(.degrees(displayRotation))
 
             // Label floats below the center without shifting it (an upright
             // caption, never rotated).
@@ -500,11 +506,14 @@ private struct MapMarkerView: View {
                     Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
                 }
             } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.85))
-                        .frame(width: 24, height: 24)
-                    Image(systemName: "video.fill").foregroundStyle(.white).font(.caption)
-                }
+                // Just the camera icon, pointing in its facing direction.
+                // `video.fill` points right by default, so a -90° base turn makes
+                // it face "up" when the marker's rotation is 0.
+                Image(systemName: "video.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(color)
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
             }
         }
     }
@@ -514,40 +523,6 @@ private struct MapMarkerView: View {
             .font(.caption2).fontWeight(.medium)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(.thinMaterial, in: Capsule())
-    }
-
-    // The field-of-view cone: a small, fixed 39° wedge whose apex starts at the
-    // top of the black camera box and turns with the camera.
-    private var coneView: some View {
-        let radius: CGFloat = 58
-        let boxHalfHeight: CGFloat = 12          // black icon box is 24pt square
-        let extent = radius + boxHalfHeight
-        let cone = ConeShape(fovDegrees: 39, radius: Double(radius), apexInset: Double(boxHalfHeight))
-        return cone
-            .fill(color.opacity(0.18))
-            .overlay(cone.stroke(color.opacity(0.5), lineWidth: 1))
-            .frame(width: extent * 2, height: extent * 2)
-    }
-}
-
-/// A wedge pointing up, used for a camera's field of view. Its apex sits
-/// `apexInset` above the rect center (so it can start at the top of the icon)
-/// while the rect center stays the rotation anchor.
-struct ConeShape: Shape {
-    var fovDegrees: Double
-    var radius: Double
-    var apexInset: Double = 0
-
-    func path(in rect: CGRect) -> Path {
-        let apex = CGPoint(x: rect.midX, y: rect.midY - apexInset)
-        let left = MapGeometry.point(from: apex, angleDeg: -fovDegrees / 2, radius: radius)
-        let right = MapGeometry.point(from: apex, angleDeg: fovDegrees / 2, radius: radius)
-        var path = Path()
-        path.move(to: apex)
-        path.addLine(to: left)
-        path.addLine(to: right)
-        path.closeSubpath()
-        return path
     }
 }
 
