@@ -45,11 +45,20 @@ struct MapElement: Identifiable, Codable, Equatable {
     }
 }
 
+/// A movement arrow between two markers (e.g. an actor or camera moving from
+/// one position to another during the shot).
+struct MapArrow: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var fromID: UUID
+    var toID: UUID
+}
+
 /// The whole scene map document.
 struct SceneMapDoc: Codable, Equatable {
     var elements: [MapElement] = []
+    var arrows: [MapArrow] = []
 
-    var isEmpty: Bool { elements.isEmpty }
+    var isEmpty: Bool { elements.isEmpty && arrows.isEmpty }
 
     // MARK: - JSON round-tripping (stored on Scene.sceneMapJSON)
 

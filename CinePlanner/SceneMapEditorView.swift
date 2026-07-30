@@ -22,6 +22,7 @@ struct SceneMapEditorView: View {
     @Environment(\.modelContext) private var modelContext
 
     enum DrawTool: String, CaseIterable { case wall = "Wall"; case door = "Door"; case window = "Window" }
+    enum MoveDirection { case to, from }
 
     @State private var doc: SceneMapDoc
     @State private var selectedID: UUID?
@@ -37,6 +38,9 @@ struct SceneMapEditorView: View {
     @State private var drawHover: CGPoint?
     /// Door/window selected for editing.
     @State private var openingSelectedID: UUID?
+    /// An in-progress "move to/from": the next canvas click places the second
+    /// marker and connects it to `origin` with an arrow.
+    @State private var pendingMove: (origin: UUID, direction: MoveDirection)?
     /// Wall selected for editing (reveals all vertex handles).
     @State private var wallSelectedID: UUID?
     /// A wall's endpoint positions captured at the start of a move drag.
@@ -226,6 +230,11 @@ struct SceneMapEditorView: View {
                         }
                     }
                 }
+                // Movement arrows between markers, drawn under the markers.
+                if !doc.arrows.isEmpty {
+                    Canvas { ctx, _ in drawArrows(ctx, in: rect) }
+                        .allowsHitTesting(false)
+                }
                 ForEach(doc.elements) { element in
                     MapMarkerView(
                         element: element,
@@ -236,9 +245,11 @@ struct SceneMapEditorView: View {
                         onMove: { normalized in moveElement(element.id, to: normalized) },
                         onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                         onSetColor: { hex in setColor(element.id, hex) },
-                        onDelete: { deleteElement(element.id) }
+                        onDelete: { deleteElement(element.id) },
+                        onMoveTo: { startMove(element.id, .to) },
+                        onMoveFrom: { startMove(element.id, .from) }
                     )
-                    .allowsHitTesting(!isDrawing)
+                    .allowsHitTesting(!isDrawing && pendingMove == nil)
                 }
                 // Door/window edit handles (tap to select, right-click to edit).
                 if !isDrawing {
@@ -260,13 +271,38 @@ struct SceneMapEditorView: View {
                             }
                         }
                 }
+                // Placing the second (moved) marker: the next click drops it and
+                // draws the connecting arrow.
+                if pendingMove != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                            .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil } }
+            .overlay(alignment: .top) {
+                if pendingMove != nil { moveBanner }
+            }
         }
+    }
+
+    private var moveBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.up.right")
+            Text("Click on the map to place the moved marker")
+            Button("Cancel") { pendingMove = nil }
+                .buttonStyle(.borderless)
+        }
+        .font(.callout)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.accentColor.opacity(0.4), lineWidth: 1))
+        .padding(.top, 10)
     }
 
     /// The rect (in canvas points) the map's normalized coordinates map onto:
@@ -308,7 +344,36 @@ struct SceneMapEditorView: View {
 
     private func deleteElement(_ id: UUID) {
         doc.elements.removeAll { $0.id == id }
+        doc.arrows.removeAll { $0.fromID == id || $0.toID == id }
         if selectedID == id { selectedID = nil }
+        persist()
+    }
+
+    // MARK: - Movement arrows
+
+    /// Begins a move: the next canvas click places the second marker.
+    private func startMove(_ id: UUID, _ direction: MoveDirection) {
+        pendingMove = (origin: id, direction: direction)
+        selectedID = nil
+    }
+
+    /// Drops the moved marker at the click and connects it with an arrow.
+    private func placeMovedMarker(at loc: CGPoint, in rect: CGRect) {
+        defer { pendingMove = nil }
+        guard let move = pendingMove,
+              let origin = doc.elements.first(where: { $0.id == move.origin }) else { return }
+        let n = normalizedFromCanvas(loc, in: rect)
+        var moved = MapElement(kind: origin.kind, x: n.x, y: n.y)
+        moved.colorHex = origin.colorHex
+        moved.rotation = origin.rotation
+        moved.shotUID = origin.shotUID
+        moved.label = origin.label
+        doc.elements.append(moved)
+        switch move.direction {
+        case .to:   doc.arrows.append(MapArrow(fromID: origin.id, toID: moved.id))
+        case .from: doc.arrows.append(MapArrow(fromID: moved.id, toID: origin.id))
+        }
+        selectedID = moved.id
         persist()
     }
 
@@ -442,13 +507,23 @@ struct SceneMapEditorView: View {
         if let wall = floorPlan.wall(opening.wallID), let (a, b) = floorPlan.endpoints(wall),
            let center = openingCenter(opening, in: rect) {
             let dir = unit(CGPoint(x: b.x - a.x, y: b.y - a.y))
+            let perp = CGPoint(x: -dir.y, y: dir.x)
             let halfPts = CGFloat(opening.width) * rect.width / 2
-            let hit = max(46, halfPts * 2 + 22)
+            let angle = Angle(radians: Double(atan2(dir.y, dir.x)))
+            let length = max(halfPts * 2 + 6, 22)   // along the wall
+            // Windows are a thin strip on the wall; doors get a taller area
+            // shifted over their swing so the arc/leaf is clickable.
+            let isDoor = opening.kind == .door
+            let reach = max(halfPts * 2, 24)
+            let thickness: CGFloat = isDoor ? reach + 12 : 18
+            let swing = opening.flipped ? CGPoint(x: -perp.x, y: -perp.y) : perp
+            let hitCenter = isDoor
+                ? CGPoint(x: center.x + swing.x * reach / 2, y: center.y + swing.y * reach / 2)
+                : center
             ZStack(alignment: .topLeading) {
-                // Big, easy-to-hit body: tap to select, drag to slide along the wall.
-                Circle().fill(Color.clear)
-                    .frame(width: hit, height: hit)
-                    .contentShape(Circle())
+                Rectangle().fill(Color.clear)
+                    .frame(width: length, height: thickness)
+                    .contentShape(Rectangle())
                     .onTapGesture { selectOpening(opening.id) }
                     .gesture(
                         DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
@@ -459,7 +534,8 @@ struct SceneMapEditorView: View {
                             .onEnded { _ in persistFloorPlan() }
                     )
                     .contextMenu { openingMenu(opening) }
-                    .position(center)
+                    .rotationEffect(angle)
+                    .position(hitCenter)
 
                 // Window width handles at each end.
                 if openingSelectedID == opening.id && opening.kind == .window {
@@ -878,6 +954,33 @@ struct SceneMapEditorView: View {
         return m > 0 ? CGPoint(x: v.x / m, y: v.y / m) : CGPoint(x: 1, y: 0)
     }
 
+    private func drawArrows(_ ctx: GraphicsContext, in rect: CGRect) {
+        let lineWidth: CGFloat = 6
+        for arrow in doc.arrows {
+            guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
+                  let to = doc.elements.first(where: { $0.id == arrow.toID }) else { continue }
+            // Same colour as the markers it connects.
+            let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
+            let p1 = canvasPoint(from.x, from.y, in: rect)
+            let p2 = canvasPoint(to.x, to.y, in: rect)
+            let dir = unit(CGPoint(x: p2.x - p1.x, y: p2.y - p1.y))
+            // Trim the ends so the shaft doesn't run under the marker icons.
+            let start = CGPoint(x: p1.x + dir.x * 20, y: p1.y + dir.y * 20)
+            let end = CGPoint(x: p2.x - dir.x * 22, y: p2.y - dir.y * 22)
+            guard (end.x - start.x) * dir.x + (end.y - start.y) * dir.y > 6 else { continue }
+            var shaft = Path(); shaft.move(to: start); shaft.addLine(to: end)
+            ctx.stroke(shaft, with: shading, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            let angle = Double(atan2(end.y - start.y, end.x - start.x))
+            let size: CGFloat = 18
+            let left = CGPoint(x: end.x - size * CGFloat(cos(angle - .pi / 6)),
+                               y: end.y - size * CGFloat(sin(angle - .pi / 6)))
+            let right = CGPoint(x: end.x - size * CGFloat(cos(angle + .pi / 6)),
+                                y: end.y - size * CGFloat(sin(angle + .pi / 6)))
+            var head = Path(); head.move(to: left); head.addLine(to: end); head.addLine(to: right)
+            ctx.stroke(head, with: shading, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
+    }
+
     /// The label to show for an element: a shot-linked camera follows the shot's
     /// current number; everything else uses its own stored label.
     private func resolvedLabel(for element: MapElement) -> String {
@@ -898,6 +1001,8 @@ struct SceneMapEditorView: View {
             return !shotUIDs.contains(uid)
         }
         guard doc.elements.count != before else { return }
+        let ids = Set(doc.elements.map(\.id))
+        doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
         if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
             selectedID = nil
         }
@@ -951,6 +1056,8 @@ private struct MapMarkerView: View {
     let onRotate: (Double) -> Void
     let onSetColor: (String) -> Void
     let onDelete: () -> Void
+    let onMoveTo: () -> Void
+    let onMoveFrom: () -> Void
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1019,6 +1126,9 @@ private struct MapMarkerView: View {
 
     @ViewBuilder
     private var markerContextMenu: some View {
+        Button { onMoveTo() } label: { Label("Move To…", systemImage: "arrow.forward") }
+        Button { onMoveFrom() } label: { Label("Move From…", systemImage: "arrow.backward") }
+        Divider()
         Menu("Color") {
             ForEach(Self.palette, id: \.hex) { item in
                 Button {

@@ -1051,8 +1051,9 @@ extension Scene {
         var doc = SceneMapDoc.load(from: sceneMapJSON)
         let before = doc.elements.count
         doc.elements.removeAll { $0.shotUID == uid }
-        if doc.elements.count != before {
-            sceneMapJSON = doc.jsonString
-        }
+        guard doc.elements.count != before else { return }
+        let ids = Set(doc.elements.map(\.id))
+        doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
+        sceneMapJSON = doc.jsonString
     }
 }
