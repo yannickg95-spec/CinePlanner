@@ -85,7 +85,8 @@ struct SceneMapEditorView: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Button { add(.character) } label: { Label("Add Character", systemImage: "person.fill") }
+            Button { add(.character) } label: { Label("+", systemImage: "person.fill") }
+                .help("Add Character")
             Menu {
                 if sceneShots.isEmpty {
                     Text("No shots in this scene")
@@ -95,9 +96,10 @@ struct SceneMapEditorView: View {
                     }
                 }
             } label: {
-                Label("Add Camera", systemImage: "video.fill")
+                Label("+", systemImage: "video.fill")
             }
             .fixedSize()
+            .help("Add Camera")
             if backgroundImage != nil {
                 Button { clearBackground() } label: {
                     Label("Clear Background", systemImage: "xmark.rectangle")

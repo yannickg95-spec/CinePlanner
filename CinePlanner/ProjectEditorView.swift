@@ -736,11 +736,6 @@ struct ProjectEditorView: View {
                     .id(scene.uid)
             }
         }
-        // Selecting a shot jumps back to its details, so a click in the shot
-        // column always shows what you clicked.
-        .onChange(of: selectedShots) { _, new in
-            if !new.isEmpty { detailTab = .shot }
-        }
     }
 
     // MARK: - Episode Management
