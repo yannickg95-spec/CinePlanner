@@ -56,6 +56,7 @@ struct SceneMapEditorView: View {
             }
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
+        .onAppear { syncShotLabels() }
         .onDisappear { persist() }
     }
 
@@ -128,6 +129,7 @@ struct SceneMapEditorView: View {
                 ForEach(doc.elements) { element in
                     MapMarkerView(
                         element: element,
+                        label: resolvedLabel(for: element),
                         isSelected: selectedID == element.id,
                         contentRect: rect,
                         onSelect: { selectedID = element.id },
@@ -187,8 +189,22 @@ struct SceneMapEditorView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Label").font(.caption).foregroundStyle(.secondary)
-                        TextField("Name", text: selected.label, onCommit: persist)
-                            .textFieldStyle(.roundedBorder)
+                        if element.shotUID != nil {
+                            HStack(spacing: 6) {
+                                Image(systemName: "link").font(.caption2).foregroundStyle(.secondary)
+                                Text(resolvedLabel(for: element))
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(Color.secondary.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            Text("Linked to its shot — the number updates automatically.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            TextField("Name", text: selected.label, onCommit: persist)
+                                .textFieldStyle(.roundedBorder)
+                        }
                     }
 
                     ColorPicker("Color", selection: Binding(
@@ -276,6 +292,31 @@ struct SceneMapEditorView: View {
         scene.sceneMapJSON = doc.jsonString
         try? scene.modelContext?.save()
     }
+
+    /// The label to show for an element: a shot-linked camera follows the shot's
+    /// current number; everything else uses its own stored label.
+    private func resolvedLabel(for element: MapElement) -> String {
+        if let uid = element.shotUID,
+           let shot = scene.shots.first(where: { $0.uid == uid }) {
+            return shot.displayNumber
+        }
+        return element.label
+    }
+
+    /// Refresh stored labels of shot-linked cameras to their shot's current
+    /// number (so the saved map + archive stay correct even when rendered
+    /// without a scene, and as a fallback if the shot is later deleted).
+    private func syncShotLabels() {
+        var changed = false
+        for index in doc.elements.indices {
+            guard let uid = doc.elements[index].shotUID,
+                  let shot = scene.shots.first(where: { $0.uid == uid }),
+                  doc.elements[index].label != shot.displayNumber else { continue }
+            doc.elements[index].label = shot.displayNumber
+            changed = true
+        }
+        if changed { persist() }
+    }
 }
 
 // MARK: - Marker
@@ -285,6 +326,9 @@ struct SceneMapEditorView: View {
 /// put — and commits the final position to the document on release.
 private struct MapMarkerView: View {
     let element: MapElement
+    /// Display label (resolved by the parent — a shot-linked camera follows its
+    /// shot's number).
+    let label: String
     let isSelected: Bool
     /// The rect (canvas points) that normalized element coordinates map onto.
     let contentRect: CGRect
@@ -343,7 +387,7 @@ private struct MapMarkerView: View {
 
             // Label floats below the center without shifting it (an upright
             // caption, never rotated).
-            if !element.label.isEmpty {
+            if !label.isEmpty {
                 labelView.offset(y: 26)
             }
 
@@ -442,7 +486,7 @@ private struct MapMarkerView: View {
     }
 
     private var labelView: some View {
-        Text(element.label)
+        Text(label)
             .font(.caption2).fontWeight(.medium)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(.thinMaterial, in: Capsule())

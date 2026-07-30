@@ -29,6 +29,9 @@ struct MapElement: Identifiable, Codable, Equatable {
     var y: Double
     var rotation: Double = 0        // degrees, 0 = facing up, clockwise positive
     var label: String = ""
+    /// For a camera imported from a shot: the shot's stable uid, so the marker's
+    /// label tracks the shot's number if it's renumbered. nil = free-standing.
+    var shotUID: String? = nil
     var colorHex: String = "#4C8DFF"
 
     // Camera-only: drives the FOV cone.

@@ -348,6 +348,7 @@ struct CineStagerImportSheet: View {
         if let cam = markers.camera {
             var element = MapElement(kind: .camera, x: cam.u, y: cam.v)
             element.label = ref.shot?.displayNumber ?? "Cam"
+            element.shotUID = ref.shot?.uid
             element.colorHex = "#FF9500"
             if let rot = cam.rotationDeg { element.rotation = rot }
             doc.elements.append(element)
