@@ -1108,6 +1108,7 @@ struct ProjectEditorView: View {
         let affectedScenes = Set(shots.compactMap { $0.scene })
 
         for shot in shots {
+            shot.scene?.removeSceneMapMarkers(forShotUID: shot.uid)
             if let scene = shot.scene, let index = scene.shots.firstIndex(where: { $0 === shot }) {
                 scene.shots.remove(at: index)
             }

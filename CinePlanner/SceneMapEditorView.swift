@@ -56,7 +56,11 @@ struct SceneMapEditorView: View {
             }
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras() }
+        // Keep this editor's in-memory doc in sync when shots change underneath
+        // it (e.g. a shot is deleted from the shot list while the map is open),
+        // so a stale doc can't re-add the marker when it next persists.
+        .onChange(of: scene.shots.map(\.uid)) { _, _ in pruneOrphanedShotCameras() }
         .onDisappear { persist() }
     }
 
@@ -254,11 +258,13 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Add a camera named for a specific shot.
+    /// Add a camera linked to a specific shot: its label follows the shot's
+    /// number, and it's removed if the shot is deleted.
     private func addCamera(for shot: Shot) {
         let point = newElementPoint
         var element = MapElement(kind: .camera, x: point.x, y: point.y)
         element.label = shot.displayNumber
+        element.shotUID = shot.uid
         element.colorHex = "#FF9500"
         doc.elements.append(element)
         selectedID = element.id
@@ -301,6 +307,22 @@ struct SceneMapEditorView: View {
             return shot.displayNumber
         }
         return element.label
+    }
+
+    /// Drops shot-linked cameras whose shot no longer exists (deleted from the
+    /// shot list), keeping the open editor consistent with the model.
+    private func pruneOrphanedShotCameras() {
+        let shotUIDs = Set(scene.shots.map(\.uid))
+        let before = doc.elements.count
+        doc.elements.removeAll { element in
+            guard let uid = element.shotUID else { return false }
+            return !shotUIDs.contains(uid)
+        }
+        guard doc.elements.count != before else { return }
+        if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
+            selectedID = nil
+        }
+        persist()
     }
 
     /// Refresh stored labels of shot-linked cameras to their shot's current

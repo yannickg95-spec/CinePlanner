@@ -620,6 +620,7 @@ struct ShotListView: View {
     private func deleteShots(at offsets: IndexSet) {
         let shotsToDelete = offsets.map { sortedShots[$0] }
         for shot in shotsToDelete {
+            scene.removeSceneMapMarkers(forShotUID: shot.uid)
             if let index = scene.shots.firstIndex(where: { $0 === shot }) {
                 scene.shots.remove(at: index)
             }

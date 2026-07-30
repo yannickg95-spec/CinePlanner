@@ -1037,3 +1037,18 @@ extension Shot {
     var attachedPhotoCount: Int { referenceImages.count + referenceMaps.count }
     var hasAnyReferenceMedia: Bool { orderedReferences.contains { $0.hasMedia || $0.mapData != nil || $0.mapVideoData != nil } }
 }
+
+// MARK: - Scene map ↔ shot links
+
+extension Scene {
+    /// Removes any scene-map camera markers linked to the given shot uid.
+    /// Called when a shot is deleted so its camera doesn't linger on the map.
+    func removeSceneMapMarkers(forShotUID uid: String) {
+        var doc = SceneMapDoc.load(from: sceneMapJSON)
+        let before = doc.elements.count
+        doc.elements.removeAll { $0.shotUID == uid }
+        if doc.elements.count != before {
+            sceneMapJSON = doc.jsonString
+        }
+    }
+}
