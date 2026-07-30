@@ -628,45 +628,50 @@ struct ProjectEditorView: View {
 
             Divider()
 
-            // Middle column - Shots (fixed width)
-            Group {
-                if let scene = selectedScene {
-                    ShotListView(
-                        scene: scene,
-                        selectedShots: $selectedShots,
-                        onEditShot: { shotToEdit = $0 },
-                        onDeleteShots: { pendingShotDeletion = $0 }
-                    )
-                } else {
-                    ContentUnavailableView(
-                        "No Scene Selected",
-                        systemImage: "film",
-                        description: Text("Select a scene from the sidebar or create a new one")
-                    )
-                }
-            }
-            // Fixed width: the shot rows have a predictable size, so this is just
-            // wide enough to show them in full — no resize handle needed.
-            .frame(width: Self.sideColumnWidth)
-            .clipped()
+            // Shots + Detail share one tab header that spans both. The Shots
+            // column is hidden on the Scene Map tab so the map gets its space.
+            VStack(spacing: 0) {
+                detailTabBar
+                Divider()
+                HStack(spacing: 0) {
+                    if detailTab != .map {
+                        Group {
+                            if let scene = selectedScene {
+                                ShotListView(
+                                    scene: scene,
+                                    selectedShots: $selectedShots,
+                                    onEditShot: { shotToEdit = $0 },
+                                    onDeleteShots: { pendingShotDeletion = $0 }
+                                )
+                            } else {
+                                ContentUnavailableView(
+                                    "No Scene Selected",
+                                    systemImage: "film",
+                                    description: Text("Select a scene from the sidebar or create a new one")
+                                )
+                            }
+                        }
+                        .frame(width: Self.sideColumnWidth)
+                        .clipped()
 
-            Divider()
-            
-            // Detail - Shot information / Scene Map (Resizable width)
-            Group {
-                if let scene = selectedScene {
-                    detailPane(for: scene)
-                } else {
-                    ContentUnavailableView(
-                        "No Scene Selected",
-                        systemImage: "film",
-                        description: Text("Select a scene from the sidebar or create a new one")
-                    )
+                        Divider()
+                    }
+
+                    Group {
+                        if let scene = selectedScene {
+                            detailContent(for: scene)
+                        } else {
+                            ContentUnavailableView(
+                                "No Scene Selected",
+                                systemImage: "film",
+                                description: Text("Select a scene from the sidebar or create a new one")
+                            )
+                        }
+                    }
+                    .frame(minWidth: Self.detailPaneMinWidth, maxWidth: .infinity)
                 }
             }
-            // Detail is the flexible pane: it absorbs whatever width is left and can
-            // compress down to its minimum so the layout fits narrower displays.
-            .frame(minWidth: Self.detailPaneMinWidth, maxWidth: .infinity)
+            .frame(maxWidth: .infinity)
 
             // Draggable divider setting the script pane's width. The script pane
             // is to the right, so the drag is inverted. Its range is the split
@@ -705,36 +710,41 @@ struct ProjectEditorView: View {
 
     /// The flexible right pane, tabbed between the selected shot's details and
     /// the scene-level top-down map.
-    @ViewBuilder
-    private func detailPane(for scene: Scene) -> some View {
-        VStack(spacing: 0) {
+    /// The tab header (Shot Details / Scene Map), spanning the shots + detail
+    /// region so it sits above both.
+    private var detailTabBar: some View {
+        HStack {
             Picker("", selection: $detailTab) {
                 Text("Shot Details").tag(DetailTab.shot)
                 Text("Scene Map").tag(DetailTab.map)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .fixedSize()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+    }
 
-            Divider()
-
-            switch detailTab {
-            case .shot:
-                if let shot = selectedShot {
-                    ShotDetailView(shot: shot)
-                } else {
-                    ContentUnavailableView(
-                        "No Shot Selected",
-                        systemImage: "camera.circle.fill",
-                        description: Text("Select a shot to view its details")
-                    )
-                }
-            case .map:
-                // Keyed by scene so switching scenes reloads the map document.
-                SceneMapEditorView(scene: scene, embedded: true)
-                    .id(scene.uid)
+    @ViewBuilder
+    private func detailContent(for scene: Scene) -> some View {
+        switch detailTab {
+        case .shot:
+            if let shot = selectedShot {
+                ShotDetailView(shot: shot)
+            } else {
+                ContentUnavailableView(
+                    "No Shot Selected",
+                    systemImage: "camera.circle.fill",
+                    description: Text("Select a shot to view its details")
+                )
             }
+        case .map:
+            // Keyed by scene so switching scenes reloads the map document.
+            SceneMapEditorView(scene: scene, embedded: true)
+                .id(scene.uid)
         }
     }
 

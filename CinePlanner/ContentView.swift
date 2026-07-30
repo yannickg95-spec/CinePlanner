@@ -498,10 +498,8 @@ struct ShotListView: View {
             }
             .onDelete(perform: deleteShots)
             .onMove(perform: moveShots)
-            } header: {
-                Text("Shots")
             }
-            
+
             // Add Shot Button
             Button {
                 addShot()
