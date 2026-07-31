@@ -1208,11 +1208,13 @@ struct ProjectExporter {
                                 margin-left: auto; }
           body.compact .mi-pair { flex-direction: row; gap: 6px; }
           body.compact .media .thumb-label { display: none; }
-          /* Shrink only the closed thumbnails; the fullscreen open state is untouched. */
-          body.compact .mi:not([open]) > summary,
-          body.compact .mi:not([open]) > summary img,
-          body.compact .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
-          body.compact .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
+          /* Shrink only the per-shot media thumbnails (not the scene-level
+             coverage/map thumbnails, which live outside .media); the fullscreen
+             open state is untouched. */
+          body.compact .media .mi:not([open]) > summary,
+          body.compact .media .mi:not([open]) > summary img,
+          body.compact .media .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
+          body.compact .media .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
           body.compact .nomedia { width: 46px; height: 32px; font-size: 11px; }
 
           @media print {
@@ -1222,8 +1224,8 @@ struct ProjectExporter {
             body.compact .details { display: block; }
             body.compact .shot-inline { display: none; }
             body.compact .media { flex-direction: column; margin-left: 0; }
-            body.compact .mi:not([open]) > summary,
-            body.compact .mi:not([open]) > summary img { width: 94px; height: 66px; }
+            body.compact .media .mi:not([open]) > summary,
+            body.compact .media .mi:not([open]) > summary img { width: 94px; height: 66px; }
           }
 
           @media print {
