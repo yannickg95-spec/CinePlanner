@@ -144,8 +144,19 @@ struct SceneMapEditorView: View {
                 if sceneShots.isEmpty {
                     Text("No shots in this scene")
                 } else {
+                    // One camera per shot from here; a shot already on the map is
+                    // disabled (a second marker for it only comes from Move To/From).
                     ForEach(sceneShots, id: \.uid) { shot in
-                        Button("Shot \(shot.displayNumber)") { addCamera(for: shot) }
+                        Button {
+                            addCamera(for: shot)
+                        } label: {
+                            if hasCamera(for: shot) {
+                                Label("Shot \(shot.displayNumber)", systemImage: "checkmark")
+                            } else {
+                                Text("Shot \(shot.displayNumber)")
+                            }
+                        }
+                        .disabled(hasCamera(for: shot))
                     }
                 }
             } label: {
@@ -851,9 +862,18 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Whether a camera for this shot is already on the map. Extra markers made
+    /// with Move To/From share the shot's uid too, so this also reports true once
+    /// a shot has been moved — which is fine: the dropdown only adds the first.
+    private func hasCamera(for shot: Shot) -> Bool {
+        doc.elements.contains { $0.kind == .camera && $0.shotUID == shot.uid }
+    }
+
     /// Add a camera linked to a specific shot: its label follows the shot's
-    /// number, and it's removed if the shot is deleted.
+    /// number, and it's removed if the shot is deleted. At most one per shot from
+    /// here — a second marker for a shot only comes from Move To/From.
     private func addCamera(for shot: Shot) {
+        guard !hasCamera(for: shot) else { return }
         let point = newElementPoint
         var element = MapElement(kind: .camera, x: point.x, y: point.y)
         element.label = shot.displayNumber
