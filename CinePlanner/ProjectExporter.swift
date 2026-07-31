@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import SwiftUI
 import PDFKit
 import AVFoundation
 import UniformTypeIdentifiers
@@ -148,6 +149,7 @@ struct ProjectExporter {
         let isDay: Bool
         let location: String
         let coverage: CoverageImage?   // scene's script pages with all shots' coverage
+        let map: CoverageImage?        // scene's top-down blocking map
         let shots: [MediaShot]
     }
 
@@ -316,6 +318,50 @@ struct ProjectExporter {
         return CoverageImage(data: data, width: width, height: height)
     }
 
+    /// Rasterizes the scene's blocking map (background/floor plan/furniture/
+    /// arrows/markers) to a JPEG for the web export, mirroring the editor canvas.
+    /// Returns nil when the scene has no map content. Called on the main thread
+    /// (like the coverage renderer), which `ImageRenderer` and the SwiftData
+    /// reads both require.
+    private func renderSceneMap(scene: Scene) -> CoverageImage? {
+        let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        let plan = FloorPlan.load(from: scene.sceneFloorPlanJSON)
+        let background = scene.sceneMapBackgroundData.flatMap(NSImage.init(data:))
+        guard !doc.elements.isEmpty || !doc.furniture.isEmpty || !plan.isEmpty || background != nil else { return nil }
+
+        // Output aspect follows the background image; otherwise a square (which is
+        // what the editor uses for a floor-plan-only or grid-only map).
+        let base: CGFloat = 1200
+        let outSize: CGSize
+        if let bg = background, bg.size.width > 0, bg.size.height > 0 {
+            let aspect = bg.size.width / bg.size.height
+            outSize = aspect >= 1 ? CGSize(width: base, height: (base / aspect).rounded())
+                                  : CGSize(width: (base * aspect).rounded(), height: base)
+        } else {
+            outSize = CGSize(width: base, height: base)
+        }
+
+        // Camera markers show their shot's current number; characters stay blank.
+        var labels: [UUID: String] = [:]
+        for element in doc.elements where element.kind == .camera {
+            if let uid = element.shotUID, let shot = scene.shots.first(where: { $0.uid == uid }) {
+                labels[element.id] = shot.displayNumber
+            } else if !element.label.isEmpty {
+                labels[element.id] = element.label
+            }
+        }
+
+        let view = SceneMapExportView(doc: doc, plan: plan, background: background,
+                                      labels: labels, size: outSize)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        guard let image = renderer.nsImage,
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return nil }
+        return CoverageImage(data: data, width: outSize.width, height: outSize.height)
+    }
+
     private func snapshotScenesForMedia() -> [MediaScene] {
         let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
         let sourcePDF = (version?.pdfData ?? project.scriptPDFData).flatMap { PDFDocument(data: $0) }
@@ -355,6 +401,7 @@ struct ProjectExporter {
                               isDay: scene.isDay,
                               location: location,
                               coverage: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
+                              map: renderSceneMap(scene: scene),
                               shots: shots)
         }
     }
@@ -740,6 +787,13 @@ struct ProjectExporter {
                 coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(cov.data))); aspect-ratio: \(Int(cov.width)) / \(Int(cov.height)); }\n"
                 coverageClass = cls
             }
+            // The scene map, embedded once per scene as its own background rule.
+            var mapClass: String? = nil
+            if let map = scene.map {
+                let cls = "map-\(index)"
+                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(map.data))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); }\n"
+                mapClass = cls
+            }
             let timeLabel = scene.isDay ? "DAY" : "NIGHT"
             let typeLabel = scene.isInterior ? "INT" : "EXT"
 
@@ -771,6 +825,20 @@ struct ProjectExporter {
             }
             body += "    <span class=\"scene-count\">\(shotCount) shot\(shotCount == 1 ? "" : "s")</span>\n"
             body += "  </summary>\n"
+            // Shown once at the top of the scene: the script pages with every
+            // shot's coverage marked, and the scene's blocking map — side by side,
+            // rather than repeated on each shot. Each is a <details> so it expands
+            // full screen with no JavaScript (works in Quick Look).
+            if coverageClass != nil || mapClass != nil {
+                body += "  <div class=\"scene-coverage\">\n"
+                if let cls = coverageClass {
+                    body += "    <details class=\"mi mi-doc\"><summary title=\"Script with coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Script coverage</span></summary></details>\n"
+                }
+                if let cls = mapClass {
+                    body += "    <details class=\"mi mi-doc\"><summary title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
+                }
+                body += "  </div>\n"
+            }
             body += "  <div class=\"shots\">\n"
             if scene.shots.isEmpty {
                 body += "    <p class=\"empty\">No shots in this scene.</p>\n"
@@ -819,31 +887,9 @@ struct ProjectExporter {
                     }
                     body += "          </div>\n"
                 }
-                if shot.coverageText != nil || (shot.hasCoverage && coverageClass != nil) {
-                    // Coverage text and the script-coverage thumbnail sit side by
-                    // side, so the thumbnail is next to what it illustrates.
-                    body += "          <div class=\"coverage-row\">\n"
-                    if let coverage = shot.coverageText {
-                        // Coverage can run long, so it collapses. <details> again, so
-                        // it still opens in previews with JavaScript disabled. Short
-                        // coverage starts open — nothing to gain by hiding one line.
-                        let startsOpen = coverage.count <= 180
-                        body += "            <details class=\"coverage\"\(startsOpen ? " open" : "")>\n"
-                        body += "              <summary class=\"coverage-label\">Coverage"
-                        if let preview = shot.coveragePreview {
-                            body += "<span class=\"coverage-preview\">\(esc(preview))</span>"
-                        }
-                        body += "</summary>\n"
-                        body += "              <div class=\"coverage-text\">\(esc(coverage))</div>\n"
-                        body += "            </details>\n"
-                    }
-                    if shot.hasCoverage, let cls = coverageClass {
-                        // Opens the scene's script pages with every shot's coverage
-                        // marked — the same image for each covered shot.
-                        body += "            <details class=\"mi mi-doc\"><summary title=\"Script coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
-                    }
-                    body += "          </div>\n"
-                }
+                // Per-shot coverage is intentionally not shown here — the scene's
+                // script pages with every shot's coverage are shown once at the top
+                // of the scene instead (see the scene-coverage block above).
                 body += "        </div>\n"
                 // Thumbnail strip on the right — small on purpose, so the shot's
                 // details lead. Each is a <details>: tapping the thumbnail opens it
@@ -878,7 +924,7 @@ struct ProjectExporter {
                         body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Ref\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     if let topDown = m.topDownURI {
-                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Map\(tag)</span></summary>\(noteHTML)</details>\n"
+                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Shot map\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     if let mapVideo = m.mapVideoPath {
                         let mime = mapVideo.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
@@ -888,7 +934,7 @@ struct ProjectExporter {
                         } else {
                             body += "<span class=\"thumb-blank\"></span>"
                         }
-                        body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Map\(tag)</span></summary>\n"
+                        body += "<span class=\"play\">▶</span><span class=\"thumb-label\">Shot map\(tag)</span></summary>\n"
                         body += "            <video controls playsinline preload=\"none\"><source src=\"\(mapVideo)\" type=\"\(mime)\"></video>\(noteHTML)\n"
                         body += "          </details>\n"
                     }
@@ -1061,11 +1107,16 @@ struct ProjectExporter {
                                  text-align: center; color: #fff; font-size: 14px; line-height: 1.4;
                                  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
                                  background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0)); }
-          /* Coverage thumbnail: a small portrait script page showing its top, so
-             it reads as the script (not a cropped landscape strip). The image and
-             its aspect ratio come from a per-scene rule (.cov-N) so the JPEG is
-             embedded once, not per covered shot. */
-          .cover-thumb { display: block; width: 60px; height: 84px; border-radius: 6px;
+          /* The scene's coverage + map thumbnails, shown once under the header. */
+          .scene-coverage { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+          /* The map is landscape, so show the whole thing (letterboxed) rather
+             than the top crop the tall script page uses. */
+          .cover-thumb.is-map { background-size: contain; background-position: center;
+                                background-color: var(--chip); }
+          /* Coverage thumbnail: a wide 16:9 crop of the script page's top. The
+             image and its aspect ratio come from a per-scene rule (.cov-N) so the
+             JPEG is embedded once, not per covered shot. */
+          .cover-thumb { display: block; width: 160px; height: 90px; border-radius: 6px;
                          border: 1px solid var(--line); background-color: #fff;
                          background-size: 100% auto; background-repeat: no-repeat; background-position: top center; }
           /* Open: a scrollable dark overlay showing the pages at a readable width;
@@ -1076,7 +1127,7 @@ struct ProjectExporter {
           .mi-doc[open] > summary .cover-thumb { width: min(1000px, 94vw); height: auto;
                                     margin: 0 auto; border: 0; border-radius: 4px;
                                     background-size: 100% auto; background-position: top center; }
-          .mi-doc > summary { width: 60px; }
+          .mi-doc > summary { width: 160px; }
           .mi-doc[open] > summary .thumb-label { display: none; }
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
