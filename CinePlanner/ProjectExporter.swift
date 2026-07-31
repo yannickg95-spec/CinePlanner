@@ -777,6 +777,7 @@ struct ProjectExporter {
         var body = ""
         var toc = ""
         var coverageStyles = ""   // one background-image rule per scene, so the JPEG isn't inlined per shot
+        var shotSeq = 0           // unique id per shot, for its expand checkbox
         for (index, scene) in scenes.enumerated() {
             let anchor = "scene-\(index)"
             // The scene's coverage image is embedded once as a CSS background and
@@ -850,52 +851,38 @@ struct ProjectExporter {
                                   + shot.details.map { "\($0.label) \($0.value)" })
                     .joined(separator: " ").lowercased()
 
-                body += "    <article class=\"shot\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
-                body += "      <div class=\"shot-head\"><span class=\"shot-num\">\(esc(shot.displayNumber))</span>"
-                if !shot.nickname.isEmpty { body += "<span class=\"shot-nick\">\(esc(shot.nickname))</span>" }
-                body += "</div>\n"
-
-                // One-line summary shown only in the compact view. Values only —
-                // "WS→MS · Static · 32mm" reads at a glance — plus a coverage marker.
-                // It's cheap (no images) so it can live in the markup alongside the
-                // full body and swap in via a body class.
-                body += "      <div class=\"shot-inline\">\n"
-                // The compact line drops the wordier gear fields (camera, format,
+                // The compact row drops the wordier gear fields (camera, format,
                 // lens) and keeps the framing essentials, focal length included.
                 let inlineHidden: Set<String> = ["Camera", "Format", "Lens"]
                 let inlineDetails = shot.details.filter { !inlineHidden.contains($0.label) }
+                let toggleID = "shot-\(shotSeq)"
+                shotSeq += 1
+
+                // A shot is a compact row that expands to its full details. The
+                // expand is a pure-CSS checkbox toggle (works with no JS, so it
+                // still opens in Quick Look) — unlike a <details>, this lets the row
+                // carry its own openable media thumbnails without their clicks
+                // fighting the expand.
+                body += "    <div class=\"shot\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
+                body += "      <input type=\"checkbox\" class=\"shot-toggle\" id=\"\(toggleID)\">\n"
+                body += "      <div class=\"shot-row\">\n"
+                // The text part is a <label> for the checkbox, so clicking it (but
+                // not the thumbnails) expands the shot.
+                body += "        <label class=\"shot-main\" for=\"\(toggleID)\">\n"
+                body += "          <span class=\"shot-caret\" aria-hidden=\"true\"></span>\n"
+                body += "          <span class=\"shot-num\">\(esc(shot.displayNumber))</span>\n"
+                if !shot.nickname.isEmpty { body += "          <span class=\"shot-nick\">\(esc(shot.nickname))</span>\n" }
                 if inlineDetails.isEmpty {
-                    body += "        <span class=\"si-vals si-empty\">No details</span>\n"
+                    body += "          <span class=\"si-vals si-empty\">No details</span>\n"
                 } else {
                     let inlineVals = inlineDetails.map { esc($0.value) }.joined(separator: " · ")
                     let inlineTitle = inlineDetails.map { "\($0.label): \($0.value)" }.joined(separator: " · ")
-                    body += "        <span class=\"si-vals\" title=\"\(esc(inlineTitle))\">\(inlineVals)</span>\n"
+                    body += "          <span class=\"si-vals\" title=\"\(esc(inlineTitle))\">\(inlineVals)</span>\n"
                 }
-                if shot.hasCoverage { body += "        <span class=\"si-cov\" title=\"Has script coverage\">Coverage</span>\n" }
-                body += "      </div>\n"
-
-                body += "      <div class=\"shot-body\">\n"
-                // Details first in the markup as well as on screen, so the reading
-                // order matches the layout for screen readers and printing.
-                body += "        <div class=\"details\">\n"
-                if shot.details.isEmpty {
-                    body += "          <p class=\"empty\">No details.</p>\n"
-                } else {
-                    body += "          <div class=\"rows\">\n"
-                    for row in shot.details {
-                        body += "            <div class=\"row\"><span class=\"k\">\(esc(row.label))</span><span class=\"v\">\(esc(row.value))</span></div>\n"
-                    }
-                    body += "          </div>\n"
-                }
-                // Per-shot coverage is intentionally not shown here — the scene's
-                // script pages with every shot's coverage are shown once at the top
-                // of the scene instead (see the scene-coverage block above).
-                body += "        </div>\n"
-                // Thumbnail strip on the right — small on purpose, so the shot's
-                // details lead. Each is a <details>: tapping the thumbnail opens it
-                // full screen with no JavaScript, which is what makes it work in
-                // Apple's Quick Look preview. The same <img> is reused enlarged, so
-                // nothing is embedded twice.
+                body += "        </label>\n"
+                // Openable reference/map thumbnails, inline in the row. Each is its
+                // own <details> (independent of the shot's expand), so opening one
+                // full screen never expands the shot. Empty when the shot has none.
                 body += "        <div class=\"media\">\n"
                 for (reference, rendered) in refs {
                     guard let m = rendered else { continue }
@@ -940,12 +927,23 @@ struct ProjectExporter {
                     }
                     body += "          </div>\n"
                 }
-                if !hasMedia {
-                    body += "          <div class=\"nomedia\" title=\"No reference media\">—</div>\n"
+                body += "        </div>\n"          // close .media
+                body += "      </div>\n"            // close .shot-row
+                // Expanded detail rows, revealed when the shot's checkbox is on.
+                body += "      <div class=\"shot-body\">\n"
+                body += "        <div class=\"details\">\n"
+                if shot.details.isEmpty {
+                    body += "          <p class=\"empty\">No details.</p>\n"
+                } else {
+                    body += "          <div class=\"rows\">\n"
+                    for row in shot.details {
+                        body += "            <div class=\"row\"><span class=\"k\">\(esc(row.label))</span><span class=\"v\">\(esc(row.value))</span></div>\n"
+                    }
+                    body += "          </div>\n"
                 }
-                body += "        </div>\n"
-                body += "      </div>\n"
-                body += "    </article>\n"
+                body += "        </div>\n"          // close .details
+                body += "      </div>\n"            // close .shot-body
+                body += "    </div>\n"              // close .shot
             }
             body += "  </div>\n"
             body += "</details>\n"
@@ -1054,18 +1052,41 @@ struct ProjectExporter {
           .scene-loc { font-size: 13px; color: var(--muted); }
           .scene-count { margin-left: auto; font-size: 12px; color: var(--faint); }
 
-          /* Shots */
-          .shot { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px;
+          /* Shots — a compact one-row summary with inline, openable thumbnails,
+             expanding to its detail rows. The expand is a pure-CSS checkbox
+             toggle, so it works with no JS (and in Quick Look). */
+          .shot { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
                   box-shadow: var(--shadow); }
-          .shot + .shot { margin-top: 12px; }
-          .shot-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+          .shot + .shot { margin-top: 8px; }
+          .shot-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+          .shot-row { display: flex; align-items: center; gap: 7px 12px; padding: 9px 14px; }
+          /* The clickable text part expands the shot; the thumbnails don't. */
+          .shot-main { display: flex; align-items: center; gap: 7px 12px; flex: 1 1 auto;
+                       min-width: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+          .shot-caret { flex: none; width: 12px; font-size: 11px; color: var(--faint);
+                        transition: transform 0.12s ease; }
+          .shot-caret::before { content: "▸"; }
+          .shot-toggle:checked ~ .shot-row .shot-caret { transform: rotate(90deg); }
+          .shot-toggle:focus-visible ~ .shot-row .shot-main { outline: 2px solid var(--accent);
+                        outline-offset: 3px; border-radius: 8px; }
           .shot-num { font-weight: 700; font-size: 13px; padding: 3px 9px; border-radius: 6px;
-                      background: var(--chip); font-variant-numeric: tabular-nums; }
-          .shot-nick { color: var(--muted); font-size: 14px; }
-          /* Thumbnails sit in a narrow column so the details carry the row. */
-          .shot-body { display: grid; grid-template-columns: minmax(0,1fr) 196px; gap: 16px; align-items: start; }
-          @media (max-width: 700px) { .shot-body { grid-template-columns: minmax(0,1fr); } }
-          .media { display: flex; flex-direction: column; gap: 10px; flex: none; }
+                      background: var(--chip); font-variant-numeric: tabular-nums; flex: none; }
+          .shot-nick { color: var(--muted); font-size: 14px; flex: none; }
+          .si-vals { color: var(--muted); font-size: 12.5px; white-space: nowrap;
+                     overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 160px; }
+          .si-empty { font-style: italic; color: var(--faint); }
+          /* Inline thumbnails, pushed to the right of the row and shrunk. */
+          .media { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px;
+                   flex: none; margin-left: auto; }
+          .media:empty { display: none; }
+          .shot-row .media .thumb-label { display: none; }
+          .shot-row .media .mi:not([open]) > summary,
+          .shot-row .media .mi:not([open]) > summary img,
+          .shot-row .media .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
+          .shot-row .media .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
+          /* Expanded detail rows, revealed by the checkbox; indented under the row. */
+          .shot-body { display: none; padding: 4px 15px 13px 40px; }
+          .shot-toggle:checked ~ .shot-body { display: block; }
           /* One reference: its photo/video and map side by side. */
           .mi-pair { display: flex; flex-direction: row; gap: 8px; }
           /* Closed: a 94px thumbnail. Open: a full-screen viewer. Driven entirely by
@@ -1174,65 +1195,13 @@ struct ProjectExporter {
                    color: var(--text); font-size: 15px; cursor: pointer; box-shadow: var(--shadow); }
           [hidden] { display: none !important; }
 
-          /* View toggle (segmented control) */
-          .view-label { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
-                        color: var(--faint); }
-          .viewtoggle { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; }
-          .vt { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 11px; border: 0;
-                background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
-          .vt:hover { color: var(--text); }
-          .vt[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
-
-          /* The compact summary line only exists for the compact view. */
-          .shot-inline { display: none; }
-
-          /* ── Compact view ─────────────────────────────────────────────────
-             One dense row per shot for fast scrolling. JS-only (the toggle needs
-             script), so the no-JS preview always keeps the comfortable layout. */
-          body.compact .shot { display: flex; flex-wrap: wrap; align-items: center;
-                               gap: 7px 14px; padding: 9px 14px; }
-          body.compact .shot + .shot { margin-top: 6px; }
-          body.compact .shot-head { margin-bottom: 0; flex: none; }
-          /* Expose .details and .media as direct flex items of the row. */
-          body.compact .shot-body { display: contents; }
-          body.compact .details { display: none; }
-          body.compact .shot-inline { display: flex; align-items: center; gap: 8px;
-                                      flex: 1 1 220px; min-width: 0; }
-          body.compact .si-vals { color: var(--muted); font-size: 12.5px; white-space: nowrap;
-                                  overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-          body.compact .si-empty { font-style: italic; color: var(--faint); }
-          body.compact .si-cov { flex: none; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
-                                 padding: 2px 6px; border-radius: 5px; background: rgba(10,132,255,0.14);
-                                 color: var(--accent); white-space: nowrap; }
-          body.compact .media { flex: none; flex-direction: row; flex-wrap: wrap; gap: 6px;
-                                margin-left: auto; }
-          body.compact .mi-pair { flex-direction: row; gap: 6px; }
-          body.compact .media .thumb-label { display: none; }
-          /* Shrink only the per-shot media thumbnails (not the scene-level
-             coverage/map thumbnails, which live outside .media); the fullscreen
-             open state is untouched. */
-          body.compact .media .mi:not([open]) > summary,
-          body.compact .media .mi:not([open]) > summary img,
-          body.compact .media .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
-          body.compact .media .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
-          body.compact .nomedia { width: 46px; height: 32px; font-size: 11px; }
-
-          @media print {
-            /* Print always uses the full layout so nothing is lost. */
-            body.compact .shot { display: block; }
-            body.compact .shot-body { display: grid; }
-            body.compact .details { display: block; }
-            body.compact .shot-inline { display: none; }
-            body.compact .media { flex-direction: column; margin-left: 0; }
-            body.compact .media .mi:not([open]) > summary,
-            body.compact .media .mi:not([open]) > summary img { width: 94px; height: 66px; }
-          }
-
           @media print {
             .toolbar, .toc, .totop, .disclose, .page-note { display: none !important; }
             .layout { grid-template-columns: 1fr; padding: 0; }
             .shot { break-inside: avoid; box-shadow: none; }
-            .coverage > div { display: block !important; }   /* print collapsed coverage too */
+            /* Expand every shot so nothing collapses off the printed page. */
+            .shot-caret { display: none; }
+            .shot-body { display: block !important; }
             .scene { break-inside: avoid-page; }
             body { background: #fff; }
           }
@@ -1270,11 +1239,6 @@ struct ProjectExporter {
               <button class="chip" data-group="media" data-value="media" type="button">Has media</button>
             </div>
             <div class="tools">
-              <span class="view-label">View</span>
-              <div class="viewtoggle" role="group" aria-label="View mode">
-                <button class="vt" id="view-comfortable" data-view="comfortable" type="button" aria-pressed="true" title="Full detail cards">Extended</button>
-                <button class="vt" id="view-compact" data-view="compact" type="button" aria-pressed="false" title="Dense one-line rows">Compact</button>
-              </div>
               <span class="count" id="count"></span>
               <button class="linkbtn" id="reset" type="button" hidden>Reset</button>
               <button class="linkbtn" id="toggleall" type="button">Collapse all</button>
@@ -1311,23 +1275,6 @@ struct ProjectExporter {
 
           // Reveal the filter bar only now that we know scripting is available.
           document.getElementById('toolbar').hidden = false;
-
-          // View toggle: comfortable cards (default) vs a compact one-row-per-shot
-          // list. Choice is remembered across opens.
-          var viewButtons = Array.prototype.slice.call(document.querySelectorAll('.vt'));
-          function setView(view) {
-            document.body.classList.toggle('compact', view === 'compact');
-            viewButtons.forEach(function (b) {
-              b.setAttribute('aria-pressed', b.getAttribute('data-view') === view ? 'true' : 'false');
-            });
-            try { localStorage.setItem('cineplanner-view', view); } catch (e) {}
-          }
-          viewButtons.forEach(function (b) {
-            b.addEventListener('click', function () { setView(b.getAttribute('data-view')); });
-          });
-          var savedView = 'comfortable';
-          try { savedView = localStorage.getItem('cineplanner-view') || 'comfortable'; } catch (e) {}
-          setView(savedView);
 
           function tocFor(id) {
             for (var i = 0; i < tocItems.length; i++) {
