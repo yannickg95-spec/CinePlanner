@@ -301,7 +301,8 @@ struct SceneMapEditorView: View {
                         onSetColor: { hex in setColor(element.id, hex) },
                         onDelete: { deleteElement(element.id) },
                         onMoveTo: { startMove(element.id, .to) },
-                        onMoveFrom: { startMove(element.id, .from) }
+                        onMoveFrom: { startMove(element.id, .from) },
+                        onMoveLabel: { offset in moveLabel(element.id, to: offset) }
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
                 }
@@ -884,6 +885,13 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Commit a label's nudge once its drag ends.
+    private func moveLabel(_ id: UUID, to offset: CGSize) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].labelOffset = offset
+        persist()
+    }
+
     /// Commit a marker's new position once its drag ends (mid-drag movement is
     /// handled locally inside MapMarkerView so the canvas doesn't re-render).
     private func moveElement(_ id: UUID, to position: CGPoint) {
@@ -1306,6 +1314,8 @@ private struct MapMarkerView: View {
     let onDelete: () -> Void
     let onMoveTo: () -> Void
     let onMoveFrom: () -> Void
+    /// Reports the label's new nudge (canvas points) once its drag ends.
+    let onMoveLabel: (CGSize) -> Void
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1322,6 +1332,10 @@ private struct MapMarkerView: View {
     @State private var grabOffset: CGSize = .zero
     /// Live facing while the rotation handle is being dragged; `nil` otherwise.
     @State private var liveRotation: Double?
+    /// Live label nudge while the label is being dragged; `nil` otherwise.
+    @State private var liveLabelOffset: CGSize?
+    /// Pointer-to-label offset captured when the label drag begins.
+    @State private var labelGrab: CGSize = .zero
 
     private var color: Color { Color(hex: element.colorHex) }
     private var displayRotation: Double { liveRotation ?? element.rotation }
@@ -1365,9 +1379,15 @@ private struct MapMarkerView: View {
                 .contextMenu { markerContextMenu }
 
             // Label floats below the center without shifting it (an upright
-            // caption, never rotated).
+            // caption, never rotated). Draggable, so it can be nudged clear of an
+            // arrow; the nudge is stored on the element.
             if !label.isEmpty {
-                labelView.offset(y: labelOffsetY)
+                let nudge = liveLabelOffset ?? element.labelOffset
+                labelView
+                    .contentShape(Rectangle())
+                    .offset(x: nudge.width, y: labelOffsetY + nudge.height)
+                    .gesture(labelDragGesture)
+                    .help("Drag to move the label")
             }
 
             if isSelected {
@@ -1468,6 +1488,32 @@ private struct MapMarkerView: View {
                                     y: value.location.y + grabOffset.height)
                 livePosition = nil
                 onMove(normalized(final))
+            }
+    }
+
+    /// Drags the label around the marker. Works in the fixed canvas space (like
+    /// the marker drag) so the moving label can't shift its own reference frame,
+    /// and keeps the grab point. The nudge is measured relative to the label's
+    /// default spot (center + labelOffsetY).
+    private var labelDragGesture: some Gesture {
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                let c = livePosition ?? center
+                let baseY = c.y + labelOffsetY
+                if liveLabelOffset == nil {
+                    onSelect()
+                    let current = CGPoint(x: c.x + element.labelOffset.width,
+                                          y: baseY + element.labelOffset.height)
+                    labelGrab = CGSize(width: current.x - value.location.x,
+                                       height: current.y - value.location.y)
+                }
+                let newPos = CGPoint(x: value.location.x + labelGrab.width,
+                                     y: value.location.y + labelGrab.height)
+                liveLabelOffset = CGSize(width: newPos.x - c.x, height: newPos.y - baseY)
+            }
+            .onEnded { _ in
+                if let offset = liveLabelOffset { onMoveLabel(offset) }
+                liveLabelOffset = nil
             }
     }
 
@@ -1747,7 +1793,8 @@ struct SceneMapExportView: View {
                 MapMarkerView(element: element, label: labels[element.id] ?? element.label,
                               isSelected: false, contentRect: rect,
                               onSelect: {}, onMove: { _ in }, onRotate: { _ in },
-                              onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {})
+                              onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
+                              onMoveLabel: { _ in })
             }
         }
         .frame(width: size.width, height: size.height)

@@ -29,6 +29,9 @@ struct MapElement: Identifiable, Codable, Equatable {
     var y: Double
     var rotation: Double = 0        // degrees, 0 = facing up, clockwise positive
     var label: String = ""
+    /// User nudge (in canvas points) applied to the label on top of its default
+    /// position below the marker, so a label can be moved clear of an arrow.
+    var labelOffset: CGSize = .zero
     /// For a camera imported from a shot: the shot's stable uid, so the marker's
     /// label tracks the shot's number if it's renumbered. nil = free-standing.
     var shotUID: String? = nil
@@ -39,7 +42,7 @@ struct MapElement: Identifiable, Codable, Equatable {
     var sensorWidthMM: Double = 24.89   // Super 35 width by default
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, x, y, rotation, label, shotUID, colorHex, focalLengthMM, sensorWidthMM
+        case id, kind, x, y, rotation, label, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM
     }
 
     init(kind: Kind, x: Double, y: Double) {
@@ -55,6 +58,7 @@ struct MapElement: Identifiable, Codable, Equatable {
         y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
         rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
         shotUID = try c.decodeIfPresent(String.self, forKey: .shotUID)
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#4C8DFF"
         focalLengthMM = try c.decodeIfPresent(Double.self, forKey: .focalLengthMM) ?? 35
