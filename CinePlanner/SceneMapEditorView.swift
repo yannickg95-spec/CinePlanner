@@ -1311,6 +1311,13 @@ private struct MapMarkerView: View {
                 y: contentRect.minY + element.y * contentRect.height)
     }
 
+    /// Put the label below the icon normally, but flip it above when the marker
+    /// sits near the bottom edge so the caption can't hang off the map.
+    private var labelOffsetY: CGFloat {
+        let c = livePosition ?? center
+        return (c.y + 40 > contentRect.maxY) ? -26 : 26
+    }
+
     /// Converts a canvas point back to normalized (0…1) content-rect coordinates.
     private func normalized(_ point: CGPoint) -> CGPoint {
         let nx = contentRect.width > 0 ? (point.x - contentRect.minX) / contentRect.width : 0
@@ -1340,7 +1347,7 @@ private struct MapMarkerView: View {
             // Label floats below the center without shifting it (an upright
             // caption, never rotated).
             if !label.isEmpty {
-                labelView.offset(y: 26)
+                labelView.offset(y: labelOffsetY)
             }
 
             if isSelected {
