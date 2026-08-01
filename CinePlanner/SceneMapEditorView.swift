@@ -1525,17 +1525,32 @@ private struct MapMarkerView: View {
                     Circle().fill(color)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                         .frame(width: 28, height: 28)
-                    Triangle().fill(color).frame(width: 14, height: 10).offset(y: -21)
+                    // Nose triangle, with the same white outline as the head.
+                    Triangle().fill(color)
+                        .frame(width: 14, height: 10)
+                        .overlay(Triangle().stroke(.white, lineWidth: 2))
+                        .offset(y: -21)
                 }
             } else {
                 // Just the camera icon, pointing in its facing direction.
                 // `video.fill` points right by default, so a -90° base turn makes
-                // it face "up" when the marker's rotation is 0.
-                Image(systemName: "video.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(color)
-                    .rotationEffect(.degrees(-90))
-                    .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+                // it face "up" when the marker's rotation is 0. The white outline is
+                // the same glyph in white, offset all around behind the coloured one
+                // — an even stroke, not a distorted scaled-up copy.
+                ZStack {
+                    ForEach(0..<16, id: \.self) { i in
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white)
+                            .offset(x: 1.6 * cos(CGFloat(i) / 16 * 2 * .pi),
+                                    y: 1.6 * sin(CGFloat(i) / 16 * 2 * .pi))
+                    }
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(color)
+                }
+                .rotationEffect(.degrees(-90))
+                .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
             }
         }
     }
