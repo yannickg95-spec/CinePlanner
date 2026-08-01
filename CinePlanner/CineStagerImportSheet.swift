@@ -22,6 +22,16 @@ struct CineStagerImportSheet: View {
     @State private var selectedID: UUID?
     @State private var isImporting = false
     @State private var grouping: Grouping = .latest
+    /// Set when an import would overwrite an existing scene map, so we can ask
+    /// first whether to replace it or keep the current one.
+    @State private var mapConflict: PendingMapImport?
+
+    /// An import paused on the "replace the scene map?" question.
+    private struct PendingMapImport {
+        let reference: ShotReference
+        let cs: CineStagerShot
+        let cleanData: Data?
+    }
 
     /// CineStager's brand blue (#3ECFFF).
     static let cineStagerBlue = Color(red: 0.243, green: 0.812, blue: 1.0)
@@ -60,6 +70,27 @@ struct CineStagerImportSheet: View {
         }
         .frame(width: 720, height: 620)
         .task { await library.refresh() }
+        .alert("Replace scene map?", isPresented: Binding(
+            get: { mapConflict != nil },
+            set: { if !$0 { mapConflict = nil; isImporting = false } }
+        ), presenting: mapConflict) { item in
+            Button("Replace with CineStager Map", role: .destructive) {
+                Task { @MainActor in
+                    await finishImport(item.reference, from: item.cs,
+                                       cleanData: item.cleanData, replaceBackground: true)
+                }
+            }
+            Button("Keep My Scene Map", role: .cancel) {
+                Task { @MainActor in
+                    await finishImport(item.reference, from: item.cs,
+                                       cleanData: item.cleanData, replaceBackground: false)
+                }
+            }
+        } message: { _ in
+            Text("This scene already has a scene map. Replace it with the map image "
+                 + "from CineStager, or keep the one you have? The shot's camera is "
+                 + "added to the map either way.")
+        }
     }
 
     // MARK: - Header
@@ -272,11 +303,26 @@ struct CineStagerImportSheet: View {
         let reference = provideReference()
         Task { @MainActor in
             await fill(reference, from: cs)
-            await populateSceneMap(for: reference, from: cs)
-            try? reference.modelContext?.save()
-            isImporting = false
-            dismiss()
+            let cleanData = cs.hasMap ? await library.data(at: library.cleanMapURL(for: cs)) : nil
+            // If this scene already has a map and CineStager brings one, ask
+            // before overwriting it instead of silently keeping/replacing.
+            if reference.shot?.scene?.sceneMapBackgroundData != nil, cleanData != nil {
+                mapConflict = PendingMapImport(reference: reference, cs: cs, cleanData: cleanData)
+            } else {
+                await finishImport(reference, from: cs, cleanData: cleanData, replaceBackground: false)
+            }
         }
+    }
+
+    /// Adds the shot's markers to the scene map, sets the background per the
+    /// caller's choice, saves, and closes the sheet.
+    private func finishImport(_ ref: ShotReference, from cs: CineStagerShot,
+                              cleanData: Data?, replaceBackground: Bool) async {
+        await populateSceneMap(for: ref, from: cs, cleanData: cleanData, replaceBackground: replaceBackground)
+        try? ref.modelContext?.save()
+        isImporting = false
+        mapConflict = nil
+        dismiss()
     }
 
     /// Populates `ref` (and its parent shot's empty camera fields) from a
@@ -328,13 +374,14 @@ struct CineStagerImportSheet: View {
     /// Populates the parent scene's top-down map: the clean location map as the
     /// background, plus a camera marker (named for this shot) and mannequin
     /// markers read from the top-down map image's embedded coordinates.
-    private func populateSceneMap(for ref: ShotReference, from cs: CineStagerShot) async {
+    private func populateSceneMap(for ref: ShotReference, from cs: CineStagerShot,
+                                  cleanData: Data?, replaceBackground: Bool) async {
         guard let scene = ref.shot?.scene else { return }
 
-        // Background: the marker-free location map (only set if the scene doesn't
-        // already have one, so re-imports don't clobber a customized background).
-        if scene.sceneMapBackgroundData == nil,
-           let clean = await library.data(at: library.cleanMapURL(for: cs)) {
+        // Background: the marker-free location map. Set it when the scene has none,
+        // or when the user chose to replace an existing one; otherwise leave the
+        // scene's current map untouched.
+        if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
             scene.sceneMapBackgroundData = clean
         }
 
