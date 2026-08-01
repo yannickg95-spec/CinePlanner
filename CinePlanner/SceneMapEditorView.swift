@@ -1509,13 +1509,24 @@ private struct MapMarkerView: View {
                 }
                 let newPos = CGPoint(x: value.location.x + labelGrab.width,
                                      y: value.location.y + labelGrab.height)
-                liveLabelOffset = CGSize(width: newPos.x - c.x, height: newPos.y - baseY)
+                // Keep the label within a fixed radius of the marker so it can be
+                // nudged clear of an arrow but never stray far from its icon.
+                var dx = newPos.x - c.x, dy = newPos.y - c.y
+                let dist = hypot(dx, dy)
+                if dist > Self.labelMaxDistance {
+                    let scale = Self.labelMaxDistance / dist
+                    dx *= scale; dy *= scale
+                }
+                liveLabelOffset = CGSize(width: dx, height: dy - labelOffsetY)
             }
             .onEnded { _ in
                 if let offset = liveLabelOffset { onMoveLabel(offset) }
                 liveLabelOffset = nil
             }
     }
+
+    /// Farthest a label's centre may sit from its marker's centre (canvas points).
+    private static let labelMaxDistance: CGFloat = 60
 
     // The draggable icon (no rotation of its own — the parent unit rotates it).
     private var iconGraphic: some View {
