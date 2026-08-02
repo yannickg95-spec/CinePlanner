@@ -929,19 +929,30 @@ struct ProjectExporter {
                 }
                 body += "        </div>\n"          // close .media
                 body += "      </div>\n"            // close .shot-row
-                // Expanded detail rows, revealed when the shot's checkbox is on.
+                // Expanded details, revealed when the shot's checkbox is on, split
+                // into two groups: Shot setup and Camera information.
                 body += "      <div class=\"shot-body\">\n"
-                body += "        <div class=\"details\">\n"
                 if shot.details.isEmpty {
-                    body += "          <p class=\"empty\">No details.</p>\n"
+                    body += "        <p class=\"empty\">No details.</p>\n"
                 } else {
-                    body += "          <div class=\"rows\">\n"
-                    for row in shot.details {
-                        body += "            <div class=\"row\"><span class=\"k\">\(esc(row.label))</span><span class=\"v\">\(esc(row.value))</span></div>\n"
+                    let cameraLabels: Set<String> = ["Camera", "Format", "Framelines", "Lens"]
+                    let groups: [(title: String, rows: [(label: String, value: String)])] = [
+                        ("Shot setup", shot.details.filter { !cameraLabels.contains($0.label) }),
+                        ("Camera information", shot.details.filter { cameraLabels.contains($0.label) })
+                    ].filter { !$0.rows.isEmpty }
+                    body += "        <div class=\"detail-cols\">\n"
+                    for group in groups {
+                        body += "          <div class=\"detail-col\">\n"
+                        body += "            <div class=\"col-title\">\(esc(group.title))</div>\n"
+                        body += "            <div class=\"rows\">\n"
+                        for row in group.rows {
+                            body += "              <div class=\"row\"><span class=\"k\">\(esc(row.label))</span><span class=\"v\">\(esc(row.value))</span></div>\n"
+                        }
+                        body += "            </div>\n"
+                        body += "          </div>\n"
                     }
-                    body += "          </div>\n"
+                    body += "        </div>\n"          // close .detail-cols
                 }
-                body += "        </div>\n"          // close .details
                 body += "      </div>\n"            // close .shot-body
                 body += "    </div>\n"              // close .shot
             }
@@ -1153,9 +1164,21 @@ struct ProjectExporter {
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
           .details { min-width: 0; }
-          /* Multi-column rather than grid so values read top-to-bottom down one
-             column before starting the next, matching the app's shot details. */
-          .rows { column-width: 250px; column-gap: 26px; }
+          /* Expanded details split into two groups: Shot setup | Camera info.
+             Side by side with a vertical divider when there's room; stacked with
+             a horizontal divider when there isn't (e.g. on a phone). */
+          .detail-cols { display: flex; align-items: stretch; }
+          .detail-col { flex: 1 1 0; min-width: 0; }
+          .detail-col + .detail-col { border-left: 1px solid var(--line); margin-left: 24px; padding-left: 24px; }
+          .col-title { font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+                       color: var(--faint); margin-bottom: 8px; }
+          @media (max-width: 640px) {
+            .detail-cols { display: block; }
+            .detail-col + .detail-col { border-left: 0; margin-left: 0; padding-left: 0;
+                                        border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+          }
+          /* Within a group, rows read straight down one column. */
+          .rows { column-width: auto; }
           .row { display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 10px; padding: 5px 0;
                  border-bottom: 1px solid var(--line); font-size: 13px; break-inside: avoid; }
           .k { color: var(--muted); }
