@@ -210,6 +210,11 @@ final class Scene {
     @Attribute(.externalStorage)
     var sceneMapBackgroundData: Data?
 
+    /// The CineStager location model the current scene-map background came from,
+    /// so importing another shot of the same location adds its markers without
+    /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
+    var sceneMapLocation: String?
+
     /// Optional drawn floor plan (walls + doors/windows) as a JSON FloorPlan,
     /// used as the scene-map background instead of an image.
     var sceneFloorPlanJSON: String?

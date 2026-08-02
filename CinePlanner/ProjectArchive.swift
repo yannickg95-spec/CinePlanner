@@ -65,6 +65,7 @@ enum ProjectArchive {
         var pdfPageOffset: Int
         var sceneMapJSON: String?
         var sceneMapBackgroundData: Data?
+        var sceneMapLocation: String?
         var sceneFloorPlanJSON: String?
         var shots: [ShotDTO]
     }
@@ -190,6 +191,7 @@ enum ProjectArchive {
             pdfPageOffset: scene.pdfPageOffset,
             sceneMapJSON: scene.sceneMapJSON,
             sceneMapBackgroundData: scene.sceneMapBackgroundData,
+            sceneMapLocation: scene.sceneMapLocation,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO)
         )
@@ -293,6 +295,7 @@ enum ProjectArchive {
                     scene.pdfPageOffset = s.pdfPageOffset
                     scene.sceneMapJSON = s.sceneMapJSON
                     scene.sceneMapBackgroundData = s.sceneMapBackgroundData
+                    scene.sceneMapLocation = s.sceneMapLocation
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
 
                     for sh in s.shots {

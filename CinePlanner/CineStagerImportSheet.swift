@@ -304,9 +304,23 @@ struct CineStagerImportSheet: View {
         Task { @MainActor in
             await fill(reference, from: cs)
             let cleanData = cs.hasMap ? await library.data(at: library.cleanMapURL(for: cs)) : nil
-            // If this scene already has a map and CineStager brings one, ask
-            // before overwriting it instead of silently keeping/replacing.
-            if reference.shot?.scene?.sceneMapBackgroundData != nil, cleanData != nil {
+            let scene = reference.shot?.scene
+            let existingMap = scene?.sceneMapBackgroundData
+            // Same location as the scene's current map? Then it's effectively the
+            // same map (CineStager renders a fresh clean image per capture, so the
+            // bytes differ) — just add the markers, no prompt.
+            let newLocation = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
+            // Same location if the scene records it, or if another shot already on
+            // the scene was imported from the same location (covers maps set before
+            // sceneMapLocation was tracked).
+            let otherRefsSameLocation = scene?.shots
+                .flatMap { $0.references }
+                .contains { $0 !== reference && $0.mapLocationModel == newLocation } ?? false
+            let sameLocation = newLocation?.isEmpty == false
+                && (scene?.sceneMapLocation == newLocation || otherRefsSameLocation)
+            // Only ask when the scene already has a different map from a different
+            // location.
+            if let existingMap, let cleanData, existingMap != cleanData, !sameLocation {
                 mapConflict = PendingMapImport(reference: reference, cs: cs, cleanData: cleanData)
             } else {
                 await finishImport(reference, from: cs, cleanData: cleanData, replaceBackground: false)
@@ -393,6 +407,10 @@ struct CineStagerImportSheet: View {
         // scene's current map untouched.
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
             scene.sceneMapBackgroundData = clean
+            // Remember which location this map is, so another shot of the same
+            // location adds its markers without a replace prompt.
+            let loc = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
+            scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
         }
 
         // Marker coordinates live in the top-down map image's EXIF.
