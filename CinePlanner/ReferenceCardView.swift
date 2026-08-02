@@ -234,7 +234,7 @@ struct ReferenceCardView: View {
                 .frame(maxWidth: .infinity)
             } else if let data = reference.mapData, let image = NSImage(data: data) {
                 imageView(image, data: data, title: "Top Down Map", isMap: true)
-                if reference.mapMetadata.hasContent {
+                if !reference.mapMetadata.mapDisplayItems.isEmpty {
                     TopDownMetadataView(metadata: reference.mapMetadata)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

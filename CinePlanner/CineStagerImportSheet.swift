@@ -342,6 +342,16 @@ struct CineStagerImportSheet: View {
         }
         if cs.hasMap, let mapData = await library.data(at: library.mapURL(for: cs)) {
             ref.mapData = mapData
+            // Read the top-down map's own EXIF (location + camera physical size)
+            // so its metadata card is populated, the same as a dragged-in map.
+            if let m = EXIFExtractor.extractMetadata(from: mapData) {
+                ref.mapCameraPhysicalWidth = m.cameraPhysicalWidth
+                ref.mapCameraPhysicalLength = m.cameraPhysicalLength
+                ref.mapLocationModel = m.locationModel
+                ref.mapLocationWidth = m.locationWidth
+                ref.mapLocationLength = m.locationLength
+                ref.mapLocationHeight = m.locationHeight
+            }
         }
         ref.captureID = cs.captureID
         ref.mapCaptureID = cs.captureID          // same capture → "Matched" chip lights up

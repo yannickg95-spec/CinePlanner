@@ -26,6 +26,28 @@ struct PhotoMetadata {
             || locationHeight != nil
     }
 
+    /// The rows the top-down map metadata card actually shows — used both to
+    /// render it and to decide whether it's worth showing (so it never appears
+    /// empty just because, say, only a capture id came through).
+    var mapDisplayItems: [(label: String, value: String)] {
+        var rows: [(String, String)] = []
+        if let model = locationModel, !model.isEmpty { rows.append(("Location", model)) }
+        if let w = cameraPhysicalWidth, let l = cameraPhysicalLength {
+            rows.append(("Camera Size", String(format: "%.1fcm × %.1fcm", w, l)))
+        } else if let w = cameraPhysicalWidth {
+            rows.append(("Camera Width", String(format: "%.1fcm", w)))
+        } else if let l = cameraPhysicalLength {
+            rows.append(("Camera Length", String(format: "%.1fcm", l)))
+        }
+        if let w = locationWidth, let l = locationLength {
+            rows.append(("Location Dimensions", String(format: "%.2fm × %.2fm", w, l)))
+        }
+        if let h = locationHeight {
+            rows.append(("Location Height", String(format: "%.2fm", h)))
+        }
+        return rows
+    }
+
     // Camera Settings
     var cameraFamily: String?
     var cameraFormat: String?

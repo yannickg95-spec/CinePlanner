@@ -1875,18 +1875,8 @@ struct TopDownMetadataView: View {
             // are long) and they sit side by side when there's room.
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 18, alignment: .topLeading)],
                       alignment: .leading, spacing: 8) {
-                // Camera Physical Size (width x length)
-                if let width = metadata.cameraPhysicalWidth, let length = metadata.cameraPhysicalLength {
-                    stackedPair("Camera Size", String(format: "%.1fcm × %.1fcm", width, length))
-                } else if let width = metadata.cameraPhysicalWidth {
-                    stackedPair("Camera Width", String(format: "%.1fcm", width))
-                } else if let length = metadata.cameraPhysicalLength {
-                    stackedPair("Camera Length", String(format: "%.1fcm", length))
-                }
-
-                // Location Dimensions (width x length only)
-                if let width = metadata.locationWidth, let length = metadata.locationLength {
-                    stackedPair("Location Dimensions", String(format: "%.2fm × %.2fm", width, length))
+                ForEach(metadata.mapDisplayItems, id: \.label) { item in
+                    stackedPair(item.label, item.value)
                 }
             }
         }
