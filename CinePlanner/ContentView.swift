@@ -986,7 +986,7 @@ struct ShotDetailView: View {
                 .padding(.horizontal, 4)
 
             // Zoom checkbox (off = prime lens, the default)
-            Toggle("Zoom lens", isOn: Binding(
+            Toggle("Zoom", isOn: Binding(
                 get: { !shot.lensIsPrime },
                 set: { shot.lensIsPrime = !$0 }
             ))
@@ -1780,12 +1780,7 @@ struct MetadataView: View {
         }
         if let lens = metadata.lensPreset { rows.append(("Lens", lens)) }
         if let framelines = metadata.framelines, !framelines.isEmpty { rows.append(("Framelines", framelines)) }
-        if let horizon = metadata.horizon { rows.append(("Horizon", String(format: "%.1f\u{00B0}", horizon))) }
         if let tilt = metadata.tilt { rows.append(("Tilt", String(format: "%.1f\u{00B0}", tilt))) }
-        if let captureType = metadata.captureType { rows.append(("Capture", captureType)) }
-        if let date = metadata.dateTimeOriginal {
-            rows.append(("Date", DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)))
-        }
         return rows
     }
 
