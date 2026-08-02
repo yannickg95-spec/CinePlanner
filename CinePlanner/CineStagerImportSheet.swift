@@ -19,7 +19,7 @@ struct CineStagerImportSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var library = CineStagerLibrary()
-    @State private var selectedID: UUID?
+    @State private var selectedIDs: Set<UUID> = []
     @State private var isImporting = false
     @State private var grouping: Grouping = .latest
     /// Set when an import would overwrite an existing scene map, so we can ask
@@ -110,7 +110,7 @@ struct CineStagerImportSheet: View {
                         .help("Reload the library from iCloud")
                 }
             }
-            Text("Shots you framed in CineStager, synced from iCloud. Pick one to use as this reference.")
+            Text("Shots you framed in CineStager, synced from iCloud. Select one or more to add as new shots.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -177,9 +177,9 @@ struct CineStagerImportSheet: View {
     }
 
     private func cell(_ shot: CineStagerShot) -> some View {
-        let isSelected = selectedID == shot.id
+        let isSelected = selectedIDs.contains(shot.id)
         return Button {
-            selectedID = isSelected ? nil : shot.id   // single-select
+            if isSelected { selectedIDs.remove(shot.id) } else { selectedIDs.insert(shot.id) }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing) {
@@ -288,18 +288,35 @@ struct CineStagerImportSheet: View {
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("Use This Shot") { useSelected() }
+            Button(addButtonTitle) { useSelected() }
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedID == nil || isImporting)
+                .disabled(selectedIDs.isEmpty || isImporting)
         }
         .padding(16)
     }
 
     // MARK: - Import
 
+    private var addButtonTitle: String {
+        selectedIDs.count > 1 ? "Add \(selectedIDs.count) Shots" : "Add Shot"
+    }
+
     private func useSelected() {
-        guard let cs = library.shots.first(where: { $0.id == selectedID }) else { return }
+        // Oldest first, so the added shots read in capture order.
+        let selected = library.shots
+            .filter { selectedIDs.contains($0.id) }
+            .sorted { $0.timestamp < $1.timestamp }
+        guard !selected.isEmpty else { return }
         isImporting = true
+        if selected.count == 1 {
+            importOne(selected[0])
+        } else {
+            importBatch(selected)
+        }
+    }
+
+    /// Single-shot import — keeps the "replace the scene map?" prompt.
+    private func importOne(_ cs: CineStagerShot) {
         let reference = provideReference()
         Task { @MainActor in
             await fill(reference, from: cs)
@@ -310,21 +327,33 @@ struct CineStagerImportSheet: View {
             // same map (CineStager renders a fresh clean image per capture, so the
             // bytes differ) — just add the markers, no prompt.
             let newLocation = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
-            // Same location if the scene records it, or if another shot already on
-            // the scene was imported from the same location (covers maps set before
-            // sceneMapLocation was tracked).
             let otherRefsSameLocation = scene?.shots
                 .flatMap { $0.references }
                 .contains { $0 !== reference && $0.mapLocationModel == newLocation } ?? false
             let sameLocation = newLocation?.isEmpty == false
                 && (scene?.sceneMapLocation == newLocation || otherRefsSameLocation)
-            // Only ask when the scene already has a different map from a different
-            // location.
             if let existingMap, let cleanData, existingMap != cleanData, !sameLocation {
                 mapConflict = PendingMapImport(reference: reference, cs: cs, cleanData: cleanData)
             } else {
                 await finishImport(reference, from: cs, cleanData: cleanData, replaceBackground: false)
             }
+        }
+    }
+
+    /// Batch import: create a new shot for each selected CineStager shot. The
+    /// scene keeps its existing map (or takes the first one if it has none) — no
+    /// per-shot replace prompt, which would be tedious across many shots.
+    private func importBatch(_ shots: [CineStagerShot]) {
+        Task { @MainActor in
+            for cs in shots {
+                let reference = provideReference()
+                await fill(reference, from: cs)
+                let cleanData = cs.hasMap ? await library.data(at: library.cleanMapURL(for: cs)) : nil
+                await populateSceneMap(for: reference, from: cs, cleanData: cleanData, replaceBackground: false)
+                try? reference.modelContext?.save()
+            }
+            isImporting = false
+            dismiss()
         }
     }
 
