@@ -429,10 +429,9 @@ struct ProjectExporter {
         if !shot.lensPreset.isEmpty { rows.append(("Lens", shot.lensPreset)) }
         if !shot.extraInfo.isEmpty { rows.append(("Extra info", shot.extraInfo)) }
         for info in shot.orderedCustomInfo {
-            let label = info.label.trimmingCharacters(in: .whitespaces)
-            let value = info.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !label.isEmpty || !value.isEmpty else { continue }
-            rows.append((label.isEmpty ? "Custom" : label, value))
+            let value = info.exportValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            rows.append((info.exportLabel, value))
         }
         return rows
     }
@@ -2660,10 +2659,9 @@ struct ProjectExporter {
         if !shot.framelines.isEmpty { pairs.append(("Framelines", shot.framelines)) }
         if !shot.lensPreset.isEmpty { pairs.append(("Lens", shot.lensPreset)) }
         for info in shot.orderedCustomInfo {
-            let label = info.label.trimmingCharacters(in: .whitespaces)
-            let value = info.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !label.isEmpty || !value.isEmpty else { continue }
-            pairs.append((label.isEmpty ? "Custom" : label, value))
+            let value = info.exportValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            pairs.append((info.exportLabel, value))
         }
 
         let extra = shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines)

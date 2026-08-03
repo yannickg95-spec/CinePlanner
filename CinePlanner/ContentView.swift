@@ -657,6 +657,65 @@ private struct CustomInfoRow: View {
     }
 }
 
+/// Film-stock calculator field: pick a gauge, then convert length↔duration.
+private struct FilmStockRow: View {
+    @Bindable var item: ShotCustomInfo
+    let onDelete: () -> Void
+
+    private var minutesField: Binding<Int> {
+        Binding(get: { Int(item.filmAmount) / 60 },
+                set: { item.filmAmount = Double(max(0, $0) * 60 + Int(item.filmAmount) % 60) })
+    }
+    private var secondsField: Binding<Int> {
+        Binding(get: { Int(item.filmAmount) % 60 },
+                set: { item.filmAmount = Double((Int(item.filmAmount) / 60) * 60 + max(0, min(59, $0))) })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Film length")
+                    .font(.headline).frame(width: 140, alignment: .leading)
+                Spacer()
+                Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
+                    .buttonStyle(.borderless).help("Remove this field")
+            }
+            HStack(spacing: 10) {
+                Picker("", selection: $item.filmGauge) {
+                    ForEach(ShotCustomInfo.filmGauges, id: \.self) { Text("\($0)mm").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                TextField("fps", value: $item.filmFPS, format: .number)
+                    .textFieldStyle(.roundedBorder).frame(width: 52)
+                Text("fps").foregroundStyle(.secondary)
+                Picker("", selection: $item.filmMode) {
+                    Text("Length → Time").tag("meters")
+                    Text("Time → Length").tag("time")
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            HStack(spacing: 6) {
+                if item.filmMode == "meters" {
+                    TextField("Metres", value: $item.filmAmount, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 70)
+                    Text("m")
+                } else {
+                    TextField("min", value: minutesField, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 46)
+                    Text("min")
+                    TextField("sec", value: secondsField, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 46)
+                    Text("sec")
+                }
+                Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                Text(item.filmComputedText.isEmpty ? "—" : item.filmComputedText)
+                    .font(.headline).foregroundStyle(.tint)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 struct ShotDetailView: View {
     @Bindable var shot: Shot
     /// Which photo is open full size, if any.
@@ -1059,13 +1118,22 @@ struct ShotDetailView: View {
     @ViewBuilder
     private var customInfoSection: some View {
         ForEach(shot.orderedCustomInfo) { item in
-            CustomInfoRow(item: item) { deleteCustomInfo(item) }
+            if item.kind == "filmstock" {
+                FilmStockRow(item: item) { deleteCustomInfo(item) }
+            } else {
+                CustomInfoRow(item: item) { deleteCustomInfo(item) }
+            }
         }
         Menu {
             Button {
                 addCustomInfo(kind: "text")
             } label: {
                 Label("Text field with label", systemImage: "textformat")
+            }
+            Button {
+                addCustomInfo(kind: "filmstock")
+            } label: {
+                Label("Film stock calculator", systemImage: "film")
             }
         } label: {
             Label("Add Custom Info", systemImage: "plus.circle")

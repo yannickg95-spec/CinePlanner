@@ -617,10 +617,16 @@ final class ShotReference {
 final class ShotCustomInfo {
     var uid: String = UUID().uuidString
     var sortOrder: Int = 0
-    /// Field type — "text" today; future kinds (number, checkbox…) reuse this.
+    /// Field type — "text" or "filmstock"; future kinds reuse this.
     var kind: String = "text"
     var label: String = ""
     var value: String = ""
+
+    // Film-stock calculator (kind == "filmstock").
+    var filmGauge: String = "35"      // "8" | "16" | "35" | "65" (mm)
+    var filmMode: String = "meters"   // "meters" (→ duration) | "time" (→ length)
+    var filmAmount: Double = 0        // meters, or seconds when mode == "time"
+    var filmFPS: Double = 24          // capture frame rate
 
     var shot: Shot?
 
@@ -629,6 +635,66 @@ final class ShotCustomInfo {
         self.kind = kind
         self.label = label
         self.value = value
+    }
+}
+
+extension ShotCustomInfo {
+    static let filmGauges = ["8", "16", "35", "65"]
+
+    /// Frames per foot for a gauge (Super 8, 16mm, 35mm 4-perf, 65mm 5-perf).
+    static func filmFramesPerFoot(_ gauge: String) -> Double {
+        switch gauge {
+        case "8":  return 72
+        case "16": return 40
+        case "35": return 16
+        case "65": return 12.8
+        default:   return 16
+        }
+    }
+
+    /// Metres of film consumed per minute for the selected gauge and frame rate.
+    var filmMetresPerMinute: Double {
+        (filmFPS * 60 / Self.filmFramesPerFoot(filmGauge)) * 0.3048   // frames/min ÷ fr/ft · m/ft
+    }
+
+    /// The fps shown compactly (no trailing ".0" for whole rates).
+    var filmFPSString: String {
+        filmFPS == filmFPS.rounded() ? String(Int(filmFPS)) : String(format: "%g", filmFPS)
+    }
+
+    /// "M min S sec" for a duration in seconds.
+    static func filmDurationString(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        let m = total / 60, s = total % 60
+        return m > 0 ? "\(m) min \(s) sec" : "\(s) sec"
+    }
+
+    /// The complementary value: a duration when in "meters" mode, a length when
+    /// in "time" mode.
+    var filmComputedText: String {
+        let mpm = filmMetresPerMinute
+        guard mpm > 0 else { return "" }
+        if filmMode == "time" {
+            return String(format: "%.1f m", mpm * (filmAmount / 60))
+        } else {
+            return Self.filmDurationString(filmAmount / mpm * 60)
+        }
+    }
+
+    /// The label to show, with a sensible default per kind.
+    var exportLabel: String {
+        if kind == "filmstock" { return "Film length" }   // fixed, not user-editable
+        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Custom" : label
+    }
+
+    /// The value shown in exports (the computed film-stock summary, or the text).
+    var exportValue: String {
+        guard kind == "filmstock" else { return value }
+        let input = filmMode == "time"
+            ? Self.filmDurationString(filmAmount)
+            : String(format: "%.1f m", filmAmount)
+        return "\(filmGauge)mm · \(filmFPSString)fps · \(input) → \(filmComputedText)"
     }
 }
 

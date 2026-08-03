@@ -100,6 +100,10 @@ enum ProjectArchive {
         var kind: String
         var label: String
         var value: String
+        var filmGauge: String?
+        var filmMode: String?
+        var filmAmount: Double?
+        var filmFPS: Double?
     }
 
     private struct ReferenceDTO: Codable {
@@ -230,7 +234,9 @@ enum ProjectArchive {
             scriptCoverageSelections: shot.scriptCoverageSelections,
             references: shot.orderedReferences.map(referenceDTO),
             customInfo: shot.orderedCustomInfo.map {
-                CustomInfoDTO(sortOrder: $0.sortOrder, kind: $0.kind, label: $0.label, value: $0.value)
+                CustomInfoDTO(sortOrder: $0.sortOrder, kind: $0.kind, label: $0.label, value: $0.value,
+                              filmGauge: $0.filmGauge, filmMode: $0.filmMode, filmAmount: $0.filmAmount,
+                              filmFPS: $0.filmFPS)
             }
         )
     }
@@ -367,6 +373,10 @@ enum ProjectArchive {
                         for c in sh.customInfo ?? [] {
                             let info = ShotCustomInfo(sortOrder: c.sortOrder, kind: c.kind,
                                                       label: c.label, value: c.value)
+                            info.filmGauge = c.filmGauge ?? "35"
+                            info.filmMode = c.filmMode ?? "meters"
+                            info.filmAmount = c.filmAmount ?? 0
+                            info.filmFPS = c.filmFPS ?? 24
                             info.shot = shot
                         }
                     }
