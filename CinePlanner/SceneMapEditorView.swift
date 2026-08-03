@@ -28,6 +28,7 @@ struct SceneMapEditorView: View {
     @State private var selectedID: UUID?
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
+    @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
     @State private var isDrawing = false
     @State private var drawTool: DrawTool = .wall
@@ -112,6 +113,12 @@ struct SceneMapEditorView: View {
         .fileImporter(isPresented: $showingImagePicker, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result { setBackground(from: url) }
         }
+        .confirmationDialog("Clear the entire scene map?", isPresented: $showingClearAllConfirm, titleVisibility: .visible) {
+            Button("Clear Map", role: .destructive) { clearAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every marker, arrow, furniture piece, floor plan and background from this scene's map. It can't be undone.")
+        }
         .onDisappear { persist(); persistFloorPlan() }
     }
 
@@ -192,6 +199,14 @@ struct SceneMapEditorView: View {
             .fixedSize()
             Spacer()
         }
+        .overlay(alignment: .leading) {
+            Button(role: .destructive) { showingClearAllConfirm = true } label: {
+                Label("Clear Map", systemImage: "trash")
+            }
+            .padding(.leading, 16)
+            .disabled(mapIsEmpty)
+            .help("Remove everything from the scene map")
+        }
         .overlay(alignment: .trailing) {
             Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -199,6 +214,12 @@ struct SceneMapEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// True when there's nothing on the map to clear.
+    private var mapIsEmpty: Bool {
+        doc.elements.isEmpty && doc.arrows.isEmpty && doc.furniture.isEmpty
+            && floorPlan.isEmpty && backgroundImage == nil
     }
 
     private var drawToolbar: some View {
@@ -954,6 +975,23 @@ struct SceneMapEditorView: View {
         chainLastVertex = nil
         isDrawing = true
         try? scene.modelContext?.save()
+    }
+
+    /// Wipes the whole scene map — markers, arrows, furniture, floor plan and
+    /// background — back to empty.
+    private func clearAll() {
+        isDrawing = false
+        chainLastVertex = nil
+        pendingMove = nil
+        selectedID = nil; furnitureSelectedID = nil; arrowSelectedID = nil
+        wallSelectedID = nil; openingSelectedID = nil
+        doc = SceneMapDoc()
+        floorPlan = FloorPlan()
+        backgroundImage = nil
+        scene.sceneMapBackgroundData = nil
+        scene.sceneMapLocation = nil
+        persist()
+        persistFloorPlan()
     }
 
     /// Removes the background (image or floor plan). Markers keep their
