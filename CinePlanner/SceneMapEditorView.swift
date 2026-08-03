@@ -357,7 +357,7 @@ struct SceneMapEditorView: View {
     private var moveBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.up.right")
-            Text("Click on the map to place the moved marker")
+            Text("Click the map to place the marker, or an existing one to link to it")
             Button("Cancel") { pendingMove = nil }
                 .buttonStyle(.borderless)
         }
@@ -467,24 +467,48 @@ struct SceneMapEditorView: View {
         selectedID = nil
     }
 
-    /// Drops the moved marker at the click and connects it with an arrow.
+    /// Completes a move. If the click lands on an existing marker of the same
+    /// kind, the arrow connects to it; otherwise a new marker is dropped there.
     private func placeMovedMarker(at loc: CGPoint, in rect: CGRect) {
         defer { pendingMove = nil }
         guard let move = pendingMove,
               let origin = doc.elements.first(where: { $0.id == move.origin }) else { return }
-        let n = normalizedFromCanvas(loc, in: rect)
-        var moved = MapElement(kind: origin.kind, x: n.x, y: n.y)
-        moved.colorHex = origin.colorHex
-        moved.rotation = origin.rotation
-        moved.shotUID = origin.shotUID
-        moved.label = origin.label
-        doc.elements.append(moved)
-        switch move.direction {
-        case .to:   doc.arrows.append(MapArrow(fromID: origin.id, toID: moved.id))
-        case .from: doc.arrows.append(MapArrow(fromID: moved.id, toID: origin.id))
+
+        let endID: UUID
+        if let target = nearestElement(to: loc, in: rect, kind: origin.kind, excluding: origin.id) {
+            endID = target.id
+        } else {
+            let n = normalizedFromCanvas(loc, in: rect)
+            var moved = MapElement(kind: origin.kind, x: n.x, y: n.y)
+            moved.colorHex = origin.colorHex
+            moved.rotation = origin.rotation
+            moved.shotUID = origin.shotUID
+            moved.label = origin.label
+            doc.elements.append(moved)
+            endID = moved.id
         }
-        selectedID = moved.id
+
+        let (fromID, toID) = move.direction == .to ? (origin.id, endID) : (endID, origin.id)
+        // Don't add a second identical arrow if this link already exists.
+        if !doc.arrows.contains(where: { $0.fromID == fromID && $0.toID == toID }) {
+            doc.arrows.append(MapArrow(fromID: fromID, toID: toID))
+        }
+        selectedID = endID
         persist()
+    }
+
+    /// The nearest marker of `kind` within tapping distance of a canvas point,
+    /// excluding `excluding`. Used to link a move to an existing marker.
+    private func nearestElement(to loc: CGPoint, in rect: CGRect,
+                                kind: MapElement.Kind, excluding: UUID) -> MapElement? {
+        let hitRadius: CGFloat = 24
+        var best: (element: MapElement, distance: CGFloat)?
+        for element in doc.elements where element.kind == kind && element.id != excluding {
+            let c = canvasPoint(element.x, element.y, in: rect)
+            let d = hypot(c.x - loc.x, c.y - loc.y)
+            if d <= hitRadius, best == nil || d < best!.distance { best = (element, d) }
+        }
+        return best?.element
     }
 
     // MARK: Arrow pivots
