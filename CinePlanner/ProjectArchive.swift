@@ -92,6 +92,14 @@ enum ProjectArchive {
         var lensPreset: String
         var scriptCoverageSelections: [ScriptTextSelection]?
         var references: [ReferenceDTO]
+        var customInfo: [CustomInfoDTO]?
+    }
+
+    private struct CustomInfoDTO: Codable {
+        var sortOrder: Int
+        var kind: String
+        var label: String
+        var value: String
     }
 
     private struct ReferenceDTO: Codable {
@@ -220,7 +228,10 @@ enum ProjectArchive {
             framelines: shot.framelines,
             lensPreset: shot.lensPreset,
             scriptCoverageSelections: shot.scriptCoverageSelections,
-            references: shot.orderedReferences.map(referenceDTO)
+            references: shot.orderedReferences.map(referenceDTO),
+            customInfo: shot.orderedCustomInfo.map {
+                CustomInfoDTO(sortOrder: $0.sortOrder, kind: $0.kind, label: $0.label, value: $0.value)
+            }
         )
     }
 
@@ -351,6 +362,12 @@ enum ProjectArchive {
                             ref.mapLocationWidth = r.mapLocationWidth
                             ref.mapLocationLength = r.mapLocationLength
                             ref.mapLocationHeight = r.mapLocationHeight
+                        }
+
+                        for c in sh.customInfo ?? [] {
+                            let info = ShotCustomInfo(sortOrder: c.sortOrder, kind: c.kind,
+                                                      label: c.label, value: c.value)
+                            info.shot = shot
                         }
                     }
                 }

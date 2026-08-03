@@ -611,6 +611,27 @@ final class ShotReference {
     }
 }
 
+/// A user-added custom information field on a shot (a labelled text box for now;
+/// `kind` leaves room for other field types later). Shown in the Shot Setup card.
+@Model
+final class ShotCustomInfo {
+    var uid: String = UUID().uuidString
+    var sortOrder: Int = 0
+    /// Field type — "text" today; future kinds (number, checkbox…) reuse this.
+    var kind: String = "text"
+    var label: String = ""
+    var value: String = ""
+
+    var shot: Shot?
+
+    init(sortOrder: Int = 0, kind: String = "text", label: String = "", value: String = "") {
+        self.sortOrder = sortOrder
+        self.kind = kind
+        self.label = label
+        self.value = value
+    }
+}
+
 @Model
 final class Shot {
     var uid: String = UUID().uuidString
@@ -710,6 +731,17 @@ final class Shot {
 
     var orderedReferences: [ShotReference] {
         references.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    /// User-added custom info fields (labelled text boxes), shown in Shot Setup.
+    @Relationship(deleteRule: .cascade, inverse: \ShotCustomInfo.shot)
+    var customInfoStore: [ShotCustomInfo]?
+    var customInfo: [ShotCustomInfo] {
+        get { customInfoStore ?? [] }
+        set { customInfoStore = newValue }
+    }
+    var orderedCustomInfo: [ShotCustomInfo] {
+        customInfo.sorted { $0.sortOrder < $1.sortOrder }
     }
 
     var scene: Scene?

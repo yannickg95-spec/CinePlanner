@@ -428,6 +428,12 @@ struct ProjectExporter {
         if !shot.framelines.isEmpty { rows.append(("Framelines", shot.framelines)) }
         if !shot.lensPreset.isEmpty { rows.append(("Lens", shot.lensPreset)) }
         if !shot.extraInfo.isEmpty { rows.append(("Extra info", shot.extraInfo)) }
+        for info in shot.orderedCustomInfo {
+            let label = info.label.trimmingCharacters(in: .whitespaces)
+            let value = info.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty || !value.isEmpty else { continue }
+            rows.append((label.isEmpty ? "Custom" : label, value))
+        }
         return rows
     }
 
@@ -2653,6 +2659,12 @@ struct ProjectExporter {
         if !shot.format.isEmpty { pairs.append(("Format", shot.format)) }
         if !shot.framelines.isEmpty { pairs.append(("Framelines", shot.framelines)) }
         if !shot.lensPreset.isEmpty { pairs.append(("Lens", shot.lensPreset)) }
+        for info in shot.orderedCustomInfo {
+            let label = info.label.trimmingCharacters(in: .whitespaces)
+            let value = info.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty || !value.isEmpty else { continue }
+            pairs.append((label.isEmpty ? "Custom" : label, value))
+        }
 
         let extra = shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines)
         let coverage = (shot.scriptCoverageSelections ?? []).map { formatCoverageSummary($0) }

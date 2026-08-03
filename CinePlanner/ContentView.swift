@@ -632,6 +632,31 @@ struct ShotListView: View {
 
 // MARK: - Shot Detail View
 
+/// One editable custom-info field: a custom label plus its text value, with a
+/// delete button. Matches the Shot Setup card's label-column / field layout.
+private struct CustomInfoRow: View {
+    @Bindable var item: ShotCustomInfo
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            TextField("Label", text: $item.label)
+                .textFieldStyle(.roundedBorder)
+                .font(.headline)
+                .frame(width: 100, alignment: .leading)
+            TextField("Value", text: $item.value, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...10)
+                .frame(maxWidth: 200)
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove this field")
+        }
+    }
+}
+
 struct ShotDetailView: View {
     @Bindable var shot: Shot
     /// Which photo is open full size, if any.
@@ -1024,7 +1049,43 @@ struct ShotDetailView: View {
             .frame(maxWidth: 200)
     }
 
+    customInfoSection
+
     }
+    }
+
+    // User-added custom fields, listed under Extra info with an "Add Custom Info"
+    // menu (a labelled text box for now; more field types can join the menu).
+    @ViewBuilder
+    private var customInfoSection: some View {
+        ForEach(shot.orderedCustomInfo) { item in
+            CustomInfoRow(item: item) { deleteCustomInfo(item) }
+        }
+        Menu {
+            Button {
+                addCustomInfo(kind: "text")
+            } label: {
+                Label("Text field with label", systemImage: "textformat")
+            }
+        } label: {
+            Label("Add Custom Info", systemImage: "plus.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .padding(.top, 2)
+    }
+
+    private func addCustomInfo(kind: String) {
+        let next = (shot.customInfo.map(\.sortOrder).max() ?? -1) + 1
+        let item = ShotCustomInfo(sortOrder: next, kind: kind)
+        item.shot = shot
+        shotModelContext.insert(item)
+        try? shotModelContext.save()
+    }
+
+    private func deleteCustomInfo(_ item: ShotCustomInfo) {
+        shotModelContext.delete(item)
+        try? shotModelContext.save()
     }
 
     private var scriptCoverageCard: some View {
