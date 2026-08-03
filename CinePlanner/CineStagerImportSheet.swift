@@ -457,10 +457,12 @@ struct CineStagerImportSheet: View {
             doc.elements.append(element)
         }
 
-        // Add each mannequin, but skip ones that coincide with a mannequin
-        // already on the map (the same physical mannequin appearing in multiple
-        // shots). Mannequins at a different location are added as new markers.
-        let sameSpot = 0.01   // ~1% of the map
+        // Add each mannequin, but skip ones that sit on essentially the exact spot
+        // of a mannequin already on the map (the same, unmoved mannequin appearing
+        // in multiple shots — CineStager exports deterministic coordinates, so an
+        // unmoved mannequin repeats to 4 decimals). A mannequin that actually moved
+        // between shots is a different position and gets its own marker.
+        let sameSpot = 0.004   // ~0.4% of the map — "the same point", not "nearby"
         for mannequin in markers.mannequins {
             let duplicate = doc.elements.contains { element in
                 element.kind == .character
