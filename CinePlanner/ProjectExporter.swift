@@ -876,7 +876,12 @@ struct ProjectExporter {
                     body += "    <details class=\"mi mi-doc\"><summary title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
                 }
                 if !scene.filmEntries.isEmpty {
-                    body += "    <details class=\"mi mi-report\"><summary title=\"Film length report\"><span class=\"cover-thumb is-report\"><span class=\"report-glyph\">🎞</span></span><span class=\"thumb-label\">Film report</span></summary>\n"
+                    // A tiny text preview of the report, standing in for a thumbnail.
+                    var preview = "<span class=\"rp-title\">Film length</span>"
+                    for e in scene.filmEntries.prefix(6) {
+                        preview += "<span class=\"rp-line\">\(esc("\(e.shot) · \(e.format) · \(e.length)"))</span>"
+                    }
+                    body += "    <details class=\"mi mi-report\"><summary title=\"Film length report\"><span class=\"cover-thumb is-report\"><span class=\"report-preview\">\(preview)</span></span><span class=\"thumb-label\">Film report</span></summary>\n"
                     body += "      <div class=\"report-panel\"><div class=\"report-card\">\n"
                     body += "        <h3 class=\"report-title\">Film length — \(esc(scene.heading))</h3>\n"
                     body += "        <table class=\"report-table\"><thead><tr><th>Shot</th><th>Format</th><th>fps</th><th>Length</th><th>Time</th></tr></thead><tbody>\n"
@@ -1209,7 +1214,7 @@ struct ProjectExporter {
           /* Coverage thumbnail: a wide 16:9 crop of the script page's top. The
              image and its aspect ratio come from a per-scene rule (.cov-N) so the
              JPEG is embedded once, not per covered shot. */
-          .cover-thumb { display: block; width: 160px; height: 90px; border-radius: 6px;
+          .cover-thumb { display: block; width: 120px; height: 68px; border-radius: 6px;
                          border: 1px solid var(--line); background-color: #fff;
                          background-size: 100% auto; background-repeat: no-repeat; background-position: top center; }
           /* Open: a scrollable dark overlay showing the pages at a readable width;
@@ -1220,15 +1225,20 @@ struct ProjectExporter {
           .mi-doc[open] > summary .cover-thumb { width: min(1000px, 94vw); height: auto;
                                     margin: 0 auto; border: 0; border-radius: 4px;
                                     background-size: 100% auto; background-position: top center; }
-          .mi-doc > summary { width: 160px; }
+          .mi-doc > summary { width: 120px; }
           .mi-doc[open] > summary .thumb-label { display: none; }
 
           /* Film-length report: a thumbnail tile that opens an embedded stats
              panel (text, not an image). */
-          .mi-report > summary { width: 160px; }
-          .cover-thumb.is-report { display: flex; align-items: center; justify-content: center;
-                                   background: var(--chip); background-image: none; }
-          .cover-thumb.is-report .report-glyph { font-size: 34px; line-height: 1; }
+          .mi-report > summary { width: 120px; }
+          /* The report thumbnail is a tiny text preview of the report itself. */
+          .cover-thumb.is-report { background: var(--card); background-image: none;
+                                   overflow: hidden; padding: 6px 7px; }
+          .report-preview { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+          .rp-title { font-size: 7px; font-weight: 700; color: var(--text); margin-bottom: 1px;
+                      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .rp-line { font-size: 6px; line-height: 1.4; color: var(--muted); white-space: nowrap;
+                     overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
           .report-panel { display: none; }
           .mi-report[open] > summary { position: absolute; inset: 0; width: auto; cursor: zoom-out; }
           .mi-report[open] > summary .cover-thumb,
