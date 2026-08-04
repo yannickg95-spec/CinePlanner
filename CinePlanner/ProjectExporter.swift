@@ -150,7 +150,15 @@ struct ProjectExporter {
         let location: String
         let coverage: CoverageImage?   // scene's script pages with all shots' coverage
         let map: CoverageImage?        // scene's top-down blocking map
+        let filmEntries: [FilmReportEntry]   // per-shot film lengths (empty = no film tool)
+        let filmTotals: [(gauge: String, metres: String, time: String)]
+        let projectFilmTotals: [(gauge: String, metres: String, time: String)]
         let shots: [MediaShot]
+    }
+
+    /// One row of the per-scene film-length report.
+    private struct FilmReportEntry {
+        let shot: String; let format: String; let fps: String; let length: String; let time: String
     }
 
     /// Videos are the only thing that has to live beside the web page as a real
@@ -365,6 +373,12 @@ struct ProjectExporter {
     private func snapshotScenesForMedia() -> [MediaScene] {
         let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
         let sourcePDF = (version?.pdfData ?? project.scriptPDFData).flatMap { PDFDocument(data: $0) }
+        // Whole-export film totals, shared by every scene's report.
+        let projectFilmTotals = ShotCustomInfo.filmTotalsByGauge(for: ordered.flatMap { $0.shots }).map {
+            (gauge: "\($0.gauge)mm",
+             metres: ShotCustomInfo.filmMetresString($0.metres),
+             time: ShotCustomInfo.filmDurationString($0.seconds))
+        }
         return ordered.map { scene in
             let heading = "Scene \(scene.sceneNumber)\(scene.suffix)"
             var parts: [String] = [scene.isInterior ? "INT" : "EXT"]
@@ -395,6 +409,21 @@ struct ProjectExporter {
                     }
                 )
             }
+            let filmEntries: [FilmReportEntry] = scene.shots
+                .sorted { $0.shotNumber < $1.shotNumber }
+                .flatMap { shot in
+                    shot.orderedCustomInfo.filter { $0.kind == "filmstock" }.map { info in
+                        FilmReportEntry(shot: shot.displayNumber, format: "\(info.filmGauge)mm",
+                                        fps: info.filmFPSString,
+                                        length: ShotCustomInfo.filmMetresString(info.filmMetres),
+                                        time: ShotCustomInfo.filmDurationString(info.filmSeconds))
+                    }
+                }
+            let filmTotals = ShotCustomInfo.filmTotalsByGauge(for: scene.shots).map {
+                (gauge: "\($0.gauge)mm",
+                 metres: ShotCustomInfo.filmMetresString($0.metres),
+                 time: ShotCustomInfo.filmDurationString($0.seconds))
+            }
             return MediaScene(heading: heading,
                               subheading: parts.joined(separator: " · "),
                               isInterior: scene.isInterior,
@@ -402,6 +431,9 @@ struct ProjectExporter {
                               location: location,
                               coverage: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
                               map: renderSceneMap(scene: scene),
+                              filmEntries: filmEntries,
+                              filmTotals: filmTotals,
+                              projectFilmTotals: projectFilmTotals,
                               shots: shots)
         }
     }
@@ -835,13 +867,35 @@ struct ProjectExporter {
             // shot's coverage marked, and the scene's blocking map — side by side,
             // rather than repeated on each shot. Each is a <details> so it expands
             // full screen with no JavaScript (works in Quick Look).
-            if coverageClass != nil || mapClass != nil {
+            if coverageClass != nil || mapClass != nil || !scene.filmEntries.isEmpty {
                 body += "  <div class=\"scene-coverage\">\n"
                 if let cls = coverageClass {
                     body += "    <details class=\"mi mi-doc\"><summary title=\"Script with coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Script coverage</span></summary></details>\n"
                 }
                 if let cls = mapClass {
                     body += "    <details class=\"mi mi-doc\"><summary title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
+                }
+                if !scene.filmEntries.isEmpty {
+                    body += "    <details class=\"mi mi-report\"><summary title=\"Film length report\"><span class=\"cover-thumb is-report\"><span class=\"report-glyph\">🎞</span></span><span class=\"thumb-label\">Film report</span></summary>\n"
+                    body += "      <div class=\"report-panel\"><div class=\"report-card\">\n"
+                    body += "        <h3 class=\"report-title\">Film length — \(esc(scene.heading))</h3>\n"
+                    body += "        <table class=\"report-table\"><thead><tr><th>Shot</th><th>Format</th><th>fps</th><th>Length</th><th>Time</th></tr></thead><tbody>\n"
+                    for e in scene.filmEntries {
+                        body += "          <tr><td>\(esc(e.shot))</td><td>\(esc(e.format))</td><td>\(esc(e.fps))</td><td>\(esc(e.length))</td><td>\(esc(e.time))</td></tr>\n"
+                    }
+                    body += "        </tbody></table>\n"
+                    func totalsTable(_ title: String, _ totals: [(gauge: String, metres: String, time: String)]) {
+                        body += "        <div class=\"report-totals-title\">\(esc(title))</div>\n"
+                        body += "        <table class=\"report-table report-totals\"><tbody>\n"
+                        for t in totals {
+                            body += "          <tr><td>\(esc(t.gauge))</td><td>\(esc(t.metres))</td><td>\(esc(t.time))</td></tr>\n"
+                        }
+                        body += "        </tbody></table>\n"
+                    }
+                    if !scene.filmTotals.isEmpty { totalsTable("Scene totals", scene.filmTotals) }
+                    if !scene.projectFilmTotals.isEmpty { totalsTable("Project totals", scene.projectFilmTotals) }
+                    body += "      </div></div>\n"
+                    body += "    </details>\n"
                 }
                 body += "  </div>\n"
             }
@@ -1168,6 +1222,32 @@ struct ProjectExporter {
                                     background-size: 100% auto; background-position: top center; }
           .mi-doc > summary { width: 160px; }
           .mi-doc[open] > summary .thumb-label { display: none; }
+
+          /* Film-length report: a thumbnail tile that opens an embedded stats
+             panel (text, not an image). */
+          .mi-report > summary { width: 160px; }
+          .cover-thumb.is-report { display: flex; align-items: center; justify-content: center;
+                                   background: var(--chip); background-image: none; }
+          .cover-thumb.is-report .report-glyph { font-size: 34px; line-height: 1; }
+          .report-panel { display: none; }
+          .mi-report[open] > summary { position: absolute; inset: 0; width: auto; cursor: zoom-out; }
+          .mi-report[open] > summary .cover-thumb,
+          .mi-report[open] > summary .thumb-label { display: none; }
+          .mi-report[open] > .report-panel { display: block; position: relative; z-index: 1;
+                                             width: min(640px, 92vw); max-height: 88vh; overflow: auto; }
+          .report-card { background: var(--card); color: var(--text); border-radius: 12px;
+                         padding: 20px 22px; box-shadow: 0 12px 48px rgba(0,0,0,0.45); }
+          .report-title { font-size: 16px; font-weight: 700; margin: 0 0 14px; }
+          .report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+          .report-table th { text-align: left; color: var(--faint); font-weight: 600; font-size: 10px;
+                             text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 12px 5px 0;
+                             border-bottom: 1px solid var(--line-strong); }
+          .report-table td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line);
+                             font-variant-numeric: tabular-nums; }
+          .report-table td:first-child { font-weight: 600; }
+          .report-totals-title { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                                 letter-spacing: 0.5px; color: var(--faint); margin: 18px 0 6px; }
+          .report-totals td { font-weight: 600; }
           .nomedia { width: 94px; height: 66px; display: flex; align-items: center; justify-content: center;
                      color: var(--faint); border: 1px dashed var(--line-strong); border-radius: 8px; font-size: 13px; }
           .details { min-width: 0; }

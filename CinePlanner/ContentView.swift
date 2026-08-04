@@ -663,6 +663,7 @@ private struct CustomInfoRow: View {
 private struct FilmStockRow: View {
     @Bindable var item: ShotCustomInfo
     let onDelete: () -> Void
+    @State private var showTotals = false
 
     private var sceneShots: [Shot] { item.shot?.scene?.shots ?? [] }
     private var projectShots: [Shot] {
@@ -758,10 +759,31 @@ private struct FilmStockRow: View {
                 Spacer(minLength: 0)
             }
 
-            // Roll-ups across the scene and the whole project, per gauge.
+            // Roll-ups across the scene and the whole project, per gauge —
+            // collapsed by default so the card stays compact. The whole label row
+            // toggles it.
             Divider()
-            totalsSection("Scene total", ShotCustomInfo.filmTotalsByGauge(for: sceneShots))
-            totalsSection("Project total", ShotCustomInfo.filmTotalsByGauge(for: projectShots))
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showTotals.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .rotationEffect(.degrees(showTotals ? 90 : 0))
+                    Text("Scene & project totals").font(.caption)
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showTotals {
+                VStack(alignment: .leading, spacing: 6) {
+                    totalsSection("Scene total", ShotCustomInfo.filmTotalsByGauge(for: sceneShots))
+                    totalsSection("Project total", ShotCustomInfo.filmTotalsByGauge(for: projectShots))
+                }
+            }
         }
         .padding(12)
         .background(
