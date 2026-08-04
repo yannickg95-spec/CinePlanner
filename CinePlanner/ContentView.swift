@@ -659,6 +659,51 @@ private struct CustomInfoRow: View {
     }
 }
 
+/// Time-of-day field: a preset picker (dawn, dusk, golden hour…) plus a Custom
+/// option that reveals a free-text field.
+private struct ShotTimeOfDayRow: View {
+    @Bindable var item: ShotCustomInfo
+    let onDelete: () -> Void
+
+    private static let customTag = "\u{1}custom"   // sentinel that can't be a preset
+
+    private var isCustom: Bool { !ShotCustomInfo.timeOfDayPresets.contains(item.value) }
+
+    private var selection: Binding<String> {
+        Binding(
+            get: { ShotCustomInfo.timeOfDayPresets.contains(item.value) ? item.value : Self.customTag },
+            set: { newValue in
+                if newValue == Self.customTag {
+                    if ShotCustomInfo.timeOfDayPresets.contains(item.value) { item.value = "" }
+                } else {
+                    item.value = newValue
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("Time of day")
+                .font(.headline).frame(width: 100, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("", selection: selection) {
+                    ForEach(ShotCustomInfo.timeOfDayPresets, id: \.self) { Text($0).tag($0) }
+                    Divider()
+                    Text("Custom…").tag(Self.customTag)
+                }
+                .labelsHidden().fixedSize()
+                if isCustom {
+                    TextField("Describe the time of day", text: $item.value)
+                        .textFieldStyle(.roundedBorder).frame(maxWidth: 200)
+                }
+            }
+            Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
+                .buttonStyle(.borderless).help("Remove this field")
+        }
+    }
+}
+
 /// Film-stock calculator field: pick a gauge, then convert length↔duration.
 private struct FilmStockRow: View {
     @Bindable var item: ShotCustomInfo
@@ -1202,13 +1247,22 @@ struct ShotDetailView: View {
     @ViewBuilder
     private var customInfoSection: some View {
         ForEach(shot.orderedCustomInfo.filter { $0.kind != "filmstock" }) { item in
-            CustomInfoRow(item: item) { deleteCustomInfo(item) }
+            if item.kind == "timeofday" {
+                ShotTimeOfDayRow(item: item) { deleteCustomInfo(item) }
+            } else {
+                CustomInfoRow(item: item) { deleteCustomInfo(item) }
+            }
         }
         Menu {
             Button {
                 addCustomInfo(kind: "text")
             } label: {
                 Label("Text field with label", systemImage: "textformat")
+            }
+            Button {
+                addCustomInfo(kind: "timeofday")
+            } label: {
+                Label("Time of day", systemImage: "sun.horizon")
             }
             Button {
                 addFilmToolToProject()
@@ -1228,6 +1282,7 @@ struct ShotDetailView: View {
     private func addCustomInfo(kind: String) {
         let next = (shot.customInfo.map(\.sortOrder).max() ?? -1) + 1
         let item = ShotCustomInfo(sortOrder: next, kind: kind)
+        if kind == "timeofday" { item.value = ShotCustomInfo.timeOfDayPresets.first ?? "" }
         item.shot = shot
         shotModelContext.insert(item)
         try? shotModelContext.save()

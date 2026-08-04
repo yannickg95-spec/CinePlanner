@@ -642,6 +642,10 @@ final class ShotCustomInfo {
 }
 
 extension ShotCustomInfo {
+    /// Preset options for the "time of day" tool; "Custom…" lets the user type.
+    static let timeOfDayPresets = ["Dawn", "Sunrise", "Golden hour", "Day",
+                                   "Sunset", "Dusk", "Blue hour", "Night"]
+
     static let filmGauges = ["8", "16", "35-2", "35-3", "35-4", "65"]
 
     /// Maps a stored gauge to its canonical id (legacy "35" == 35mm 4-perf).
@@ -743,9 +747,13 @@ extension ShotCustomInfo {
 
     /// The label to show, with a sensible default per kind.
     var exportLabel: String {
-        if kind == "filmstock" { return "Film length" }   // fixed, not user-editable
-        let trimmed = label.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? "Custom" : label
+        switch kind {
+        case "filmstock": return "Film length"   // fixed, not user-editable
+        case "timeofday": return "Time of day"
+        default:
+            let trimmed = label.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? "Custom" : label
+        }
     }
 
     /// The value shown in exports (the computed film-stock summary, or the text).
