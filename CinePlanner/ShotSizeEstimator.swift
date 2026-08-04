@@ -35,14 +35,14 @@ enum ShotSizeEstimator {
         // person is taller than the frame (we're cropping in → closer sizes).
         let coverage = subjectHeightM * focalMM / (distanceM * sensorH)
         switch coverage {
-        case ..<0.45:      return .extremeWideShot
-        case 0.45..<0.7:   return .wideShot
-        case 0.7..<1.15:   return .longShot
-        case 1.15..<1.8:   return .mediumLongShot
-        case 1.8..<2.6:    return .mediumShot
-        case 2.6..<3.6:    return .mediumCloseUp
-        case 3.6..<5.5:    return .closeUp
-        default:           return .extremeCloseUp
+        case ..<0.45:      return .extremeWideShot   // tiny figure in the scene
+        case 0.45..<0.7:   return .wideShot          // full figure, lots of space
+        case 0.7..<1.15:   return .longShot          // full figure, head to toe
+        case 1.15..<1.8:   return .mediumLongShot    // head to knees/thighs
+        case 1.8..<2.6:    return .mediumShot        // head to waist
+        case 2.6..<4.5:    return .mediumCloseUp      // head to shoulders
+        case 4.5..<6.5:    return .closeUp            // head
+        default:           return .extremeCloseUp     // face detail
         }
     }
 
