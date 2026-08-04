@@ -49,6 +49,9 @@ struct CineStagerShot: Codable, Identifiable {
     /// older captures predate it.
     let sensorWidthMM: Double?
     let sensorHeightMM: Double?
+    /// Camera→nearest-mannequin distance (m) at capture — lets CinePlanner judge
+    /// framing without a top-down map / location model. Optional (newer captures).
+    let subjectDistanceM: Double?
 
     var isVideo: Bool { type == "video" }
     var hasMap: Bool { topDownMapFileName != nil }

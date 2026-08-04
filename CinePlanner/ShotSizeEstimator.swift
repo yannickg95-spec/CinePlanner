@@ -24,23 +24,16 @@ enum ShotSizeEstimator {
     /// length — how much of a standing person the lens frames vertically. Far
     /// more reliable than image analysis for CineStager (mannequin) shots.
     /// Uses the nearest mannequin. Nil when the geometry isn't available.
-    static func geometricEstimate(camera: CineStagerMapMetadata.Marker,
-                                  mannequins: [CineStagerMapMetadata.Marker],
-                                  focalMM: Double,
-                                  sensorHeightMM: Double? = nil) -> ShotSize? {
-        guard focalMM > 0, let cx = camera.worldX, let cz = camera.worldZ else { return nil }
-        let distance = mannequins.compactMap { m -> Double? in
-            guard let mx = m.worldX, let mz = m.worldZ else { return nil }
-            return hypot(cx - mx, cz - mz)
-        }.min()
-        guard let distance, distance > 0.2 else { return nil }
-
+    /// Shot size from an explicit camera↔subject distance + focal + sensor. This
+    /// is the core geometry; it needs no map or location model.
+    static func size(distanceM: Double, focalMM: Double, sensorHeightMM: Double? = nil) -> ShotSize? {
+        guard focalMM > 0, distanceM > 0.2 else { return nil }
         // The real sensor height drives the vertical FOV; fall back to Super 35
         // for captures made before CineStager exported it.
         let sensorH = (sensorHeightMM ?? 0) > 0 ? sensorHeightMM! : Self.sensorHeightMM
         // Subject height as a fraction of the frame's world height: >1 means the
         // person is taller than the frame (we're cropping in → closer sizes).
-        let coverage = subjectHeightM * focalMM / (distance * sensorH)
+        let coverage = subjectHeightM * focalMM / (distanceM * sensorH)
         switch coverage {
         case ..<0.45:      return .extremeWideShot
         case 0.45..<0.7:   return .wideShot
@@ -51,6 +44,21 @@ enum ShotSizeEstimator {
         case 3.6..<5.5:    return .closeUp
         default:           return .extremeCloseUp
         }
+    }
+
+    /// Same, but measuring the camera↔nearest-mannequin distance from the map's
+    /// world coordinates (used when a subject distance wasn't exported directly).
+    static func geometricEstimate(camera: CineStagerMapMetadata.Marker,
+                                  mannequins: [CineStagerMapMetadata.Marker],
+                                  focalMM: Double,
+                                  sensorHeightMM: Double? = nil) -> ShotSize? {
+        guard let cx = camera.worldX, let cz = camera.worldZ else { return nil }
+        let distance = mannequins.compactMap { m -> Double? in
+            guard let mx = m.worldX, let mz = m.worldZ else { return nil }
+            return hypot(cx - mx, cz - mz)
+        }.min()
+        guard let distance else { return nil }
+        return size(distanceM: distance, focalMM: focalMM, sensorHeightMM: sensorHeightMM)
     }
 
     /// Estimates a shot size from image bytes. Nil when it can't tell.

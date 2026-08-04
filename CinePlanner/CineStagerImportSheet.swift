@@ -404,15 +404,22 @@ struct CineStagerImportSheet: View {
         // renders; fall back to Vision on the still photo.
         if let shot = ref.shot, !shot.hasSize {
             var size: ShotSize?
-            if let focal = cs.focalLengthMM, focal > 0, let mapData,
-               let markers = CineStagerMapMetadata.markers(from: mapData),
-               let camera = markers.camera {
-                size = ShotSizeEstimator.geometricEstimate(camera: camera,
-                                                           mannequins: markers.mannequins,
-                                                           focalMM: Double(focal),
-                                                           sensorHeightMM: cs.sensorHeightMM)
+            if let focal = cs.focalLengthMM, focal > 0 {
+                // Preferred: the subject distance CineStager exports directly
+                // (works without a top-down map / location model).
+                if let dist = cs.subjectDistanceM, dist > 0 {
+                    size = ShotSizeEstimator.size(distanceM: dist, focalMM: Double(focal),
+                                                  sensorHeightMM: cs.sensorHeightMM)
+                } else if let mapData,   // fallback: measure it from the map's world coords
+                          let markers = CineStagerMapMetadata.markers(from: mapData),
+                          let camera = markers.camera {
+                    size = ShotSizeEstimator.geometricEstimate(camera: camera,
+                                                               mannequins: markers.mannequins,
+                                                               focalMM: Double(focal),
+                                                               sensorHeightMM: cs.sensorHeightMM)
+                }
             }
-            if size == nil, let img = ref.imageData {
+            if size == nil, let img = ref.imageData {   // last resort: Vision on the still
                 size = await Task.detached { ShotSizeEstimator.estimate(from: img) }.value
             }
             if let size, size != .none { shot.sizeName = size.rawValue }
