@@ -702,7 +702,7 @@ extension ShotCustomInfo {
         let input = filmMode == "time"
             ? Self.filmDurationString(filmAmount)
             : Self.filmMetresString(filmAmount)
-        return "\(filmGauge)mm · \(filmFPSString)fps · \(input) → \(filmComputedText)"
+        return "\(filmGauge)mm · \(filmFPSString)fps · \(input) / \(filmComputedText)"
     }
 }
 

@@ -1140,14 +1140,11 @@ struct ShotDetailView: View {
 
     // User-added custom fields, listed under Extra info with an "Add Custom Info"
     // menu (a labelled text box for now; more field types can join the menu).
+    // Film-length tools live in the Camera Information card (see filmToolsSection).
     @ViewBuilder
     private var customInfoSection: some View {
-        ForEach(shot.orderedCustomInfo) { item in
-            if item.kind == "filmstock" {
-                FilmStockRow(item: item) { deleteCustomInfo(item) }
-            } else {
-                CustomInfoRow(item: item) { deleteCustomInfo(item) }
-            }
+        ForEach(shot.orderedCustomInfo.filter { $0.kind != "filmstock" }) { item in
+            CustomInfoRow(item: item) { deleteCustomInfo(item) }
         }
         Menu {
             Button {
@@ -1364,7 +1361,17 @@ struct ShotDetailView: View {
                 }
             }
         }
+
+        filmToolsSection
     }
+    }
+
+    // Film-length calculator tools live here, in Camera Information.
+    @ViewBuilder
+    private var filmToolsSection: some View {
+        ForEach(shot.orderedCustomInfo.filter { $0.kind == "filmstock" }) { item in
+            FilmStockRow(item: item) { deleteCustomInfo(item) }
+        }
     }
 
     var body: some View {

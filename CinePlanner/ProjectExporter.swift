@@ -858,7 +858,9 @@ struct ProjectExporter {
 
                 // The compact row drops the wordier gear fields (camera, format,
                 // lens) and keeps the framing essentials, focal length included.
-                let inlineHidden: Set<String> = ["Camera", "Format", "Lens"]
+                // Film length gets its own always-visible chip below, so leave it
+                // out of the generic values line.
+                let inlineHidden: Set<String> = ["Camera", "Format", "Lens", "Film length"]
                 let inlineDetails = shot.details.filter { !inlineHidden.contains($0.label) }
                 let toggleID = "shot-\(shotSeq)"
                 shotSeq += 1
@@ -940,7 +942,7 @@ struct ProjectExporter {
                 if shot.details.isEmpty {
                     body += "        <p class=\"empty\">No details.</p>\n"
                 } else {
-                    let cameraLabels: Set<String> = ["Camera", "Format", "Framelines", "Lens"]
+                    let cameraLabels: Set<String> = ["Camera", "Format", "Framelines", "Lens", "Film length"]
                     let groups: [(title: String, rows: [(label: String, value: String)])] = [
                         ("Shot setup", shot.details.filter { !cameraLabels.contains($0.label) }),
                         ("Camera information", shot.details.filter { cameraLabels.contains($0.label) })
