@@ -569,6 +569,7 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         scene.shots.append(newShot)
+        newShot.applyAutoTools()
         // Start the shot with one empty reference so its card is open and ready
         // for media, rather than only an "Add Reference" button.
         let reference = ShotReference(sortOrder: 0)
@@ -590,6 +591,7 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         scene.shots.append(newShot)
+        newShot.applyAutoTools()
         let reference = ShotReference(sortOrder: 0)
         reference.shot = newShot
         newShot.references.append(reference)
@@ -1154,14 +1156,16 @@ struct ShotDetailView: View {
                 Label("Text field with label", systemImage: "textformat")
             }
             Button {
-                addCustomInfo(kind: "filmstock")
+                addFilmToolToProject()
             } label: {
-                Label("Film stock calculator", systemImage: "film")
+                Label("Film length calculator", systemImage: "film")
             }
         } label: {
-            Label("Add Custom Info", systemImage: "plus.circle")
+            Label("Add Tool", systemImage: "plus")
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .menuIndicator(.hidden)
         .fixedSize()
         .padding(.top, 2)
     }
@@ -1171,6 +1175,21 @@ struct ShotDetailView: View {
         let item = ShotCustomInfo(sortOrder: next, kind: kind)
         item.shot = shot
         shotModelContext.insert(item)
+        try? shotModelContext.save()
+    }
+
+    /// The film-length calculator is project-wide: add it to every shot that
+    /// doesn't have one and turn on auto-add for future shots.
+    private func addFilmToolToProject() {
+        guard let project = shot.scene?.project else { addCustomInfo(kind: "filmstock"); return }
+        project.autoAddFilmTool = true
+        for scene in project.scenes {
+            for s in scene.shots where !s.customInfo.contains(where: { $0.kind == "filmstock" }) {
+                let item = ShotCustomInfo(sortOrder: (s.customInfo.map(\.sortOrder).max() ?? -1) + 1,
+                                          kind: "filmstock")
+                item.shot = s
+            }
+        }
         try? shotModelContext.save()
     }
 

@@ -19,6 +19,9 @@ final class Project {
     var createdDate: Date = Date()
     var lastOpenedDate: Date?   // Updated when the editor opens; drives "last opened" in the project list
     var isSeries: Bool = false  // Series projects have multiple episodes, each with its own script + versions
+    /// When on, every shot carries a film-length calculator tool, and new shots
+    /// get one automatically. Toggled on by adding the tool from a shot.
+    var autoAddFilmTool: Bool = false
 
     // Column width preferences
     var sceneColumnWidth: Double = 300
@@ -703,6 +706,18 @@ extension ShotCustomInfo {
     }
 }
 
+extension Shot {
+    /// Adds project-wide auto tools (the film-length calculator) if the project
+    /// has them enabled and this shot doesn't already carry one. Called right
+    /// after a new shot is created.
+    func applyAutoTools() {
+        guard scene?.project?.autoAddFilmTool == true else { return }
+        guard !customInfo.contains(where: { $0.kind == "filmstock" }) else { return }
+        let item = ShotCustomInfo(sortOrder: (customInfo.map(\.sortOrder).max() ?? -1) + 1, kind: "filmstock")
+        item.shot = self
+    }
+}
+
 @Model
 final class Shot {
     var uid: String = UUID().uuidString
@@ -1018,6 +1033,15 @@ extension Shot {
 
         for reference in orderedReferences {
             let copied = reference.duplicate()
+            copied.shot = copy
+        }
+        for info in orderedCustomInfo {
+            let copied = ShotCustomInfo(sortOrder: info.sortOrder, kind: info.kind,
+                                        label: info.label, value: info.value)
+            copied.filmGauge = info.filmGauge
+            copied.filmMode = info.filmMode
+            copied.filmAmount = info.filmAmount
+            copied.filmFPS = info.filmFPS
             copied.shot = copy
         }
         copy.photo1Data = photo1Data

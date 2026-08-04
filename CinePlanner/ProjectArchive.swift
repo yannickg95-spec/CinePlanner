@@ -32,6 +32,7 @@ enum ProjectArchive {
         var scriptPDFPageOffset: Int
         var scriptSplitFraction: Double
         var episodes: [EpisodeDTO]
+        var autoAddFilmTool: Bool?
     }
 
     private struct EpisodeDTO: Codable {
@@ -162,7 +163,8 @@ enum ProjectArchive {
             isSeries: project.isSeries,
             scriptPDFPageOffset: project.scriptPDFPageOffset,
             scriptSplitFraction: project.scriptSplitFraction,
-            episodes: episodes
+            episodes: episodes,
+            autoAddFilmTool: project.autoAddFilmTool
         )
         let doc = Doc(
             format: currentFormat,
@@ -281,6 +283,7 @@ enum ProjectArchive {
         let project = Project(filmName: p.filmName, isSeries: p.isSeries, createdDate: p.createdDate)
         project.scriptPDFPageOffset = p.scriptPDFPageOffset
         project.scriptSplitFraction = p.scriptSplitFraction
+        project.autoAddFilmTool = p.autoAddFilmTool ?? false
         context.insert(project)
 
         for e in p.episodes {
