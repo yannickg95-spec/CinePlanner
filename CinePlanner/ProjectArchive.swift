@@ -376,7 +376,7 @@ enum ProjectArchive {
                             info.filmGauge = c.filmGauge ?? "35"
                             info.filmMode = c.filmMode ?? "meters"
                             info.filmAmount = c.filmAmount ?? 0
-                            info.filmFPS = c.filmFPS ?? 24
+                            info.filmFPS = c.filmFPS ?? 25
                             info.shot = shot
                         }
                     }

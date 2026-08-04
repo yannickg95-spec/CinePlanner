@@ -672,47 +672,70 @@ private struct FilmStockRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "film")
+                    .foregroundStyle(.tint)
                 Text("Film length")
-                    .font(.headline).frame(width: 140, alignment: .leading)
+                    .font(.headline)
                 Spacer()
-                Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).help("Remove this field")
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove this field")
             }
-            HStack(spacing: 10) {
+
+            // Gauge + frame rate.
+            HStack(spacing: 12) {
                 Picker("", selection: $item.filmGauge) {
                     ForEach(ShotCustomInfo.filmGauges, id: \.self) { Text("\($0)mm").tag($0) }
                 }
                 .labelsHidden().fixedSize()
-                TextField("fps", value: $item.filmFPS, format: .number)
-                    .textFieldStyle(.roundedBorder).frame(width: 52)
-                Text("fps").foregroundStyle(.secondary)
-                Picker("", selection: $item.filmMode) {
-                    Text("Length → Time").tag("meters")
-                    Text("Time → Length").tag("time")
+                HStack(spacing: 4) {
+                    TextField("fps", value: $item.filmFPS, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 52).multilineTextAlignment(.trailing)
+                    Text("fps").foregroundStyle(.secondary)
                 }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            HStack(spacing: 6) {
+
+            // Direction toggle.
+            Picker("", selection: $item.filmMode) {
+                Text("Length → Time").tag("meters")
+                Text("Time → Length").tag("time")
+            }
+            .pickerStyle(.segmented).labelsHidden()
+
+            // Input → result.
+            HStack(spacing: 8) {
                 if item.filmMode == "meters" {
-                    TextField("Metres", value: $item.filmAmount, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 70)
-                    Text("m")
+                    TextField("0", value: $item.filmAmount, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 64).multilineTextAlignment(.trailing)
+                    Text("m").foregroundStyle(.secondary)
                 } else {
-                    TextField("min", value: minutesField, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 46)
-                    Text("min")
-                    TextField("sec", value: secondsField, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 46)
-                    Text("sec")
+                    TextField("0", value: minutesField, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 44).multilineTextAlignment(.trailing)
+                    Text("min").foregroundStyle(.secondary)
+                    TextField("0", value: secondsField, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 44).multilineTextAlignment(.trailing)
+                    Text("sec").foregroundStyle(.secondary)
                 }
-                Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                Image(systemName: "equal")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 2)
                 Text(item.filmComputedText.isEmpty ? "—" : item.filmComputedText)
-                    .font(.headline).foregroundStyle(.tint)
+                    .font(.title3).fontWeight(.semibold).foregroundStyle(.tint)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: item.filmComputedText)
+                Spacer(minLength: 0)
             }
         }
-        .padding(.vertical, 2)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.06))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.18)))
+        )
+        .frame(maxWidth: 320, alignment: .leading)
     }
 }
 

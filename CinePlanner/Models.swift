@@ -626,7 +626,7 @@ final class ShotCustomInfo {
     var filmGauge: String = "35"      // "8" | "16" | "35" | "65" (mm)
     var filmMode: String = "meters"   // "meters" (→ duration) | "time" (→ length)
     var filmAmount: Double = 0        // meters, or seconds when mode == "time"
-    var filmFPS: Double = 24          // capture frame rate
+    var filmFPS: Double = 25          // capture frame rate
 
     var shot: Shot?
 
@@ -669,13 +669,18 @@ extension ShotCustomInfo {
         return m > 0 ? "\(m) min \(s) sec" : "\(s) sec"
     }
 
+    /// A length in metres without a trailing ".0".
+    static func filmMetresString(_ metres: Double) -> String {
+        metres == metres.rounded() ? "\(Int(metres)) m" : String(format: "%.1f m", metres)
+    }
+
     /// The complementary value: a duration when in "meters" mode, a length when
     /// in "time" mode.
     var filmComputedText: String {
         let mpm = filmMetresPerMinute
         guard mpm > 0 else { return "" }
         if filmMode == "time" {
-            return String(format: "%.1f m", mpm * (filmAmount / 60))
+            return Self.filmMetresString(mpm * (filmAmount / 60))
         } else {
             return Self.filmDurationString(filmAmount / mpm * 60)
         }
@@ -693,7 +698,7 @@ extension ShotCustomInfo {
         guard kind == "filmstock" else { return value }
         let input = filmMode == "time"
             ? Self.filmDurationString(filmAmount)
-            : String(format: "%.1f m", filmAmount)
+            : Self.filmMetresString(filmAmount)
         return "\(filmGauge)mm · \(filmFPSString)fps · \(input) → \(filmComputedText)"
     }
 }
