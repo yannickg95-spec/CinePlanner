@@ -46,6 +46,8 @@ struct ProjectEditorView: View {
     @State private var showingDeletePageConfirm = false
     @State private var isDeletingPage = false
     @State private var deletePageError: String?
+    @State private var isUpdatingPage = false
+    @State private var updatePageError: String?
     @State private var pageIsLive = false
 
     private var publishedURL: String? { GitHubPublisher.publishedURL(forProjectUID: project.uid) }
@@ -190,6 +192,13 @@ struct ProjectEditorView: View {
         } message: {
             Text(deletePageError ?? "")
         }
+        .alert("Couldn't update the page", isPresented: Binding(
+            get: { updatePageError != nil }, set: { if !$0 { updatePageError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(updatePageError ?? "")
+        }
     }
 
     /// Small round GitHub button next to Export — opens/updates/deletes the online page.
@@ -198,14 +207,14 @@ struct ProjectEditorView: View {
             ChipMenuItem(title: "Open Published Page", systemImage: "safari") {
                 if let u = URL(string: url) { NSWorkspace.shared.open(u) }
             },
-            ChipMenuItem(title: "Update Page", systemImage: "arrow.clockwise") { showPublishSheet = true },
+            ChipMenuItem(title: "Update Page", systemImage: "arrow.clockwise") { updatePublishedPage() },
             .divider,
             ChipMenuItem(title: "Delete Published Page", systemImage: "trash", role: .destructive) {
                 showingDeletePageConfirm = true
             },
         ], width: 230) {
             Group {
-                if isDeletingPage {
+                if isDeletingPage || isUpdatingPage {
                     ProgressView().controlSize(.small)
                 } else {
                     Image("GitHubLogo")
@@ -230,10 +239,38 @@ struct ProjectEditorView: View {
             }
             .contentShape(Circle())
         }
-        .disabled(isDeletingPage)
+        .disabled(isDeletingPage || isUpdatingPage)
         .help(pageIsLive ? "Published page is live — open, update, or delete it"
                          : "Published page — open, update, or delete it online")
         .task(id: url) { await checkPageLive(url) }
+    }
+
+    /// Re-publishes the web page in place using the saved repo + token — no sheet.
+    /// Falls back to the publish sheet if the token or repo isn't available.
+    private func updatePublishedPage() {
+        guard GitHubPublisher.hasToken,
+              let repo = GitHubPublisher.savedRepo(forProjectUID: project.uid) else {
+            showPublishSheet = true
+            return
+        }
+        isUpdatingPage = true
+        Task { @MainActor in
+            await Task.yield()   // let the spinner paint before the main-actor build
+            do {
+                let exporter = ProjectExporter(project: project, version: selectedVersion)
+                let siteDir = try await exporter.buildSiteDirectory()
+                defer { try? FileManager.default.removeItem(at: siteDir) }
+                _ = try await GitHubPublisher.publish(
+                    siteDirectory: siteDir,
+                    existingRepo: repo,
+                    projectName: project.filmName,
+                    projectUID: project.uid,
+                    onProgress: { _ in })
+            } catch {
+                updatePageError = error.localizedDescription
+            }
+            isUpdatingPage = false
+        }
     }
 
     /// Probes the published URL; the corner check shows when it responds live.
