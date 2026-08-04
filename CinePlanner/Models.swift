@@ -643,8 +643,8 @@ final class ShotCustomInfo {
 
 extension ShotCustomInfo {
     /// Preset options for the "time of day" tool; "Custom…" lets the user type.
-    static let timeOfDayPresets = ["Dawn", "Sunrise", "Golden hour", "Day",
-                                   "Sunset", "Dusk", "Blue hour", "Night"]
+    static let timeOfDayPresets = ["Dawn", "Twilight", "Sunrise", "Golden hour", "Magic hour",
+                                   "Sunny", "Overcast", "Sunset", "Dusk", "Blue hour", "Night"]
 
     static let filmGauges = ["8", "16", "35-2", "35-3", "35-4", "65"]
 

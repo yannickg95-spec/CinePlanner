@@ -1148,7 +1148,7 @@ struct ProjectExporter {
                         outline-offset: 3px; border-radius: 8px; }
           .shot-num { font-weight: 700; font-size: 13px; padding: 3px 9px; border-radius: 6px;
                       background: var(--chip); font-variant-numeric: tabular-nums; flex: none; }
-          .shot-nick { color: var(--muted); font-size: 14px; flex: none; }
+          .shot-nick { color: var(--text); font-size: 14px; font-weight: 700; flex: none; }
           .si-vals { color: var(--muted); font-size: 12.5px; white-space: nowrap;
                      overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 160px; }
           .si-empty { font-style: italic; color: var(--faint); }
