@@ -652,7 +652,7 @@ extension ShotCustomInfo {
     /// Human-readable gauge name, including 35mm perforation count.
     static func filmGaugeLabel(_ gauge: String) -> String {
         switch filmCanonicalGauge(gauge) {
-        case "8":    return "8mm"
+        case "8":    return "Super 8"
         case "16":   return "16mm"
         case "35-2": return "35mm 2-perf"
         case "35-3": return "35mm 3-perf"
