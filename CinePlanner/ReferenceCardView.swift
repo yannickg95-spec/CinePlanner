@@ -324,6 +324,15 @@ struct ReferenceCardView: View {
         reference.imageData = data
         reference.videoData = nil          // a reference holds one or the other
         reference.videoExtension = nil
+
+        // Best-effort: guess the shot size from the photo (on-device Vision),
+        // pre-filling only an empty Size that the user can override.
+        if let shot = reference.shot, !shot.hasSize {
+            Task { @MainActor in
+                let guess = await Task.detached { ShotSizeEstimator.estimate(from: data) }.value
+                if let guess, guess != .none, !shot.hasSize { shot.sizeName = guess.rawValue }
+            }
+        }
         if let metadata {
             reference.cameraFamily = metadata.cameraFamily
             reference.cameraFormat = metadata.cameraFormat

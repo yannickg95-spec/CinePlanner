@@ -381,6 +381,12 @@ struct CineStagerImportSheet: View {
                 ref.imageData = media
                 ref.videoData = nil
                 ref.videoExtension = nil
+                // Best-effort: guess the shot size from the still (on-device
+                // Vision), but only pre-fill an empty Size — the user can change it.
+                if let shot = ref.shot, !shot.hasSize {
+                    let guess = await Task.detached { ShotSizeEstimator.estimate(from: media) }.value
+                    if let guess, guess != .none { shot.sizeName = guess.rawValue }
+                }
             }
         }
         if cs.hasMap, let mapData = await library.data(at: library.mapURL(for: cs)) {
