@@ -860,7 +860,7 @@ struct ProjectExporter {
                 // lens) and keeps the framing essentials, focal length included.
                 // Film length gets its own always-visible chip below, so leave it
                 // out of the generic values line.
-                let inlineHidden: Set<String> = ["Camera", "Format", "Lens", "Film length"]
+                let inlineHidden: Set<String> = ["Camera", "Format", "Lens", "Framelines", "Film length"]
                 let inlineDetails = shot.details.filter { !inlineHidden.contains($0.label) }
                 let toggleID = "shot-\(shotSeq)"
                 shotSeq += 1

@@ -664,6 +664,33 @@ private struct FilmStockRow: View {
     @Bindable var item: ShotCustomInfo
     let onDelete: () -> Void
 
+    private var sceneShots: [Shot] { item.shot?.scene?.shots ?? [] }
+    private var projectShots: [Shot] {
+        item.shot?.scene?.project?.scenes.flatMap { $0.shots } ?? sceneShots
+    }
+
+    @ViewBuilder
+    private func totalsSection(_ title: String,
+                              _ totals: [(gauge: String, metres: Double, seconds: Double)]) -> some View {
+        HStack {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            if totals.isEmpty {
+                Text("—").font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        ForEach(totals, id: \.gauge) { t in
+            HStack {
+                Text("\(t.gauge)mm")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 40, alignment: .leading)
+                Spacer()
+                Text("\(ShotCustomInfo.filmMetresString(t.metres)) · \(ShotCustomInfo.filmDurationString(t.seconds))")
+                    .font(.subheadline).fontWeight(.medium).monospacedDigit()
+            }
+        }
+    }
+
     private var minutesField: Binding<Int> {
         Binding(get: { Int(item.filmAmount) / 60 },
                 set: { item.filmAmount = Double(max(0, $0) * 60 + Int(item.filmAmount) % 60) })
@@ -730,6 +757,11 @@ private struct FilmStockRow: View {
                     .animation(.default, value: item.filmComputedText)
                 Spacer(minLength: 0)
             }
+
+            // Roll-ups across the scene and the whole project, per gauge.
+            Divider()
+            totalsSection("Scene total", ShotCustomInfo.filmTotalsByGauge(for: sceneShots))
+            totalsSection("Project total", ShotCustomInfo.filmTotalsByGauge(for: projectShots))
         }
         .padding(12)
         .background(

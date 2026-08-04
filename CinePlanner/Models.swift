@@ -677,6 +677,36 @@ extension ShotCustomInfo {
         metres == metres.rounded() ? "\(Int(metres)) m" : String(format: "%.1f m", metres)
     }
 
+    /// This tool's film length in metres, whichever way it was entered.
+    var filmMetres: Double {
+        let mpm = filmMetresPerMinute
+        guard mpm > 0 else { return 0 }
+        return filmMode == "time" ? mpm * (filmAmount / 60) : filmAmount
+    }
+
+    /// This tool's running time in seconds, whichever way it was entered.
+    var filmSeconds: Double {
+        let mpm = filmMetresPerMinute
+        guard mpm > 0 else { return 0 }
+        return filmMode == "time" ? filmAmount : filmAmount / mpm * 60
+    }
+
+    /// Film-length totals across the given shots, grouped by gauge (metres of
+    /// different gauges are different stock, so they're never added together).
+    /// Ordered 8→16→35→65; only gauges actually used are included.
+    static func filmTotalsByGauge(for shots: [Shot]) -> [(gauge: String, metres: Double, seconds: Double)] {
+        var byGauge: [String: (metres: Double, seconds: Double)] = [:]
+        for shot in shots {
+            for info in shot.customInfo where info.kind == "filmstock" {
+                var t = byGauge[info.filmGauge] ?? (0, 0)
+                t.metres += info.filmMetres
+                t.seconds += info.filmSeconds
+                byGauge[info.filmGauge] = t
+            }
+        }
+        return filmGauges.compactMap { g in byGauge[g].map { (g, $0.metres, $0.seconds) } }
+    }
+
     /// The complementary value: a duration when in "meters" mode, a length when
     /// in "time" mode.
     var filmComputedText: String {
