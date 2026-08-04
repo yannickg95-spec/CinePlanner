@@ -682,9 +682,9 @@ private struct FilmStockRow: View {
         }
         ForEach(totals, id: \.gauge) { t in
             HStack {
-                Text("\(t.gauge)mm")
+                Text(ShotCustomInfo.filmGaugeLabel(t.gauge))
                     .font(.caption).foregroundStyle(.secondary)
-                    .frame(width: 40, alignment: .leading)
+                    .frame(width: 84, alignment: .leading)
                 Spacer()
                 Text("\(ShotCustomInfo.filmMetresString(t.metres)) · \(ShotCustomInfo.filmDurationString(t.seconds))")
                     .font(.subheadline).fontWeight(.medium).monospacedDigit()
@@ -718,7 +718,7 @@ private struct FilmStockRow: View {
             // Gauge + frame rate.
             HStack(spacing: 12) {
                 Picker("", selection: $item.filmGauge) {
-                    ForEach(ShotCustomInfo.filmGauges, id: \.self) { Text("\($0)mm").tag($0) }
+                    ForEach(ShotCustomInfo.filmGauges, id: \.self) { Text(ShotCustomInfo.filmGaugeLabel($0)).tag($0) }
                 }
                 .labelsHidden().fixedSize()
                 HStack(spacing: 4) {
@@ -791,7 +791,11 @@ private struct FilmStockRow: View {
                 .fill(Color.secondary.opacity(0.06))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.18)))
         )
-        .frame(maxWidth: 320, alignment: .leading)
+        .frame(maxWidth: 340, alignment: .leading)
+        .onAppear {
+            // Migrate the old generic "35" to explicit 4-perf so the picker matches.
+            if item.filmGauge == "35" { item.filmGauge = "35-4" }
+        }
     }
 }
 

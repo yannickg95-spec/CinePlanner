@@ -626,7 +626,7 @@ final class ShotCustomInfo {
     var value: String = ""
 
     // Film-stock calculator (kind == "filmstock").
-    var filmGauge: String = "35"      // "8" | "16" | "35" | "65" (mm)
+    var filmGauge: String = "35-4"    // "8" | "16" | "35-2" | "35-3" | "35-4" | "65"
     var filmMode: String = "meters"   // "meters" (→ duration) | "time" (→ length)
     var filmAmount: Double = 0        // meters, or seconds when mode == "time"
     var filmFPS: Double = 25          // capture frame rate
@@ -642,16 +642,37 @@ final class ShotCustomInfo {
 }
 
 extension ShotCustomInfo {
-    static let filmGauges = ["8", "16", "35", "65"]
+    static let filmGauges = ["8", "16", "35-2", "35-3", "35-4", "65"]
 
-    /// Frames per foot for a gauge (Super 8, 16mm, 35mm 4-perf, 65mm 5-perf).
+    /// Maps a stored gauge to its canonical id (legacy "35" == 35mm 4-perf).
+    static func filmCanonicalGauge(_ gauge: String) -> String {
+        gauge == "35" ? "35-4" : gauge
+    }
+
+    /// Human-readable gauge name, including 35mm perforation count.
+    static func filmGaugeLabel(_ gauge: String) -> String {
+        switch filmCanonicalGauge(gauge) {
+        case "8":    return "8mm"
+        case "16":   return "16mm"
+        case "35-2": return "35mm 2-perf"
+        case "35-3": return "35mm 3-perf"
+        case "35-4": return "35mm 4-perf"
+        case "65":   return "65mm"
+        default:     return "\(gauge)mm"
+        }
+    }
+
+    /// Frames per foot. 35mm depends on perfs/frame: 2-perf 32, 3-perf ~21.3,
+    /// 4-perf 16 (Super 8 72, 16mm 40, 65mm 5-perf 12.8).
     static func filmFramesPerFoot(_ gauge: String) -> Double {
-        switch gauge {
-        case "8":  return 72
-        case "16": return 40
-        case "35": return 16
-        case "65": return 12.8
-        default:   return 16
+        switch filmCanonicalGauge(gauge) {
+        case "8":    return 72
+        case "16":   return 40
+        case "35-2": return 32
+        case "35-3": return 64.0 / 3.0   // 21.33
+        case "35-4": return 16
+        case "65":   return 12.8
+        default:     return 16
         }
     }
 
@@ -698,10 +719,11 @@ extension ShotCustomInfo {
         var byGauge: [String: (metres: Double, seconds: Double)] = [:]
         for shot in shots {
             for info in shot.customInfo where info.kind == "filmstock" {
-                var t = byGauge[info.filmGauge] ?? (0, 0)
+                let key = filmCanonicalGauge(info.filmGauge)
+                var t = byGauge[key] ?? (0, 0)
                 t.metres += info.filmMetres
                 t.seconds += info.filmSeconds
-                byGauge[info.filmGauge] = t
+                byGauge[key] = t
             }
         }
         return filmGauges.compactMap { g in byGauge[g].map { (g, $0.metres, $0.seconds) } }
@@ -732,7 +754,7 @@ extension ShotCustomInfo {
         let input = filmMode == "time"
             ? Self.filmDurationString(filmAmount)
             : Self.filmMetresString(filmAmount)
-        return "\(filmGauge)mm · \(filmFPSString)fps · \(input) / \(filmComputedText)"
+        return "\(Self.filmGaugeLabel(filmGauge)) · \(filmFPSString)fps · \(input) / \(filmComputedText)"
     }
 }
 

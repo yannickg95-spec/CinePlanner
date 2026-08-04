@@ -375,7 +375,7 @@ struct ProjectExporter {
         let sourcePDF = (version?.pdfData ?? project.scriptPDFData).flatMap { PDFDocument(data: $0) }
         // Whole-export film totals, shared by every scene's report.
         let projectFilmTotals = ShotCustomInfo.filmTotalsByGauge(for: ordered.flatMap { $0.shots }).map {
-            (gauge: "\($0.gauge)mm",
+            (gauge: ShotCustomInfo.filmGaugeLabel($0.gauge),
              metres: ShotCustomInfo.filmMetresString($0.metres),
              time: ShotCustomInfo.filmDurationString($0.seconds))
         }
@@ -413,14 +413,14 @@ struct ProjectExporter {
                 .sorted { $0.shotNumber < $1.shotNumber }
                 .flatMap { shot in
                     shot.orderedCustomInfo.filter { $0.kind == "filmstock" }.map { info in
-                        FilmReportEntry(shot: shot.displayNumber, format: "\(info.filmGauge)mm",
+                        FilmReportEntry(shot: shot.displayNumber, format: ShotCustomInfo.filmGaugeLabel(info.filmGauge),
                                         fps: info.filmFPSString,
                                         length: ShotCustomInfo.filmMetresString(info.filmMetres),
                                         time: ShotCustomInfo.filmDurationString(info.filmSeconds))
                     }
                 }
             let filmTotals = ShotCustomInfo.filmTotalsByGauge(for: scene.shots).map {
-                (gauge: "\($0.gauge)mm",
+                (gauge: ShotCustomInfo.filmGaugeLabel($0.gauge),
                  metres: ShotCustomInfo.filmMetresString($0.metres),
                  time: ShotCustomInfo.filmDurationString($0.seconds))
             }
