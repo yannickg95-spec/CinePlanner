@@ -25,6 +25,10 @@ enum CineStagerMapMetadata {
         var u: Double
         var v: Double
         var rotationDeg: Double?
+        /// World position in metres (X, Z) when CineStager embedded it — used to
+        /// measure the camera↔subject distance for a shot-size estimate.
+        var worldX: Double?
+        var worldZ: Double?
     }
 
     struct Markers: Equatable {
@@ -50,10 +54,14 @@ enum CineStagerMapMetadata {
         var markers = Markers()
         if let camera = fields["CameraMap2D"], var point = parsePoints(camera).first {
             point.rotationDeg = fields["CameraMapRot"].flatMap { Double($0) }
+            if let world = parseWorld(fields["CameraWorldXZ"]).first {
+                point.worldX = world.0; point.worldZ = world.1
+            }
             markers.camera = point
         }
         if let manns = fields["MannequinsMap2D"] {
-            markers.mannequins = applyRotations(parsePoints(manns), fields["MannequinsMapRot"])
+            markers.mannequins = applyWorld(applyRotations(parsePoints(manns), fields["MannequinsMapRot"]),
+                                            fields["MannequinsWorldXZ"])
         }
         if let actors = fields["ActorsMap2D"] {
             markers.actors = applyRotations(parsePoints(actors), fields["ActorsMapRot"])
@@ -67,6 +75,26 @@ enum CineStagerMapMetadata {
             let xy = pair.components(separatedBy: ",")
             guard xy.count == 2, let u = Double(xy[0]), let v = Double(xy[1]) else { return nil }
             return Marker(u: u, v: v, rotationDeg: nil)
+        }
+    }
+
+    /// "x,z;x,z" → [(x, z)]. Skips malformed entries.
+    private static func parseWorld(_ raw: String?) -> [(Double, Double)] {
+        guard let raw else { return [] }
+        return raw.components(separatedBy: ";").compactMap { pair in
+            let xz = pair.components(separatedBy: ",")
+            guard xz.count == 2, let x = Double(xz[0]), let z = Double(xz[1]) else { return nil }
+            return (x, z)
+        }
+    }
+
+    /// Attaches per-marker world positions ("x,z;x,z;…", index-aligned).
+    private static func applyWorld(_ points: [Marker], _ raw: String?) -> [Marker] {
+        let world = parseWorld(raw)
+        return points.enumerated().map { index, point in
+            var marker = point
+            if index < world.count { marker.worldX = world[index].0; marker.worldZ = world[index].1 }
+            return marker
         }
     }
 

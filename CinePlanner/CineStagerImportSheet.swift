@@ -381,19 +381,15 @@ struct CineStagerImportSheet: View {
                 ref.imageData = media
                 ref.videoData = nil
                 ref.videoExtension = nil
-                // Best-effort: guess the shot size from the still (on-device
-                // Vision), but only pre-fill an empty Size — the user can change it.
-                if let shot = ref.shot, !shot.hasSize {
-                    let guess = await Task.detached { ShotSizeEstimator.estimate(from: media) }.value
-                    if let guess, guess != .none { shot.sizeName = guess.rawValue }
-                }
             }
         }
-        if cs.hasMap, let mapData = await library.data(at: library.mapURL(for: cs)) {
-            ref.mapData = mapData
+        var mapData: Data?
+        if cs.hasMap, let data = await library.data(at: library.mapURL(for: cs)) {
+            mapData = data
+            ref.mapData = data
             // Read the top-down map's own EXIF (location + camera physical size)
             // so its metadata card is populated, the same as a dragged-in map.
-            if let m = EXIFExtractor.extractMetadata(from: mapData) {
+            if let m = EXIFExtractor.extractMetadata(from: data) {
                 ref.mapCameraPhysicalWidth = m.cameraPhysicalWidth
                 ref.mapCameraPhysicalLength = m.cameraPhysicalLength
                 ref.mapLocationModel = m.locationModel
@@ -402,6 +398,26 @@ struct CineStagerImportSheet: View {
                 ref.mapLocationHeight = m.locationHeight
             }
         }
+
+        // Guess the shot size when it has none: prefer the geometric estimate
+        // (camera↔mannequin distance + focal length), reliable even for mannequin
+        // renders; fall back to Vision on the still photo.
+        if let shot = ref.shot, !shot.hasSize {
+            var size: ShotSize?
+            if let focal = cs.focalLengthMM, focal > 0, let mapData,
+               let markers = CineStagerMapMetadata.markers(from: mapData),
+               let camera = markers.camera {
+                size = ShotSizeEstimator.geometricEstimate(camera: camera,
+                                                           mannequins: markers.mannequins,
+                                                           focalMM: Double(focal),
+                                                           sensorHeightMM: cs.sensorHeightMM)
+            }
+            if size == nil, let img = ref.imageData {
+                size = await Task.detached { ShotSizeEstimator.estimate(from: img) }.value
+            }
+            if let size, size != .none { shot.sizeName = size.rawValue }
+        }
+
         ref.captureID = cs.captureID
         ref.mapCaptureID = cs.captureID          // same capture → "Matched" chip lights up
         ref.cameraFamily = cs.cameraFamily

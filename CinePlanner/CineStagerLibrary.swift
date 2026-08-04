@@ -45,6 +45,10 @@ struct CineStagerShot: Codable, Identifiable {
     let heightCM: Double?
     let locationModelName: String?
     let durationSeconds: Double?
+    /// Active sensor size (mm) of the format the shot was framed on. Optional —
+    /// older captures predate it.
+    let sensorWidthMM: Double?
+    let sensorHeightMM: Double?
 
     var isVideo: Bool { type == "video" }
     var hasMap: Bool { topDownMapFileName != nil }

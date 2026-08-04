@@ -16,6 +16,43 @@ import ImageIO
 
 enum ShotSizeEstimator {
 
+    // Assumptions for the geometric estimate. Coarse buckets tolerate the slack.
+    private static let subjectHeightM = 1.75      // a standing person
+    private static let sensorHeightMM = 14.0      // Super 35, ~16:9 frame height
+
+    /// Geometric shot-size guess from the camera↔subject distance and focal
+    /// length — how much of a standing person the lens frames vertically. Far
+    /// more reliable than image analysis for CineStager (mannequin) shots.
+    /// Uses the nearest mannequin. Nil when the geometry isn't available.
+    static func geometricEstimate(camera: CineStagerMapMetadata.Marker,
+                                  mannequins: [CineStagerMapMetadata.Marker],
+                                  focalMM: Double,
+                                  sensorHeightMM: Double? = nil) -> ShotSize? {
+        guard focalMM > 0, let cx = camera.worldX, let cz = camera.worldZ else { return nil }
+        let distance = mannequins.compactMap { m -> Double? in
+            guard let mx = m.worldX, let mz = m.worldZ else { return nil }
+            return hypot(cx - mx, cz - mz)
+        }.min()
+        guard let distance, distance > 0.2 else { return nil }
+
+        // The real sensor height drives the vertical FOV; fall back to Super 35
+        // for captures made before CineStager exported it.
+        let sensorH = (sensorHeightMM ?? 0) > 0 ? sensorHeightMM! : Self.sensorHeightMM
+        // Subject height as a fraction of the frame's world height: >1 means the
+        // person is taller than the frame (we're cropping in → closer sizes).
+        let coverage = subjectHeightM * focalMM / (distance * sensorH)
+        switch coverage {
+        case ..<0.45:      return .extremeWideShot
+        case 0.45..<0.7:   return .wideShot
+        case 0.7..<1.15:   return .longShot
+        case 1.15..<1.8:   return .mediumLongShot
+        case 1.8..<2.6:    return .mediumShot
+        case 2.6..<3.6:    return .mediumCloseUp
+        case 3.6..<5.5:    return .closeUp
+        default:           return .extremeCloseUp
+        }
+    }
+
     /// Estimates a shot size from image bytes. Nil when it can't tell.
     static func estimate(from imageData: Data) -> ShotSize? {
         guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
