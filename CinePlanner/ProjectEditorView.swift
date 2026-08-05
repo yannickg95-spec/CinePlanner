@@ -36,6 +36,8 @@ struct ProjectEditorView: View {
     @State private var pendingShotDeletion: [Shot] = []
 
     // Episodes & script versioning
+    /// The scene whose script page the user is currently placing in the PDF, if any.
+    @State private var sceneBeingMarked: Scene?
     @State private var selectedEpisode: Episode?
     @State private var selectedVersion: ScriptVersion?
     @State private var showCopyShotsPrompt = false
@@ -82,6 +84,22 @@ struct ProjectEditorView: View {
     private var selectedShot: Shot? {
         guard let scene = selectedScene else { return nil }
         return scene.shots.sorted { $0.shotNumber < $1.shotNumber }.first { selectedShots.contains($0.uid) }
+    }
+
+    /// Whether a script PDF exists to place scenes against.
+    private var hasScriptPDF: Bool {
+        (selectedVersion?.pdfData ?? project.scriptPDFData) != nil
+    }
+
+    /// Records the page the user scrolled to as the scene's script page. The stored
+    /// value is scene-relative (offset from the first scene's page), matching how
+    /// `Scene.absolutePDFPage` reconstructs it.
+    private func finishMarkingScenePage(atPageIndex pageIndex: Int) {
+        defer { sceneBeingMarked = nil }
+        guard let scene = sceneBeingMarked else { return }
+        let offset = selectedVersion?.pdfPageOffset ?? project.resolvedPDFPageOffset
+        scene.scriptPageNumber = max(1, pageIndex - offset + 1)
+        try? modelContext.save()
     }
     
     var body: some View {
@@ -660,7 +678,12 @@ struct ProjectEditorView: View {
                 canImportShots: !otherVersionsWithShots.isEmpty,
                 onEditScene: { sceneToEdit = $0 },
                 onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
-                onDeleteScenes: { pendingSceneDeletion = $0 }
+                onDeleteScenes: { pendingSceneDeletion = $0 },
+                onSceneAdded: { scene in
+                    // With a script loaded, let the user place the scene's page by
+                    // scrolling the PDF; otherwise the scene is just added.
+                    if hasScriptPDF { sceneBeingMarked = scene }
+                }
             )
             .frame(width: Self.sideColumnWidth)
             .clipped()
@@ -740,7 +763,11 @@ struct ProjectEditorView: View {
                         showCopyShotsPrompt = true
                     }
                 },
-                requestImport: $requestScriptImport
+                requestImport: $requestScriptImport,
+                isMarkingScenePage: sceneBeingMarked != nil,
+                markingSceneLabel: sceneBeingMarked.map { "\($0.sceneNumber)\($0.suffix)" } ?? "",
+                onFinishMarking: { finishMarkingScenePage(atPageIndex: $0) },
+                onCancelMarking: { sceneBeingMarked = nil }
             )
             .frame(minWidth: Self.paneMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
             .clipped()

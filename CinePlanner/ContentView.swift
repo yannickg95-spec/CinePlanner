@@ -38,6 +38,9 @@ struct SceneListView: View {
     var onEditScene: ((Scene) -> Void)? = nil
     var onImportShots: ((Scene) -> Void)? = nil
     var onDeleteScenes: (([Scene]) -> Void)? = nil
+    /// Called with the freshly created scene so the editor can prompt the user to
+    /// place its script page.
+    var onSceneAdded: ((Scene) -> Void)? = nil
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
 
@@ -319,13 +322,14 @@ struct SceneListView: View {
 
         // Add to project
         project.scenes.append(newScene)
-        
+
         // Update sortOrder for old scenes to come after all current scenes (including the new one)
         for (index, oldScene) in oldScenes.enumerated() {
             oldScene.sortOrder = currentScenesCount + 1 + index
         }
-        
+
         selectedScenes = [newScene.uid]
+        onSceneAdded?(newScene)
     }
 
     private func deleteScenes(at offsets: IndexSet, from sceneList: [Scene]) {

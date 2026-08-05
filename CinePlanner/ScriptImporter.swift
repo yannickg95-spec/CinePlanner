@@ -865,6 +865,12 @@ struct ScriptPDFViewer: View {
     let selectedShot: Shot? // Currently selected shot for coverage display
     var onScenesImported: ((ScriptImportResult) -> Void)? = nil
     var requestImport: Binding<Bool>? = nil // Parent sets true to auto-open the import prompt
+    /// When true, a banner asks the user to scroll to the new scene's start and
+    /// tap Done; the current page is then reported back via `onFinishMarking`.
+    var isMarkingScenePage: Bool = false
+    var markingSceneLabel: String = ""
+    var onFinishMarking: ((Int) -> Void)? = nil
+    var onCancelMarking: (() -> Void)? = nil
 
     @State private var isImporting = false
     @State private var showError = false
@@ -873,9 +879,48 @@ struct ScriptPDFViewer: View {
     @State private var showImportOptions = false
     @State private var autoLoadScenes = false
     @State private var showRemoveConfirmation = false
+    @State private var currentPageIndex = 0
 
     private var currentPDFData: Data? {
         version?.pdfData ?? project.scriptPDFData
+    }
+
+    /// Prompt shown while placing a new scene: scroll to its first page, tap Done.
+    /// Rendered as a bold, full-width call-to-action so it can't be mistaken for a
+    /// passive label — the user must act (scroll, then Done).
+    private var markingBanner: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "hand.point.up.left.fill")
+                .font(.title2)
+                .symbolEffect(.pulse, options: .repeating)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Placing Scene \(markingSceneLabel)")
+                    .font(.headline)
+                Text("Scroll the script to where this scene begins, then tap Done.")
+                    .font(.subheadline)
+                    .opacity(0.9)
+            }
+            Spacer(minLength: 8)
+            Button("Cancel") { onCancelMarking?() }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.white)
+            Button {
+                onFinishMarking?(currentPageIndex)
+            } label: {
+                Text("Done").fontWeight(.semibold)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.white)
+            .foregroundStyle(Color.blue)
+            .keyboardShortcut(.defaultAction)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.blue)
     }
 
     var body: some View {
@@ -935,9 +980,14 @@ struct ScriptPDFViewer: View {
                         .padding(.horizontal, 12)
                         .frame(height: ProjectEditorView.paneHeaderHeight)
                         .background(Color(nsColor: .controlBackgroundColor))
-                    
+
                     Divider()
-                    
+
+                    if isMarkingScenePage {
+                        markingBanner
+                        Divider()
+                    }
+
                     // PDF Content
                     PDFContentView(
                         pdfData: currentPDFData,
@@ -946,7 +996,8 @@ struct ScriptPDFViewer: View {
                         selectedShot: selectedShot,
                         project: project,
                         version: version,
-                        cachedDocument: $cachedPDFDocument
+                        cachedDocument: $cachedPDFDocument,
+                        currentPageIndex: $currentPageIndex
                     )
                     .clipped()
                 }
@@ -1119,6 +1170,7 @@ private struct PDFContentView: View {
     let project: Project
     let version: ScriptVersion?
     @Binding var cachedDocument: PDFDocument?
+    @Binding var currentPageIndex: Int
 
     var body: some View {
         Group {
@@ -1130,7 +1182,8 @@ private struct PDFContentView: View {
                         sceneToAlign: sceneToAlign,
                         selectedShot: selectedShot,
                         project: project,
-                        version: version
+                        version: version,
+                        currentPageIndex: $currentPageIndex
                     )
                 } else {
                     Color.clear
@@ -1161,6 +1214,9 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
     let selectedShot: Shot? // Currently selected shot
     let project: Project // Need project to get all shots for vertical lines
     let version: ScriptVersion? // Scope coverage lines to this script version's scenes
+    /// The page the user is currently looking at (0-based). Reported upward so the
+    /// editor can capture it when placing a new scene's script page.
+    @Binding var currentPageIndex: Int
 
     /// Scrolls so the scene's heading is at the top of the visible area, rather
     /// than just showing the page it happens to be on. Falls back to the top of
@@ -1293,8 +1349,11 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             forName: Notification.Name.PDFViewPageChanged,
             object: pdfView,
             queue: .main
-        ) { _ in
+        ) { [weak coordinator = context.coordinator] _ in
             overlayView.needsDisplay = true
+            if let page = pdfView.currentPage, let idx = pdfView.document?.index(for: page) {
+                coordinator?.onPageChange?(idx)
+            }
         }
         
         // Enable scroll notifications
@@ -1340,7 +1399,12 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
     
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let pdfView = context.coordinator.pdfView else { return }
-        
+
+        // Keep the "current page" report wired to the latest binding.
+        context.coordinator.onPageChange = { idx in
+            if currentPageIndex != idx { currentPageIndex = idx }
+        }
+
         // Update document if it changed
         if pdfView.document !== document {
             pdfView.document = document
@@ -1397,6 +1461,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         var scrollObserver: NSObjectProtocol?
         var pageChangeObserver: NSObjectProtocol?
         var scaleChangeObserver: NSObjectProtocol?
+        var onPageChange: ((Int) -> Void)?
         var displayTimer: Timer?
         var isInSelectionMode = false
         var currentSelectionShot: Shot?
