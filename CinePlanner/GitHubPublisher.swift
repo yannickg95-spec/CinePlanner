@@ -125,6 +125,85 @@ enum GitHubPublisher {
         UserDefaults.standard.removeObject(forKey: "githubRepo-\(uid)")
     }
 
+    // MARK: - Manage repositories
+
+    /// A repository in the user's GitHub account, for the manage-repos list.
+    struct RepoInfo: Identifiable, Equatable {
+        let fullName: String    // "owner/repo"
+        let name: String        // "repo"
+        let htmlURL: String     // https://github.com/owner/repo
+        let pagesURL: String    // https://owner.github.io/repo/
+        let updatedAt: Date?
+        var id: String { fullName }
+    }
+
+    /// Lists the CinePlanner-published repositories in the user's account, newest
+    /// first. Filtered by the description CinePlanner stamps on repos it creates,
+    /// so the list can never offer to delete an unrelated repository.
+    static func listCinePlannerRepos() async throws -> [RepoInfo] {
+        guard let token = token else { throw GitHubError.notAuthenticated }
+        var repos: [RepoInfo] = []
+        let formatter = ISO8601DateFormatter()
+        for page in 1...10 {   // up to 1000 repos; plenty
+            let req = get("user/repos",
+                          query: [.init(name: "per_page", value: "100"),
+                                  .init(name: "affiliation", value: "owner"),
+                                  .init(name: "sort", value: "updated"),
+                                  .init(name: "page", value: "\(page)")],
+                          token: token)
+            let (data, http) = try await rawSend(req)
+            guard (200..<300).contains(http.statusCode) else {
+                throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  !arr.isEmpty else { break }
+            for r in arr {
+                guard (r["description"] as? String) == "Published from CinePlanner",
+                      let fullName = r["full_name"] as? String,
+                      let name = r["name"] as? String,
+                      let htmlURL = r["html_url"] as? String,
+                      let slash = fullName.firstIndex(of: "/") else { continue }
+                let owner = String(fullName[..<slash]).lowercased()
+                repos.append(RepoInfo(
+                    fullName: fullName,
+                    name: name,
+                    htmlURL: htmlURL,
+                    pagesURL: "https://\(owner).github.io/\(name)/",
+                    updatedAt: (r["updated_at"] as? String).flatMap { formatter.date(from: $0) }))
+            }
+            if arr.count < 100 { break }
+        }
+        return repos
+    }
+
+    /// Permanently deletes a repository by full name ("owner/repo"), then clears
+    /// any local project→repo mapping that pointed at it. Tolerates a 404 (already
+    /// gone). Throws `.cannotDeleteRepo` when the token lacks the delete_repo scope.
+    static func deleteRepo(fullName: String) async throws {
+        guard let token = token else { throw GitHubError.notAuthenticated }
+        guard let slash = fullName.firstIndex(of: "/") else { return }
+        let owner = String(fullName[..<slash])
+        let name = String(fullName[fullName.index(after: slash)...])
+        let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
+        guard (200..<300).contains(http.statusCode) || http.statusCode == 404 else {
+            if http.statusCode == 403 {
+                throw GitHubError.cannotDeleteRepo(scopes: http.value(forHTTPHeaderField: "X-OAuth-Scopes"))
+            }
+            throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        forgetMappings(toRepo: fullName)
+    }
+
+    /// Removes any project→repo mappings referencing this repo, so re-publishing
+    /// that project starts fresh rather than pointing at a deleted repo.
+    private static func forgetMappings(toRepo fullName: String) {
+        let defaults = UserDefaults.standard
+        for (key, value) in defaults.dictionaryRepresentation()
+        where key.hasPrefix("githubRepo-") && (value as? String) == fullName {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     /// The public URL of a project's published page, if any.
     static func publishedURL(forProjectUID uid: String) -> String? {
         guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return nil }
@@ -407,6 +486,14 @@ enum GitHubPublisher {
         return req
     }
     private static func get(_ p: String, token: String) -> URLRequest { request(p, method: "GET", token: token) }
+    private static func get(_ p: String, query: [URLQueryItem], token: String) -> URLRequest {
+        var r = request(p, method: "GET", token: token)
+        if !query.isEmpty, var comps = URLComponents(url: r.url!, resolvingAgainstBaseURL: false) {
+            comps.queryItems = query
+            if let url = comps.url { r.url = url }
+        }
+        return r
+    }
     private static func post(_ p: String, token: String) -> URLRequest {
         var r = request(p, method: "POST", token: token)
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")

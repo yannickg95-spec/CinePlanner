@@ -20,6 +20,7 @@ struct ProjectListView: View {
     @State private var showingRestoreSheet = false
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
+    @State private var showingManageRepos = false
     @StateObject private var syncMonitor = CloudSyncMonitor()
     @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
@@ -31,6 +32,12 @@ struct ProjectListView: View {
     }
 
     private var sort: ProjectSort { ProjectSort(rawValue: sortRaw) ?? .recent }
+
+    /// Repo full names still tied to a project in the app, so the manage-repos
+    /// sheet can flag which published pages are still "in use".
+    private var inUseRepoNames: Set<String> {
+        Set(projects.compactMap { GitHubPublisher.savedRepo(forProjectUID: $0.uid) })
+    }
 
     private var visibleProjects: [Project] {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
@@ -80,6 +87,9 @@ struct ProjectListView: View {
             }
             .sheet(isPresented: $showingWalkthrough) {
                 WalkthroughView()
+            }
+            .sheet(isPresented: $showingManageRepos) {
+                ManageRepositoriesSheet(inUseRepos: inUseRepoNames)
             }
             .alert("Data Recovery", isPresented: Binding(
                 get: { recoveryMessage != nil },
@@ -155,6 +165,26 @@ struct ProjectListView: View {
                 Spacer()
 
                 CloudSyncBadge(monitor: syncMonitor)
+
+                Button {
+                    showingManageRepos = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image("GitHubLogo")
+                            .resizable().scaledToFit()
+                            .frame(width: 15, height: 15)
+                        Text("Repositories")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.secondary.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Manage Repositories — review and delete published pages on your GitHub account")
 
                 Button {
                     showingRestoreSheet = true

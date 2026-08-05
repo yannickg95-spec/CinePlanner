@@ -43,6 +43,7 @@ struct SceneListView: View {
     var onSceneAdded: ((Scene) -> Void)? = nil
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
+    @State private var sceneToClear: Scene?
 
     var orderedScenes: [Scene] {
         (version?.scenes ?? project.scenes).sorted { $0.sortOrder < $1.sortOrder }
@@ -170,6 +171,31 @@ struct SceneListView: View {
         } message: {
             Text("This will permanently delete all \(oldScenes.count) old scene\(oldScenes.count == 1 ? "" : "s") and their shots. This action cannot be undone.")
         }
+        .alert(
+            "Clear Scene?",
+            isPresented: Binding(get: { sceneToClear != nil }, set: { if !$0 { sceneToClear = nil } })
+        ) {
+            Button("Clear Scene", role: .destructive) {
+                if let scene = sceneToClear { clearScene(scene) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let scene = sceneToClear {
+                Text("This deletes all \(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s") in Scene \(scene.sceneNumber)\(scene.suffix) and clears its scene map. The scene itself stays. This can't be undone.")
+            }
+        }
+    }
+
+    /// Empties a scene: deletes all its shots and wipes its scene map, but keeps
+    /// the scene itself.
+    private func clearScene(_ scene: Scene) {
+        let context = scene.modelContext
+        for shot in Array(scene.shots) {
+            context?.delete(shot)
+        }
+        scene.clearSceneMap()
+        try? context?.save()
+        sceneToClear = nil
     }
     
     @ViewBuilder
@@ -234,6 +260,11 @@ struct SceneListView: View {
                 }
             }
             Divider()
+            Button(role: .destructive) {
+                sceneToClear = scene
+            } label: {
+                Text("Clear Scene")
+            }
             Button(role: .destructive) {
                 onDeleteScenes?(deletionTargets(for: scene))
             } label: {

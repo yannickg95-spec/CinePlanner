@@ -1248,4 +1248,15 @@ extension Scene {
         doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
         sceneMapJSON = doc.jsonString
     }
+
+    /// Wipes the whole scene map — markers, arrows, drawn floor plan, and the
+    /// background image (and its location tag). Mirrors the map editor's "Clear
+    /// Map", but works directly on the model so callers outside the editor (e.g.
+    /// "Clear Scene") can use it.
+    func clearSceneMap() {
+        sceneMapJSON = nil
+        sceneFloorPlanJSON = nil
+        sceneMapBackgroundData = nil
+        sceneMapLocation = nil
+    }
 }
