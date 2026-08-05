@@ -488,53 +488,39 @@ struct ShotListView: View {
             .onMove(perform: moveShots)
             }
 
-            // Add Shot Button
-            Button {
-                addShot()
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(.blue)
-                    Text("Add Shot")
-                        .foregroundStyle(.blue)
+            // Add-shot actions grouped into one neutral card: a primary "Add Shot"
+            // plus the two import sources, split by dividers so it reads as a
+            // single control rather than three loose pills.
+            VStack(spacing: 0) {
+                addSourceRow("Add Shot", systemImage: "plus.circle.fill") {
+                    addShot()
+                }
+                Divider()
+                // Bulk add: pick several photos/videos at once — each becomes its
+                // own shot (EXIF + size guessed per image).
+                addSourceRow("From Images", systemImage: "photo.on.rectangle.angled") {
+                    isImportingShotImages = false
+                    DispatchQueue.main.async { isImportingShotImages = true }
+                }
+                .fileImporter(isPresented: $isImportingShotImages,
+                              allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                              allowsMultipleSelection: true) { result in
+                    if case .success(let urls) = result { addShotsFromMedia(urls) }
+                }
+                Divider()
+                // Add a shot straight from a CineStager AR capture.
+                addSourceRow("From CineStager", assetImage: "CineStagerLogo") {
+                    showCineStagerImport = true
                 }
             }
-            .buttonStyle(.plain)
-
-            // Bulk add: pick several photos/videos at once — each becomes its own
-            // shot with that media as its reference (EXIF + size guessed per image).
-            Button {
-                isImportingShotImages = false
-                DispatchQueue.main.async { isImportingShotImages = true }
-            } label: {
-                HStack {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .foregroundStyle(.blue)
-                    Text("Add Shots from Images")
-                        .foregroundStyle(.blue)
-                }
-            }
-            .buttonStyle(.plain)
-            .fileImporter(isPresented: $isImportingShotImages,
-                          allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
-                          allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result { addShotsFromMedia(urls) }
-            }
-
-            // Alternative: add a shot straight from a CineStager AR capture.
-            Button {
-                showCineStagerImport = true
-            } label: {
-                HStack {
-                    Image("CineStagerLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 16, height: 16)
-                    Text("Add Shot from CineStager")
-                        .foregroundStyle(CineStagerImportSheet.cineStagerBlue)
-                }
-            }
-            .buttonStyle(.plain)
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+            )
+            .padding(.vertical, 4)
+            .listRowSeparator(.hidden)
         }
         .navigationTitle(scene.project?.filmName ?? "")
         .sheet(isPresented: $showCineStagerImport) {
@@ -586,6 +572,39 @@ struct ShotListView: View {
         if shot.hasSecondType { text += " + " + shot.secondTypeShort }
         if shot.hasThirdType { text += " + " + shot.thirdTypeShort }
         return text
+    }
+
+    /// One row of the grouped add-shot card: leading icon (SF Symbol or asset),
+    /// title, full-width tap target — styled neutrally so the three read as one
+    /// control.
+    private func addSourceRow(_ title: String,
+                              systemImage: String? = nil,
+                              assetImage: String? = nil,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let assetImage {
+                    Image(assetImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                }
+                Text(title)
+                    .fontWeight(.medium)
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func addShot() {
