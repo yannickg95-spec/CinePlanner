@@ -312,6 +312,8 @@ struct SceneMapEditorView: View {
                             onRotate: { r in rotateFurniture(item.id, to: r) },
                             onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
                             onSetColor: { hex in setFurnitureColor(item.id, hex) },
+                            onReorder: { move in reorderFurniture(item.id, move) },
+                            onDuplicate: { duplicateFurniture(item.id) },
                             onDelete: { deleteFurniture(item.id) }
                         )
                         .allowsHitTesting(pendingMove == nil)
@@ -489,6 +491,35 @@ struct SceneMapEditorView: View {
     private func setFurnitureColor(_ id: UUID, _ hex: String) {
         guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
         doc.furniture[i].colorHex = hex
+        persist()
+    }
+
+    /// Reorders a furniture piece within the draw stack (its z-order): later in
+    /// the array = drawn on top.
+    private func reorderFurniture(_ id: UUID, _ move: FurnitureLayerMove) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        let item = doc.furniture.remove(at: i)
+        let target: Int
+        switch move {
+        case .toBack:   target = 0
+        case .backward: target = max(0, i - 1)
+        case .forward:  target = min(doc.furniture.count, i + 1)
+        case .toFront:  target = doc.furniture.count
+        }
+        doc.furniture.insert(item, at: target)
+        persist()
+    }
+
+    /// Duplicates a furniture piece, offset slightly and placed on top, then
+    /// selects the copy.
+    private func duplicateFurniture(_ id: UUID) {
+        guard let item = doc.furniture.first(where: { $0.id == id }) else { return }
+        var copy = item
+        copy.id = UUID()
+        copy.x = min(max(item.x + 0.03, 0), 1)
+        copy.y = min(max(item.y + 0.03, 0), 1)
+        doc.furniture.append(copy)
+        furnitureSelectedID = copy.id
         persist()
     }
 
@@ -1725,6 +1756,9 @@ func sceneMapAngle(from center: CGPoint, to point: CGPoint) -> Double {
 // MARK: - Furniture
 
 /// A movable, rotatable, resizable furniture piece on the map.
+/// Layer-stack reordering of a furniture piece (its z-order on the map).
+enum FurnitureLayerMove { case toFront, forward, backward, toBack }
+
 /// Draws a furniture piece as a top-down floor-plan silhouette (fill + outline,
 /// with light interior detail lines), sized to `size`, tinted by `fill`/`stroke`.
 private struct FurnitureGlyph: View {
@@ -1878,6 +1912,8 @@ private struct FurnitureView: View {
     let onRotate: (Double) -> Void
     let onResize: (Double, Double) -> Void
     let onSetColor: (String) -> Void
+    let onReorder: (FurnitureLayerMove) -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -1907,8 +1943,12 @@ private struct FurnitureView: View {
                 .gesture(dragGesture)
                 .contextMenu { menu }
             if isSelected {
+                selectionBox(w: w, h: h)
+                cornerHandle(-1, -1, w: w, h: h)
+                cornerHandle( 1, -1, w: w, h: h)
+                cornerHandle(-1,  1, w: w, h: h)
+                cornerHandle( 1,  1, w: w, h: h)
                 rotationHandle.offset(rotationHandleOffset(h: h))
-                resizeHandle(w: w, h: h)
             }
         }
         .position(livePosition ?? center)
@@ -1958,33 +1998,51 @@ private struct FurnitureView: View {
             )
     }
 
-    private func resizeHandle(w: CGFloat, h: CGFloat) -> some View {
+    /// Dashed selection frame around the piece (rotates with it), purely visual.
+    private func selectionBox(w: CGFloat, h: CGFloat) -> some View {
+        Rectangle()
+            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            .frame(width: w, height: h)
+            .rotationEffect(.degrees(displayRotation))
+            .allowsHitTesting(false)
+    }
+
+    /// One draggable corner of the selection box. `sx`,`sy` ∈ {−1,+1} pick the
+    /// corner; dragging resizes symmetrically about the centre (so the piece stays
+    /// put), which matches how furniture is stored (centre + size).
+    private func cornerHandle(_ sx: CGFloat, _ sy: CGFloat, w: CGFloat, h: CGFloat) -> some View {
         let r = displayRotation * .pi / 180
-        let lx = w / 2, ly = h / 2
-        let pos = CGPoint(x: center.x + lx * cos(r) - ly * sin(r),
-                          y: center.y + lx * sin(r) + ly * cos(r))
-        return Circle().fill(.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
-            .frame(width: 13, height: 13)
-            .contentShape(Circle().inset(by: -7))
-            .gesture(
-                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                    .onChanged { value in
-                        onSelect()
-                        let dx = value.location.x - center.x, dy = value.location.y - center.y
-                        // Project into the furniture's unrotated frame.
-                        let localX = dx * cos(r) + dy * sin(r)
-                        let localY = -dx * sin(r) + dy * cos(r)
-                        liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
-                    }
-                    .onEnded { _ in
-                        if let s = liveSize {
-                            liveSize = nil
-                            onResize(min(max(Double(s.width / contentRect.width), 0.02), 1),
-                                     min(max(Double(s.height / contentRect.height), 0.02), 1))
-                        }
-                    }
-            )
-            .position(pos)
+        let lx = sx * w / 2, ly = sy * h / 2
+        let ox = lx * cos(r) - ly * sin(r)
+        let oy = lx * sin(r) + ly * cos(r)
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(.white)
+            .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1.5))
+            .frame(width: 11, height: 11)
+            .contentShape(Rectangle().inset(by: -7))
+            .offset(x: ox, y: oy)
+            .gesture(resizeDrag)
+    }
+
+    private var resizeDrag: some Gesture {
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                onSelect()
+                let r = displayRotation * .pi / 180
+                let dx = value.location.x - center.x, dy = value.location.y - center.y
+                // Project the pointer into the furniture's unrotated frame; the
+                // half-extent is its distance from centre, so the size is doubled.
+                let localX = dx * cos(r) + dy * sin(r)
+                let localY = -dx * sin(r) + dy * cos(r)
+                liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
+            }
+            .onEnded { _ in
+                if let s = liveSize {
+                    liveSize = nil
+                    onResize(min(max(Double(s.width / contentRect.width), 0.02), 1),
+                             min(max(Double(s.height / contentRect.height), 0.02), 1))
+                }
+            }
     }
 
     @ViewBuilder
@@ -2002,6 +2060,12 @@ private struct FurnitureView: View {
                 }
             }
         }
+        Divider()
+        Button { onDuplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+        Button { onReorder(.toFront) } label: { Label("Bring to Front", systemImage: "square.3.layers.3d.top.filled") }
+        Button { onReorder(.forward) } label: { Label("Bring Forward", systemImage: "arrow.up") }
+        Button { onReorder(.backward) } label: { Label("Send Backward", systemImage: "arrow.down") }
+        Button { onReorder(.toBack) } label: { Label("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") }
         Divider()
         Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
     }
@@ -2071,7 +2135,8 @@ struct SceneMapExportView: View {
             ForEach(doc.furniture) { item in
                 FurnitureView(furniture: item, isSelected: false, contentRect: rect,
                               onSelect: {}, onMove: { _ in }, onRotate: { _ in },
-                              onResize: { _, _ in }, onSetColor: { _ in }, onDelete: {})
+                              onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
+                              onDuplicate: {}, onDelete: {})
             }
             if !doc.arrows.isEmpty {
                 Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect) }
