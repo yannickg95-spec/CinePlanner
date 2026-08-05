@@ -28,6 +28,8 @@ struct SceneMapEditorView: View {
     @State private var selectedID: UUID?
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
+    @State private var showingModelPicker = false
+    @State private var isRenderingModel = false
     @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
     @State private var isDrawing = false
@@ -113,6 +115,23 @@ struct SceneMapEditorView: View {
         .fileImporter(isPresented: $showingImagePicker, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result { setBackground(from: url) }
         }
+        .fileImporter(isPresented: $showingModelPicker, allowedContentTypes: modelContentTypes) { result in
+            if case .success(let url) = result { setBackgroundFromModel(url: url) }
+        }
+        .overlay {
+            if isRenderingModel {
+                ZStack {
+                    Color.black.opacity(0.25)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("Rendering 3D model…").font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .ignoresSafeArea()
+            }
+        }
         .confirmationDialog("Clear the entire scene map?", isPresented: $showingClearAllConfirm, titleVisibility: .visible) {
             Button("Clear Map", role: .destructive) { clearAll() }
             Button("Cancel", role: .cancel) {}
@@ -176,8 +195,7 @@ struct SceneMapEditorView: View {
             Menu {
                 Button { startDrawing() } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
                 Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
-                Button { /* TODO: 3D model */ } label: { Label("Add 3D Model", systemImage: "cube") }
-                    .disabled(true)
+                Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
                 if backgroundImage != nil || !floorPlan.isEmpty {
                     Divider()
                     Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
@@ -964,6 +982,47 @@ struct SceneMapEditorView: View {
         scene.sceneMapBackgroundData = data
         backgroundImage = image
         try? scene.modelContext?.save()
+    }
+
+    /// 3D file types offered by the model picker.
+    private var modelContentTypes: [UTType] {
+        var types: [UTType] = [.usdz]
+        for ext in ["usd", "usdc", "usda", "obj", "dae", "scn", "ply", "stl", "abc"] {
+            if let t = UTType(filenameExtension: ext) { types.append(t) }
+        }
+        return types
+    }
+
+    /// Renders a top-down, unlit, square image of the picked 3D model and sets it
+    /// as the scene-map background (replacing any image or floor plan). Renders off
+    /// the main thread so a heavy model doesn't freeze the editor.
+    private func setBackgroundFromModel(url: URL) {
+        // Copy out of the security scope so the render can run on a background task.
+        let accessing = url.startAccessingSecurityScopedResource()
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(url.pathExtension.isEmpty ? "usdz" : url.pathExtension)
+        let copied = (try? FileManager.default.copyItem(at: url, to: temp)) != nil
+        if accessing { url.stopAccessingSecurityScopedResource() }
+        guard copied else { return }
+
+        isRenderingModel = true
+        Task.detached {
+            let image = ModelTopDownRenderer.topDownImage(from: temp)
+            let data = image?.pngDataForBackground()
+            try? FileManager.default.removeItem(at: temp)
+            await MainActor.run {
+                isRenderingModel = false
+                guard let image, let data else { return }
+                isDrawing = false
+                floorPlan = FloorPlan()
+                scene.sceneFloorPlanJSON = nil
+                scene.sceneMapLocation = nil
+                scene.sceneMapBackgroundData = data
+                backgroundImage = image
+                try? scene.modelContext?.save()
+            }
+        }
     }
 
     /// Enters floor-plan drawing mode, clearing any image background (one
