@@ -30,6 +30,14 @@ enum ReferenceMediaLoader {
                 if let guess, guess != .none, !shot.hasSize { shot.sizeName = guess.rawValue }
             }
         }
+        // Best-effort: guess the type (Single / Two Shot / …) from how many people
+        // are in frame, pre-filling only an empty Type the user can override.
+        if let shot = reference.shot, !shot.hasType {
+            Task { @MainActor in
+                let type = await Task.detached { ShotTypeEstimator.estimate(from: data) }.value
+                if let type, !shot.hasType { shot.typeName = type.rawValue }
+            }
+        }
         guard let metadata else { return }
         reference.cameraFamily = metadata.cameraFamily
         reference.cameraFormat = metadata.cameraFormat

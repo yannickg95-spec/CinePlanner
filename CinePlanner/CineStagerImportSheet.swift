@@ -425,6 +425,13 @@ struct CineStagerImportSheet: View {
             if let size, size != .none { shot.sizeName = size.rawValue }
         }
 
+        // Guess the type (Single / Two Shot / …) from how many people the still
+        // frames, when the shot has none. Best-effort; the user can override.
+        if let shot = ref.shot, !shot.hasType, let img = ref.imageData {
+            let type = await Task.detached { ShotTypeEstimator.estimate(from: img) }.value
+            if let type, !shot.hasType { shot.typeName = type.rawValue }
+        }
+
         ref.captureID = cs.captureID
         ref.mapCaptureID = cs.captureID          // same capture → "Matched" chip lights up
         ref.cameraFamily = cs.cameraFamily

@@ -136,3 +136,45 @@ enum ShotSizeEstimator {
         }
     }
 }
+
+/// Best-effort guess at how many people a shot frames — Single / Two Shot /
+/// Three Shot / Group Shot — from on-device Vision (no network). Returns nil
+/// when no person is found, so callers only ever pre-fill an empty Type the
+/// user can override.
+enum ShotTypeEstimator {
+
+    /// Maps the number of people detected in the image to a shot type.
+    static func estimate(from imageData: Data) -> ShotTypeCategory? {
+        switch personCount(from: imageData) {
+        case 1:    return .single
+        case 2:    return .twoShot
+        case 3:    return .threeShot
+        case 4...: return .groupShot
+        default:   return nil
+        }
+    }
+
+    /// Counts distinct people in the frame. Runs three detectors and takes the
+    /// most that agree on — person rectangles are the primary signal, with body
+    /// poses and faces as backups (each is roughly one hit per person), which
+    /// also gives stylised subjects like CineStager mannequins more than one
+    /// chance to register.
+    static func personCount(from imageData: Data) -> Int {
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return 0 }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let orientationRaw = (props?[kCGImagePropertyOrientation] as? UInt32) ?? 1
+        let orientation = CGImagePropertyOrientation(rawValue: orientationRaw) ?? .up
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+        let humanRequest = VNDetectHumanRectanglesRequest()
+        let bodyRequest = VNDetectHumanBodyPoseRequest()
+        let faceRequest = VNDetectFaceRectanglesRequest()
+        try? handler.perform([humanRequest, bodyRequest, faceRequest])
+
+        let humans = (humanRequest.results ?? []).filter { $0.confidence > 0.4 }.count
+        let bodies = (bodyRequest.results ?? []).count
+        let faces = (faceRequest.results ?? []).filter { $0.confidence > 0.3 }.count
+        return max(humans, bodies, faces)
+    }
+}
