@@ -406,6 +406,7 @@ struct ShotListView: View {
     var onEditShot: ((Shot) -> Void)? = nil
     var onDeleteShots: (([Shot]) -> Void)? = nil
     @State private var showCineStagerImport = false
+    @State private var isImportingShotImages = false
 
     var sortedShots: [Shot] {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
@@ -496,6 +497,26 @@ struct ShotListView: View {
             }
             .buttonStyle(.plain)
 
+            // Bulk add: pick several photos/videos at once — each becomes its own
+            // shot with that media as its reference (EXIF + size guessed per image).
+            Button {
+                isImportingShotImages = false
+                DispatchQueue.main.async { isImportingShotImages = true }
+            } label: {
+                HStack {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .foregroundStyle(.blue)
+                    Text("Add Shots from Images")
+                        .foregroundStyle(.blue)
+                }
+            }
+            .buttonStyle(.plain)
+            .fileImporter(isPresented: $isImportingShotImages,
+                          allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                          allowsMultipleSelection: true) { result in
+                if case .success(let urls) = result { addShotsFromMedia(urls) }
+            }
+
             // Alternative: add a shot straight from a CineStager AR capture.
             Button {
                 showCineStagerImport = true
@@ -581,6 +602,29 @@ struct ShotListView: View {
         // opened until the scene is reselected.
         try? scene.modelContext?.save()
         selectedShots = [newShot.uid]
+    }
+
+    /// Bulk-adds one shot per picked media file, each with the photo/video as its
+    /// first reference (EXIF and a Vision size guess filled per image), mirroring
+    /// the multi-select CineStager import. Selects the new shots.
+    private func addShotsFromMedia(_ urls: [URL]) {
+        var nextNumber = (sortedShots.last?.shotNumber ?? 0) + 1
+        var created: [Shot] = []
+        for url in urls {
+            let newShot = Shot(shotNumber: nextNumber)
+            nextNumber += 1
+            newShot.scene = scene
+            scene.shots.append(newShot)
+            newShot.applyAutoTools()
+            let reference = ShotReference(sortOrder: 0)
+            reference.shot = newShot
+            newShot.references.append(reference)
+            ReferenceMediaLoader.load(mediaAt: url, into: reference)
+            created.append(newShot)
+        }
+        guard !created.isEmpty else { return }
+        try? scene.modelContext?.save()
+        selectedShots = Set(created.map { $0.uid })
     }
 
     /// Creates a new shot with one empty reference, selects it, and returns that
