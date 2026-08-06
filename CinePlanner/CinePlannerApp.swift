@@ -61,6 +61,14 @@ struct CinePlannerApp: App {
         }
     }()
 
+    init() {
+        // Enable undo/redo (⌘Z / ⇧⌘Z) for model edits. Capped so a long editing
+        // session's history can't grow without bound.
+        let undo = UndoManager()
+        undo.levelsOfUndo = 50
+        sharedModelContainer.mainContext.undoManager = undo
+    }
+
     private static func setRecoveryMessage(_ message: String) {
         UserDefaults.standard.set(message, forKey: recoveryMessageKey)
     }
@@ -94,6 +102,16 @@ struct CinePlannerApp: App {
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
         .defaultSize(width: 1440, height: 860)
+        .commands {
+            // Route the standard Edit ▸ Undo/Redo (⌘Z / ⇧⌘Z) to SwiftData's
+            // context undo manager, so edits can be reversed.
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { sharedModelContainer.mainContext.undoManager?.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                Button("Redo") { sharedModelContainer.mainContext.undoManager?.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
+        }
     }
 }
 
