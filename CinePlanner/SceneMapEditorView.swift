@@ -347,27 +347,13 @@ struct SceneMapEditorView: View {
                         onMoveFrom: { startMove(element.id, .from) },
                         onMoveLabel: { offset in moveLabel(element.id, to: offset) },
                         onTap: {
-                            // Left-clicking a camera opens its shot-info popover;
+                            // Left-clicking a camera opens its shot-info card;
                             // clicking any other marker closes it.
                             cameraInfoElementID = (element.kind == .camera) ? element.id : nil
-                        }
+                        },
+                        onDragStart: { cameraInfoElementID = nil }
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
-                    .popover(isPresented: Binding(
-                        get: { cameraInfoElementID == element.id },
-                        set: { if !$0 { cameraInfoElementID = nil } }
-                    // The marker view fills the canvas, so anchor the popover to a
-                    // small rect at the marker's actual point — otherwise it centres
-                    // on the whole canvas rather than tracking the camera.
-                    ), attachmentAnchor: .rect(.rect(markerAnchorRect(element, in: rect))),
-                       arrowEdge: .trailing) {
-                        if element.kind == .camera, let uid = element.shotUID,
-                           let shot = scene.shots.first(where: { $0.uid == uid }) {
-                            CameraShotPopover(shot: shot)
-                        } else {
-                            Text("No shot linked").padding()
-                        }
-                    }
                 }
                 // Door/window edit handles (tap to select, right-click to edit).
                 if !isDrawing {
@@ -405,15 +391,46 @@ struct SceneMapEditorView: View {
                         .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                             .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
                 }
+                // Camera shot-info card — a plain overlay (not a system popover),
+                // so the marker underneath stays draggable while it's open.
+                cameraShotCard(in: rect, canvas: geo.size)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
-            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil } }
+            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
+        }
+    }
+
+    /// Floating shot-info card for the clicked camera, placed beside its marker
+    /// (flipping to the other side / clamping so it stays on-canvas). Rendered in
+    /// the canvas rather than as a system popover so the marker stays draggable.
+    @ViewBuilder
+    private func cameraShotCard(in rect: CGRect, canvas: CGSize) -> some View {
+        if let id = cameraInfoElementID,
+           let element = doc.elements.first(where: { $0.id == id }),
+           element.kind == .camera,
+           let uid = element.shotUID,
+           let shot = scene.shots.first(where: { $0.uid == uid }) {
+            let cardW: CGFloat = 264
+            let estH: CGFloat = 300
+            let gap: CGFloat = 24
+            let mx = rect.minX + element.x * rect.width
+            let my = rect.minY + element.y * rect.height
+            let placeRight = mx + gap + cardW <= canvas.width
+            let cx = placeRight ? mx + gap + cardW / 2 : mx - gap - cardW / 2
+            let cy = min(max(my, estH / 2 + 8), canvas.height - estH / 2 - 8)
+            CameraShotPopover(shot: shot)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.22), radius: 9, y: 2)
+                .fixedSize()
+                .position(x: cx, y: cy)
+                .transition(.opacity)
         }
     }
 
@@ -989,15 +1006,6 @@ struct SceneMapEditorView: View {
     /// Add a camera linked to a specific shot: its label follows the shot's
     /// number, and it's removed if the shot is deleted. At most one per shot from
     /// here — a second marker for a shot only comes from Move To/From.
-    /// A small rect centred on the marker's point (in the canvas's coordinate
-    /// space, which the marker view fills), used to anchor its popover so the
-    /// popover tracks the marker's vertical position instead of the canvas centre.
-    private func markerAnchorRect(_ element: MapElement, in rect: CGRect) -> CGRect {
-        let cx = rect.minX + element.x * rect.width
-        let cy = rect.minY + element.y * rect.height
-        return CGRect(x: cx - 20, y: cy - 20, width: 40, height: 40)
-    }
-
     private func addCamera(for shot: Shot) {
         guard !hasCamera(for: shot) else { return }
         let point = newElementPoint
@@ -1502,6 +1510,8 @@ private struct MapMarkerView: View {
     /// Fired on a genuine left-click (tap), not a drag — used to open a camera's
     /// shot-info popover.
     var onTap: () -> Void = {}
+    /// Fired when a drag on the marker begins — used to dismiss the shot popover.
+    var onDragStart: () -> Void = {}
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1663,6 +1673,7 @@ private struct MapMarkerView: View {
             .onChanged { value in
                 if livePosition == nil {
                     onSelect()
+                    onDragStart()
                     grabOffset = CGSize(width: center.x - value.location.x,
                                         height: center.y - value.location.y)
                 }
