@@ -356,7 +356,11 @@ struct SceneMapEditorView: View {
                     .popover(isPresented: Binding(
                         get: { cameraInfoElementID == element.id },
                         set: { if !$0 { cameraInfoElementID = nil } }
-                    ), arrowEdge: .trailing) {
+                    // The marker view fills the canvas, so anchor the popover to a
+                    // small rect at the marker's actual point — otherwise it centres
+                    // on the whole canvas rather than tracking the camera.
+                    ), attachmentAnchor: .rect(.rect(markerAnchorRect(element, in: rect))),
+                       arrowEdge: .trailing) {
                         if element.kind == .camera, let uid = element.shotUID,
                            let shot = scene.shots.first(where: { $0.uid == uid }) {
                             CameraShotPopover(shot: shot)
@@ -985,6 +989,15 @@ struct SceneMapEditorView: View {
     /// Add a camera linked to a specific shot: its label follows the shot's
     /// number, and it's removed if the shot is deleted. At most one per shot from
     /// here — a second marker for a shot only comes from Move To/From.
+    /// A small rect centred on the marker's point (in the canvas's coordinate
+    /// space, which the marker view fills), used to anchor its popover so the
+    /// popover tracks the marker's vertical position instead of the canvas centre.
+    private func markerAnchorRect(_ element: MapElement, in rect: CGRect) -> CGRect {
+        let cx = rect.minX + element.x * rect.width
+        let cy = rect.minY + element.y * rect.height
+        return CGRect(x: cx - 20, y: cy - 20, width: 40, height: 40)
+    }
+
     private func addCamera(for shot: Shot) {
         guard !hasCamera(for: shot) else { return }
         let point = newElementPoint
