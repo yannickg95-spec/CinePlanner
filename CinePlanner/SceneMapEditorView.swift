@@ -31,6 +31,9 @@ struct SceneMapEditorView: View {
     @State private var showManageCharacters = false
     @State private var sun = SunSettings()
     @State private var showSunSettings = false
+    /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
+    /// segments match the trash / sun buttons.
+    private let toolbarCellWidth: CGFloat = 40
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var backgroundImage: NSImage?
@@ -201,117 +204,138 @@ struct SceneMapEditorView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             Spacer()
-            Menu {
-                let characters = (scene.project?.scriptCharacters ?? []).filter { !$0.name.isEmpty }
-                ForEach(characters) { character in
-                    Button(character.name) { addCharacterMarker(name: character.name, colorHex: character.colorHex) }
-                }
-                if !characters.isEmpty { Divider() }
-                // An unlabeled background figure.
-                Button { addCharacterMarker(name: "", colorHex: "#8E8E93") } label: {
-                    Label("Extra", systemImage: "plus")
-                }
-                Button { showManageCharacters = true } label: {
-                    Label("Manage…", systemImage: "slider.horizontal.3")
-                }
-            } label: {
-                Label("+", systemImage: "person.fill")
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add Character")
-            Menu {
-                if sceneShots.isEmpty {
-                    Text("No shots in this scene")
-                } else {
-                    // One camera per shot from here; a shot already on the map is
-                    // disabled (a second marker for it only comes from Move To/From).
-                    ForEach(sceneShots, id: \.uid) { shot in
-                        Button {
-                            addCamera(for: shot)
-                        } label: {
-                            if hasCamera(for: shot) {
-                                Label(cameraMenuLabel(for: shot), systemImage: "checkmark")
-                            } else {
-                                Text(cameraMenuLabel(for: shot))
+            // One segmented bar for the four "add to the map" menus, so they read
+            // as a single control.
+            HStack(spacing: 0) {
+                Menu {
+                    let characters = (scene.project?.scriptCharacters ?? []).filter { !$0.name.isEmpty }
+                    ForEach(characters) { character in
+                        Button(character.name) { addCharacterMarker(name: character.name, colorHex: character.colorHex) }
+                    }
+                    if !characters.isEmpty { Divider() }
+                    // An unlabeled background figure.
+                    Button { addCharacterMarker(name: "", colorHex: "#8E8E93") } label: {
+                        Label("Extra", systemImage: "plus")
+                    }
+                    Button { showManageCharacters = true } label: {
+                        Label("Manage…", systemImage: "slider.horizontal.3")
+                    }
+                } label: { addMenuLabel("person.fill") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
+                .help("Add Character")
+
+                segmentDivider
+                Menu {
+                    if sceneShots.isEmpty {
+                        Text("No shots in this scene")
+                    } else {
+                        // One camera per shot from here; a shot already on the map is
+                        // disabled (a second marker for it only comes from Move To/From).
+                        ForEach(sceneShots, id: \.uid) { shot in
+                            Button {
+                                addCamera(for: shot)
+                            } label: {
+                                if hasCamera(for: shot) {
+                                    Label(cameraMenuLabel(for: shot), systemImage: "checkmark")
+                                } else {
+                                    Text(cameraMenuLabel(for: shot))
+                                }
+                            }
+                            .disabled(hasCamera(for: shot))
+                        }
+                    }
+                } label: { addMenuLabel("video.fill") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
+                .help("Add Camera")
+
+                segmentDivider
+                Menu {
+                    Button { startDrawing() } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
+                    Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
+                    Menu {
+                        let others = scenesWithBackground
+                        if others.isEmpty {
+                            Text("No other scene has a background")
+                        } else {
+                            ForEach(others, id: \.uid) { other in
+                                Button(sceneBackgroundLabel(other)) { setBackgroundFromScene(other) }
                             }
                         }
-                        .disabled(hasCamera(for: shot))
+                    } label: { Label("Add from Scene…", systemImage: "square.on.square") }
+                    Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
+                    if backgroundImage != nil || !floorPlan.isEmpty {
+                        Divider()
+                        Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
                     }
-                }
-            } label: {
-                Label("+", systemImage: "video.fill")
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add Camera")
+                } label: { addMenuLabel("map.fill") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
+                .help("Add Background")
 
-            Menu {
-                Button { startDrawing() } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
-                Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
+                segmentDivider
                 Menu {
-                    let others = scenesWithBackground
-                    if others.isEmpty {
-                        Text("No other scene has a background")
-                    } else {
-                        ForEach(others, id: \.uid) { other in
-                            Button(sceneBackgroundLabel(other)) { setBackgroundFromScene(other) }
-                        }
+                    ForEach(Furniture.Kind.allCases, id: \.self) { kind in
+                        Button(kind.rawValue) { addFurniture(kind) }
                     }
-                } label: { Label("Add from Scene…", systemImage: "square.on.square") }
-                Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
-                if backgroundImage != nil || !floorPlan.isEmpty {
-                    Divider()
-                    Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
-                }
-            } label: {
-                Label("+", systemImage: "map.fill")
+                } label: { addMenuLabel("chair.fill") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
+                .help("Add Furniture")
             }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add Background")
-
-            Menu {
-                ForEach(Furniture.Kind.allCases, id: \.self) { kind in
-                    Button(kind.rawValue) { addFurniture(kind) }
-                }
-            } label: {
-                Label("+", systemImage: "chair.fill")
-            }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Add Furniture")
+            .modifier(SegmentedGroup())
             Spacer()
         }
         .overlay(alignment: .leading) {
             Button(role: .destructive) { showingClearAllConfirm = true } label: {
-                Image(systemName: "trash")
+                Image(systemName: "trash").font(.system(size: 16, weight: .medium)).frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
+            .modifier(SegmentedGroup())
             .padding(.leading, 16)
             .disabled(mapIsEmpty)
             .help("Clear Map — remove everything from the scene map")
         }
         .overlay(alignment: .trailing) {
-            // Split control: toggle the sun overlay, and open its settings.
-            HStack(spacing: 2) {
+            // Matching pill: toggle the sun overlay, and open its settings.
+            HStack(spacing: 0) {
                 Button {
                     sun.enabled.toggle()
                     saveSun()
                     if sun.enabled && !sun.hasLocation { showSunSettings = true }
                 } label: {
                     Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(sun.enabled ? .orange : .secondary)
+                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
+                .buttonStyle(.borderless)
                 .help("Toggle the sun-direction overlay")
+                segmentDivider
                 Button { showSunSettings = true } label: {
                     Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
+                .buttonStyle(.borderless)
                 .help("Sun overlay settings")
             }
+            .modifier(SegmentedGroup())
             .padding(.trailing, 16)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// One segment's label. Matches the trash and sun pills exactly — a single
+    /// 16pt symbol with the same padding — so every toolbar group uses the same
+    /// square button.
+    private func addMenuLabel(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 16, weight: .medium))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+    }
+
+    private var segmentDivider: some View {
+        Divider().frame(height: 18)
     }
 
     private func saveSun() {
@@ -2021,6 +2045,18 @@ struct Triangle: Shape {
 }
 
 /// Shared marker/furniture color choices.
+/// Wraps a row of borderless controls in one bordered, tinted capsule so a group
+/// of scene-map toolbar buttons reads as a single segmented control.
+private struct SegmentedGroup: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(height: 34)
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
+    }
+}
+
 let sceneMapPalette: [(name: String, hex: String)] = [
     ("Blue", "#4C8DFF"), ("Orange", "#FF9500"), ("Green", "#34C759"),
     ("Red", "#FF3B30"), ("Purple", "#AF52DE"), ("Yellow", "#FFCC00"),
