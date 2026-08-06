@@ -29,6 +29,8 @@ struct SceneMapEditorView: View {
     /// Camera marker whose shot-info popover is open (left-click a camera).
     @State private var cameraInfoElementID: UUID?
     @State private var showManageCharacters = false
+    @State private var sun = SunSettings()
+    @State private var showSunSettings = false
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var backgroundImage: NSImage?
@@ -91,7 +93,7 @@ struct SceneMapEditorView: View {
             canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -147,6 +149,9 @@ struct SceneMapEditorView: View {
             if let project = scene.project {
                 ManageCharactersSheet(project: project)
             }
+        }
+        .sheet(isPresented: $showSunSettings) {
+            SunSettingsSheet(settings: $sun, onChange: saveSun)
         }
         .alert("Furniture Label", isPresented: Binding(
             get: { furnitureToLabel != nil },
@@ -286,8 +291,32 @@ struct SceneMapEditorView: View {
             .disabled(mapIsEmpty)
             .help("Clear Map — remove everything from the scene map")
         }
+        .overlay(alignment: .trailing) {
+            // Split control: toggle the sun overlay, and open its settings.
+            HStack(spacing: 2) {
+                Button {
+                    sun.enabled.toggle()
+                    saveSun()
+                    if sun.enabled && !sun.hasLocation { showSunSettings = true }
+                } label: {
+                    Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
+                        .foregroundStyle(sun.enabled ? .orange : .secondary)
+                }
+                .help("Toggle the sun-direction overlay")
+                Button { showSunSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("Sun overlay settings")
+            }
+            .padding(.trailing, 16)
+        }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private func saveSun() {
+        scene.sunSettings = sun
+        try? scene.modelContext?.save()
     }
 
     /// True when there's nothing on the map to clear.
@@ -451,6 +480,8 @@ struct SceneMapEditorView: View {
                         .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                             .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
                 }
+                // Sun-direction overlay (non-interactive), above the map content.
+                sunOverlay(in: rect)
                 // Camera shot-info card — a plain overlay (not a system popover),
                 // so the marker underneath stays draggable while it's open.
                 cameraShotCard(in: rect, canvas: geo.size)
@@ -463,7 +494,103 @@ struct SceneMapEditorView: View {
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
+            .overlay(alignment: .bottom) {
+                if sun.enabled && sun.hasLocation { sunTimeBar }
+            }
         }
+    }
+
+    /// The sun as a yellow ball on a ring around the map centre, in its compass
+    /// direction (adjusted for the map's North), with an arrow showing the way the
+    /// light travels (inward, toward the scene). Greyed when below the horizon.
+    @ViewBuilder
+    private func sunOverlay(in rect: CGRect) -> some View {
+        if sun.enabled, let lat = sun.latitude, let lon = sun.longitude {
+            let pos = SolarPosition.altAzimuth(date: sun.instant, latitude: lat, longitude: lon)
+            let theta = (sun.northOffsetDeg + pos.azimuth) * .pi / 180   // screen angle, from up, clockwise
+            let dir = CGVector(dx: sin(theta), dy: -cos(theta))          // toward the sun (y-down)
+            let radius = min(rect.width, rect.height) * 0.42
+            let ball = CGPoint(x: rect.midX + dir.dx * radius, y: rect.midY + dir.dy * radius)
+            let below = pos.altitude < 0
+            let tint = below ? Color.gray : sunColor(altitude: pos.altitude)
+
+            Canvas { ctx, _ in
+                // Thin light rays across the whole map, parallel to the arrow.
+                let light = CGVector(dx: -dir.dx, dy: -dir.dy)       // direction light travels
+                let rayPerp = CGVector(dx: -light.dy, dy: light.dx)
+                let diag = hypot(rect.width, rect.height)
+                let spacing: CGFloat = 22
+                let steps = Int(diag / spacing) + 2
+                ctx.drawLayer { layer in
+                    layer.clip(to: Path(rect))
+                    for i in -steps...steps {
+                        let off = CGFloat(i) * spacing
+                        let base = CGPoint(x: rect.midX + rayPerp.dx * off, y: rect.midY + rayPerp.dy * off)
+                        var line = Path()
+                        line.move(to: CGPoint(x: base.x - light.dx * diag, y: base.y - light.dy * diag))
+                        line.addLine(to: CGPoint(x: base.x + light.dx * diag, y: base.y + light.dy * diag))
+                        layer.stroke(line, with: .color(tint.opacity(below ? 0.14 : 0.4)), lineWidth: 1.1)
+                    }
+                }
+
+                // Arrow from just inside the ball toward the centre (light direction).
+                let start = CGPoint(x: ball.x - dir.dx * 16, y: ball.y - dir.dy * 16)
+                let end = CGPoint(x: ball.x - dir.dx * 52, y: ball.y - dir.dy * 52)
+                var shaft = Path(); shaft.move(to: start); shaft.addLine(to: end)
+                ctx.stroke(shaft, with: .color(tint.opacity(below ? 0.5 : 0.9)),
+                           style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                // Arrowhead.
+                let ah = 8.0
+                let back = CGPoint(x: end.x + dir.dx * ah, y: end.y + dir.dy * ah)
+                let perp = CGVector(dx: -dir.dy, dy: dir.dx)
+                var head = Path()
+                head.move(to: end)
+                head.addLine(to: CGPoint(x: back.x + perp.dx * ah * 0.7, y: back.y + perp.dy * ah * 0.7))
+                head.addLine(to: CGPoint(x: back.x - perp.dx * ah * 0.7, y: back.y - perp.dy * ah * 0.7))
+                head.closeSubpath()
+                ctx.fill(head, with: .color(tint.opacity(below ? 0.5 : 0.9)))
+                // The sun ball, with a soft halo.
+                let r: CGFloat = 13
+                ctx.fill(Path(ellipseIn: CGRect(x: ball.x - r*1.6, y: ball.y - r*1.6, width: r*3.2, height: r*3.2)),
+                         with: .color(tint.opacity(below ? 0.08 : 0.2)))
+                ctx.fill(Path(ellipseIn: CGRect(x: ball.x - r, y: ball.y - r, width: r*2, height: r*2)),
+                         with: .color(tint.opacity(below ? 0.55 : 1)))
+                ctx.stroke(Path(ellipseIn: CGRect(x: ball.x - r, y: ball.y - r, width: r*2, height: r*2)),
+                           with: .color(.white.opacity(0.7)), lineWidth: 1)
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// Warm-to-bright sun colour by altitude: reddish near the horizon, yellow high.
+    private func sunColor(altitude: Double) -> Color {
+        let t = min(max(altitude / 50, 0), 1)
+        return Color(hue: 0.06 + 0.09 * t, saturation: 1 - 0.15 * t, brightness: 1)
+    }
+
+    /// Bottom bar shown with the overlay: scrub the time of day; reads out the
+    /// sun's altitude/azimuth (or "below horizon").
+    private var sunTimeBar: some View {
+        let readout: String = {
+            guard let lat = sun.latitude, let lon = sun.longitude else { return "" }
+            let pos = SolarPosition.altAzimuth(date: sun.instant, latitude: lat, longitude: lon)
+            if pos.altitude < 0 { return "Below horizon" }
+            return String(format: "Altitude %.0f°", pos.altitude)
+        }()
+        let minutes = Int(sun.timeMinutes)
+        return HStack(spacing: 12) {
+            Image(systemName: "sun.max.fill").foregroundStyle(.orange)
+            Text(String(format: "%02d:%02d", minutes / 60, minutes % 60))
+                .font(.callout.monospacedDigit()).frame(width: 48, alignment: .leading)
+            Slider(value: $sun.timeMinutes, in: 0...1439) { editing in if !editing { saveSun() } }
+            Text(readout).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                .frame(width: 130, alignment: .trailing)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+        .padding(.bottom, 12)
+        .frame(maxWidth: 520)
     }
 
     /// Floating shot-info card for the clicked camera, placed beside its marker

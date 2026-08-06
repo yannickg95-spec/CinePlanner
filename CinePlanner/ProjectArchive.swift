@@ -70,6 +70,7 @@ enum ProjectArchive {
         var sceneMapLocation: String?
         var sceneFloorPlanJSON: String?
         var sceneCharactersJSON: String?
+        var sunSettingsJSON: String?
         var shots: [ShotDTO]
     }
 
@@ -211,6 +212,7 @@ enum ProjectArchive {
             sceneMapLocation: scene.sceneMapLocation,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             sceneCharactersJSON: scene.sceneCharactersJSON,
+            sunSettingsJSON: scene.sunSettingsJSON,
             shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO)
         )
     }
@@ -323,6 +325,7 @@ enum ProjectArchive {
                     scene.sceneMapLocation = s.sceneMapLocation
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
                     scene.sceneCharactersJSON = s.sceneCharactersJSON
+                    scene.sunSettingsJSON = s.sunSettingsJSON
 
                     for sh in s.shots {
                         let shot = Shot(shotNumber: sh.shotNumber, shotInformation: sh.shotInformation)

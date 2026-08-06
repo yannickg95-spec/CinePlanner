@@ -283,6 +283,9 @@ final class Scene {
     /// Character names cued in this scene's dialogue (JSON), detected at import —
     /// used to auto-label the scene map's mannequin markers.
     var sceneCharactersJSON: String?
+
+    /// Sun-direction overlay settings for this scene's map (JSON).
+    var sunSettingsJSON: String?
     var scriptTimeOfDay: String = ""  // Raw time-of-day from the heading ("DAY", "NIGHT", "DAY - CONTINUOUS", ...)
     var manualAnnotationY: Double = 0  // Manual Y position for PDF annotation (when user drags marker)
 
@@ -309,6 +312,18 @@ final class Scene {
         }
         set {
             sceneCharactersJSON = (try? JSONEncoder().encode(newValue))
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+    }
+
+    /// Sun-direction overlay settings (decoded from `sunSettingsJSON`).
+    var sunSettings: SunSettings {
+        get {
+            guard let data = sunSettingsJSON?.data(using: .utf8) else { return SunSettings() }
+            return (try? JSONDecoder().decode(SunSettings.self, from: data)) ?? SunSettings()
+        }
+        set {
+            sunSettingsJSON = (try? JSONEncoder().encode(newValue))
                 .flatMap { String(data: $0, encoding: .utf8) }
         }
     }

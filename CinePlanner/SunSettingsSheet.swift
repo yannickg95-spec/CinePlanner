@@ -1,0 +1,149 @@
+//
+//  SunSettingsSheet.swift
+//  CinePlanner
+//
+//  Settings for a scene map's sun-direction overlay: the location (address lookup
+//  or manual coordinates), the shoot date, and which way North points on the map.
+//
+
+import SwiftUI
+import CoreLocation
+
+struct SunSettingsSheet: View {
+    @Binding var settings: SunSettings
+    var onChange: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var geocoding = false
+    @State private var geocodeError: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Sun Overlay").font(.title3.bold())
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            Divider()
+
+            Form {
+                Section("Location") {
+                    HStack {
+                        TextField("Address", text: $settings.address)
+                            .onSubmit { geocode() }
+                        Button { geocode() } label: {
+                            if geocoding { ProgressView().controlSize(.small) }
+                            else { Text("Look Up") }
+                        }
+                        .disabled(settings.address.trimmingCharacters(in: .whitespaces).isEmpty || geocoding)
+                    }
+                    HStack {
+                        TextField("Latitude", text: coordText(\.latitude))
+                        TextField("Longitude", text: coordText(\.longitude))
+                    }
+                    if let error = geocodeError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    } else if let tz = settings.timeZoneID {
+                        Text("Timezone: \(tz)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Date") {
+                    DatePicker("Shoot date", selection: dateBinding, displayedComponents: .date)
+                }
+
+                Section("North") {
+                    HStack(spacing: 20) {
+                        NorthDial(degrees: northBinding)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Rotate so N points the way North is on your map.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("\(Int(settings.northOffsetDeg.rounded()))° from up")
+                                .font(.callout.monospacedDigit())
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 380, height: 500)
+    }
+
+    // MARK: - Bindings
+
+    private var dateBinding: Binding<Date> {
+        Binding(get: { settings.date },
+                set: { settings.dateEpoch = $0.timeIntervalSince1970; onChange() })
+    }
+    private var northBinding: Binding<Double> {
+        Binding(get: { settings.northOffsetDeg },
+                set: { settings.northOffsetDeg = $0; onChange() })
+    }
+    private func coordText(_ key: WritableKeyPath<SunSettings, Double?>) -> Binding<String> {
+        Binding(
+            get: { settings[keyPath: key].map { String(format: "%.5f", $0) } ?? "" },
+            set: {
+                settings[keyPath: key] = Double($0.trimmingCharacters(in: .whitespaces))
+                onChange()
+            })
+    }
+
+    // MARK: - Geocoding
+
+    private func geocode() {
+        let query = settings.address.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return }
+        geocoding = true
+        geocodeError = nil
+        CLGeocoder().geocodeAddressString(query) { placemarks, error in
+            geocoding = false
+            guard let placemark = placemarks?.first, let loc = placemark.location else {
+                geocodeError = error?.localizedDescription ?? "Address not found."
+                return
+            }
+            settings.latitude = loc.coordinate.latitude
+            settings.longitude = loc.coordinate.longitude
+            settings.timeZoneID = placemark.timeZone?.identifier
+            onChange()
+        }
+    }
+}
+
+/// A draggable compass dial: drag to point the "N" marker the way North lies on
+/// the map. Angle is degrees clockwise from straight up.
+private struct NorthDial: View {
+    @Binding var degrees: Double
+    private let size: CGFloat = 92
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+            Circle().fill(Color.secondary.opacity(0.06))
+            // Fixed "up" tick (map up).
+            Rectangle().fill(Color.secondary.opacity(0.4))
+                .frame(width: 1, height: 8).offset(y: -size/2 + 5)
+            // North needle.
+            VStack(spacing: 0) {
+                Image(systemName: "location.north.fill")
+                    .foregroundStyle(.red)
+                Text("N").font(.caption2.bold())
+            }
+            .offset(y: -size/4)
+            .rotationEffect(.degrees(degrees))
+        }
+        .frame(width: size, height: size)
+        .contentShape(Circle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    let dx = value.location.x - size/2
+                    let dy = value.location.y - size/2
+                    var a = atan2(dx, -dy) * 180 / .pi   // 0 = up, clockwise
+                    if a < 0 { a += 360 }
+                    degrees = a
+                }
+        )
+    }
+}
