@@ -26,6 +26,8 @@ struct SceneMapEditorView: View {
 
     @State private var doc: SceneMapDoc
     @State private var selectedID: UUID?
+    /// Camera marker whose shot-info popover is open (left-click a camera).
+    @State private var cameraInfoElementID: UUID?
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
@@ -343,9 +345,25 @@ struct SceneMapEditorView: View {
                         onDelete: { deleteElement(element.id) },
                         onMoveTo: { startMove(element.id, .to) },
                         onMoveFrom: { startMove(element.id, .from) },
-                        onMoveLabel: { offset in moveLabel(element.id, to: offset) }
+                        onMoveLabel: { offset in moveLabel(element.id, to: offset) },
+                        onTap: {
+                            // Left-clicking a camera opens its shot-info popover;
+                            // clicking any other marker closes it.
+                            cameraInfoElementID = (element.kind == .camera) ? element.id : nil
+                        }
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
+                    .popover(isPresented: Binding(
+                        get: { cameraInfoElementID == element.id },
+                        set: { if !$0 { cameraInfoElementID = nil } }
+                    ), arrowEdge: .trailing) {
+                        if element.kind == .camera, let uid = element.shotUID,
+                           let shot = scene.shots.first(where: { $0.uid == uid }) {
+                            CameraShotPopover(shot: shot)
+                        } else {
+                            Text("No shot linked").padding()
+                        }
+                    }
                 }
                 // Door/window edit handles (tap to select, right-click to edit).
                 if !isDrawing {
@@ -1468,6 +1486,9 @@ private struct MapMarkerView: View {
     let onMoveFrom: () -> Void
     /// Reports the label's new nudge (canvas points) once its drag ends.
     let onMoveLabel: (CGSize) -> Void
+    /// Fired on a genuine left-click (tap), not a drag — used to open a camera's
+    /// shot-info popover.
+    var onTap: () -> Void = {}
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1525,7 +1546,7 @@ private struct MapMarkerView: View {
             // The icon turns to point in its facing direction.
             iconGraphic
                 .contentShape(Rectangle())
-                .onTapGesture { onSelect() }
+                .onTapGesture { onSelect(); onTap() }
                 .gesture(dragGesture)
                 .rotationEffect(.degrees(displayRotation))
                 .contextMenu { markerContextMenu }
@@ -1756,6 +1777,82 @@ func sceneMapAngle(from center: CGPoint, to point: CGPoint) -> Double {
 // MARK: - Furniture
 
 /// A movable, rotatable, resizable furniture piece on the map.
+/// Small popover shown when a camera marker is left-clicked: the linked shot's
+/// reference image plus its basic info.
+private struct CameraShotPopover: View {
+    let shot: Shot
+
+    private var referenceImage: NSImage? {
+        shot.references.sorted { $0.sortOrder < $1.sortOrder }
+            .compactMap { $0.imageData }.first.flatMap(NSImage.init(data:))
+    }
+    private var sizeText: String? {
+        guard shot.hasSize else { return nil }
+        return shot.hasSecondSize ? "\(shot.sizeShort) → \(shot.secondSizeShort)" : shot.sizeShort
+    }
+    private var typeText: String? {
+        guard shot.hasType else { return nil }
+        var t = shot.typeShort
+        if shot.hasSecondType { t += " + \(shot.secondTypeShort)" }
+        if shot.hasThirdType { t += " + \(shot.thirdTypeShort)" }
+        return t
+    }
+    private var gripText: String? { shot.hasGrip ? shot.gripName : nil }
+    private var focalText: String? {
+        guard shot.lensfocal > 0 else { return nil }
+        if !shot.lensIsPrime, shot.lensfocalEnd > 0, shot.lensfocalEnd != shot.lensfocal {
+            return "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"
+        }
+        return "\(shot.lensfocal)mm"
+    }
+    private var extraText: String? {
+        let t = shot.extraInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+            Text(nickname.isEmpty ? "Shot \(shot.displayNumber)" : "Shot \(shot.displayNumber) – \(nickname)")
+                .font(.headline)
+                .lineLimit(1)
+            if let image = referenceImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 240, height: 135)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.12))
+                    .frame(width: 240, height: 135)
+                    .overlay(Image(systemName: "photo").font(.title2).foregroundStyle(.secondary))
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                infoRow("Size", sizeText)
+                infoRow("Type", typeText)
+                infoRow("Grip", gripText)
+                infoRow("Focal Length", focalText)
+                infoRow("Extra Info", extraText)
+            }
+        }
+        .padding(12)
+        .frame(width: 264)
+    }
+
+    @ViewBuilder
+    private func infoRow(_ label: String, _ value: String?) -> some View {
+        if let value {
+            HStack(alignment: .top, spacing: 8) {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 72, alignment: .leading)
+                Text(value).font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
 /// Layer-stack reordering of a furniture piece (its z-order on the map).
 enum FurnitureLayerMove { case toFront, forward, backward, toBack }
 
