@@ -262,16 +262,11 @@ struct SceneMapEditorView: View {
         }
         .overlay(alignment: .leading) {
             Button(role: .destructive) { showingClearAllConfirm = true } label: {
-                Label("Clear Map", systemImage: "trash")
+                Image(systemName: "trash")
             }
             .padding(.leading, 16)
             .disabled(mapIsEmpty)
-            .help("Remove everything from the scene map")
-        }
-        .overlay(alignment: .trailing) {
-            Text("\(doc.elements.count) item\(doc.elements.count == 1 ? "" : "s")")
-                .font(.caption).foregroundStyle(.secondary)
-                .padding(.trailing, 16)
+            .help("Clear Map — remove everything from the scene map")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
