@@ -28,8 +28,7 @@ struct SceneMapEditorView: View {
     @State private var selectedID: UUID?
     /// Camera marker whose shot-info popover is open (left-click a camera).
     @State private var cameraInfoElementID: UUID?
-    @State private var showNewCharacterPrompt = false
-    @State private var newCharacterName = ""
+    @State private var showManageCharacters = false
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var backgroundImage: NSImage?
@@ -144,12 +143,10 @@ struct SceneMapEditorView: View {
         } message: {
             Text("This removes every marker, arrow, furniture piece, floor plan and background from this scene's map. It can't be undone.")
         }
-        .alert("New Character", isPresented: $showNewCharacterPrompt) {
-            TextField("Name", text: $newCharacterName)
-            Button("Add") { createAndAddCharacter() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Saved for this project with its own color, and added to the map.")
+        .sheet(isPresented: $showManageCharacters) {
+            if let project = scene.project {
+                ManageCharactersSheet(project: project)
+            }
         }
         .alert("Furniture Label", isPresented: Binding(
             get: { furnitureToLabel != nil },
@@ -200,13 +197,17 @@ struct SceneMapEditorView: View {
         HStack(spacing: 10) {
             Spacer()
             Menu {
-                let characters = scene.project?.scriptCharacters ?? []
+                let characters = (scene.project?.scriptCharacters ?? []).filter { !$0.name.isEmpty }
                 ForEach(characters) { character in
                     Button(character.name) { addCharacterMarker(name: character.name, colorHex: character.colorHex) }
                 }
                 if !characters.isEmpty { Divider() }
-                Button { newCharacterName = ""; showNewCharacterPrompt = true } label: {
-                    Label("New Character…", systemImage: "plus")
+                // An unlabeled background figure.
+                Button { addCharacterMarker(name: "", colorHex: "#8E8E93") } label: {
+                    Label("Extra", systemImage: "plus")
+                }
+                Button { showManageCharacters = true } label: {
+                    Label("Manage…", systemImage: "slider.horizontal.3")
                 }
             } label: {
                 Label("+", systemImage: "person.fill")
@@ -1069,17 +1070,6 @@ struct SceneMapEditorView: View {
         doc.elements.append(element)
         selectedID = element.id
         persist()
-    }
-
-    /// Creates a new project character from the prompt (assigning it a color) and
-    /// drops a marker for it.
-    private func createAndAddCharacter() {
-        let name = newCharacterName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, let project = scene.project else { return }
-        project.addScriptCharacters(named: [name])
-        let color = project.scriptCharacters
-            .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.colorHex ?? "#4C8DFF"
-        addCharacterMarker(name: name, colorHex: color)
     }
 
     /// Whether a camera for this shot is already on the map. Extra markers made
