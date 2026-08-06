@@ -814,11 +814,11 @@ struct ProjectEditorView: View {
             if let shot = selectedShot {
                 ShotDetailView(shot: shot)
             } else {
-                ContentUnavailableView(
-                    "No Shot Selected",
-                    systemImage: "camera.circle.fill",
-                    description: Text("Select a shot to view its details")
-                )
+                ContentUnavailableView {
+                    Text("No Shot Selected").font(.headline)
+                } description: {
+                    Text("Select a shot to view its details")
+                }
             }
         case .map:
             // Keyed by scene so switching scenes reloads the map document.
