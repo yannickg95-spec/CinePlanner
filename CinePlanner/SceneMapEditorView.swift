@@ -162,6 +162,16 @@ struct SceneMapEditorView: View {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
     }
 
+    /// Add-camera menu label: shot number, then its nickname and size when set —
+    /// e.g. "Shot 4 – Kitchen wide · MS".
+    private func cameraMenuLabel(for shot: Shot) -> String {
+        var text = "Shot \(shot.displayNumber)"
+        let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nickname.isEmpty { text += " – \(nickname)" }
+        if shot.hasSize { text += " · \(shot.sizeShort)" }
+        return text
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
             Spacer()
@@ -179,9 +189,9 @@ struct SceneMapEditorView: View {
                             addCamera(for: shot)
                         } label: {
                             if hasCamera(for: shot) {
-                                Label("Shot \(shot.displayNumber)", systemImage: "checkmark")
+                                Label(cameraMenuLabel(for: shot), systemImage: "checkmark")
                             } else {
-                                Text("Shot \(shot.displayNumber)")
+                                Text(cameraMenuLabel(for: shot))
                             }
                         }
                         .disabled(hasCamera(for: shot))
