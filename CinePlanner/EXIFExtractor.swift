@@ -231,8 +231,15 @@ class EXIFExtractor {
     /// Cadrage Director's Viewfinder stores its data in the TIFF fields:
     ///   Make  = "ARRI Alexa Mini  |  4:3 2.8K  |  2.39:1"  (camera | sensor | aspect)
     ///   Model = "35mm"                                      (focal length)
-    /// so the camera goes to cameraFamily, the sensor+aspect to cameraFormat, and
-    /// the focal length is read off Model rather than EXIF FocalLength.
+    /// so the camera goes to cameraFamily, the sensor mode to cameraFormat, the
+    /// trailing aspect ratio to framelines, and the focal length is read off Model
+    /// rather than EXIF FocalLength.
+    /// True for a bare aspect ratio like "1.78:1", "2.39:1", "16:9" — as opposed
+    /// to a sensor mode ("16:9 Mode 3.2K") that merely contains one.
+    private static func isAspectRatio(_ s: String) -> Bool {
+        s.range(of: #"^[0-9]+(\.[0-9]+)?\s*:\s*[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil
+    }
+
     private static func parseCadrageTIFF(make: String?, model: String?, into metadata: inout PhotoMetadata) {
         if let make {
             let parts = make.components(separatedBy: "|")
@@ -243,10 +250,21 @@ class EXIFExtractor {
                 print("  ✅ [Cadrage] Camera: \(camera)")
             }
             if parts.count > 1 {
-                // e.g. "4:3 2.8K" + "2.39:1"  ->  "4:3 2.8K · 2.39:1"
-                let format = parts.dropFirst().joined(separator: " · ")
-                metadata.cameraFormat = format
-                print("  ✅ [Cadrage] Format: \(format)")
+                var formatParts = Array(parts.dropFirst())
+                // Cadrage appends the frameline aspect ratio as the last field — a
+                // bare ratio like "1.78:1". Peel it off into framelines so it lands
+                // in the right place, leaving the sensor mode ("16:9 Mode 3.2K") as
+                // the format.
+                if let last = formatParts.last, isAspectRatio(last) {
+                    metadata.framelines = last
+                    formatParts.removeLast()
+                    print("  ✅ [Cadrage] Framelines: \(last)")
+                }
+                if !formatParts.isEmpty {
+                    let format = formatParts.joined(separator: " · ")
+                    metadata.cameraFormat = format
+                    print("  ✅ [Cadrage] Format: \(format)")
+                }
             }
         }
 
