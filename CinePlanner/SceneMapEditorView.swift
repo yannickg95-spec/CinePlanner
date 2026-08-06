@@ -28,6 +28,8 @@ struct SceneMapEditorView: View {
     @State private var selectedID: UUID?
     /// Camera marker whose shot-info popover is open (left-click a camera).
     @State private var cameraInfoElementID: UUID?
+    @State private var showNewCharacterPrompt = false
+    @State private var newCharacterName = ""
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
@@ -88,7 +90,7 @@ struct SceneMapEditorView: View {
             canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); clearCharacterLabels() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -140,6 +142,13 @@ struct SceneMapEditorView: View {
         } message: {
             Text("This removes every marker, arrow, furniture piece, floor plan and background from this scene's map. It can't be undone.")
         }
+        .alert("New Character", isPresented: $showNewCharacterPrompt) {
+            TextField("Name", text: $newCharacterName)
+            Button("Add") { createAndAddCharacter() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saved for this project with its own color, and added to the map.")
+        }
         .onDisappear { persist(); persistFloorPlan() }
     }
 
@@ -175,9 +184,21 @@ struct SceneMapEditorView: View {
     private var toolbar: some View {
         HStack(spacing: 10) {
             Spacer()
-            Button { add(.character) } label: { Label("+", systemImage: "person.fill") }
-                .fixedSize()
-                .help("Add Character")
+            Menu {
+                let characters = scene.project?.scriptCharacters ?? []
+                ForEach(characters) { character in
+                    Button(character.name) { addCharacterMarker(name: character.name, colorHex: character.colorHex) }
+                }
+                if !characters.isEmpty { Divider() }
+                Button { newCharacterName = ""; showNewCharacterPrompt = true } label: {
+                    Label("New Character…", systemImage: "plus")
+                }
+            } label: {
+                Label("+", systemImage: "person.fill")
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Add Character")
             Menu {
                 if sceneShots.isEmpty {
                     Text("No shots in this scene")
@@ -361,7 +382,9 @@ struct SceneMapEditorView: View {
                             // clicking any other marker closes it.
                             cameraInfoElementID = (element.kind == .camera) ? element.id : nil
                         },
-                        onDragStart: { cameraInfoElementID = nil }
+                        onDragStart: { cameraInfoElementID = nil },
+                        characters: scene.project?.scriptCharacters ?? [],
+                        onSetCharacter: { character in setCharacter(element.id, character) }
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
                 }
@@ -492,6 +515,14 @@ struct SceneMapEditorView: View {
     private func setColor(_ id: UUID, _ hex: String) {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].colorHex = hex
+        persist()
+    }
+
+    /// Assigns a character (its name as the label, its color) to a mannequin marker.
+    private func setCharacter(_ id: UUID, _ character: ScriptCharacter) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].label = character.name
+        doc.elements[index].colorHex = character.colorHex
         persist()
     }
 
@@ -996,14 +1027,27 @@ struct SceneMapEditorView: View {
         return CGPoint(x: 0.44 + jitter, y: 0.42 + jitter)
     }
 
-    private func add(_ kind: MapElement.Kind) {
+    /// Adds a mannequin (character) marker labeled with the character's name and
+    /// tinted with its color.
+    private func addCharacterMarker(name: String, colorHex: String) {
         let point = newElementPoint
-        // Characters are unlabeled; cameras get their label from their shot.
-        var element = MapElement(kind: kind, x: point.x, y: point.y)
-        element.colorHex = kind == .character ? "#4C8DFF" : "#FF9500"
+        var element = MapElement(kind: .character, x: point.x, y: point.y)
+        element.label = name
+        element.colorHex = colorHex
         doc.elements.append(element)
         selectedID = element.id
         persist()
+    }
+
+    /// Creates a new project character from the prompt (assigning it a color) and
+    /// drops a marker for it.
+    private func createAndAddCharacter() {
+        let name = newCharacterName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let project = scene.project else { return }
+        project.addScriptCharacters(named: [name])
+        let color = project.scriptCharacters
+            .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.colorHex ?? "#4C8DFF"
+        addCharacterMarker(name: name, colorHex: color)
     }
 
     /// Whether a camera for this shot is already on the map. Extra markers made
@@ -1466,18 +1510,6 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Characters (mannequins and hand-placed) are unlabeled, so clear any label
-    /// left on existing maps.
-    private func clearCharacterLabels() {
-        var changed = false
-        for index in doc.elements.indices where doc.elements[index].kind == .character
-            && !doc.elements[index].label.isEmpty {
-            doc.elements[index].label = ""
-            changed = true
-        }
-        if changed { persist() }
-    }
-
     /// Refresh stored labels of shot-linked cameras to their shot's current
     /// number (so the saved map + archive stay correct even when rendered
     /// without a scene, and as a fallback if the shot is later deleted).
@@ -1522,6 +1554,10 @@ private struct MapMarkerView: View {
     var onTap: () -> Void = {}
     /// Fired when a drag on the marker begins — used to dismiss the shot popover.
     var onDragStart: () -> Void = {}
+    /// Project characters offered in a mannequin marker's right-click menu.
+    var characters: [ScriptCharacter] = []
+    /// Assigns the picked character (name + color) to this mannequin marker.
+    var onSetCharacter: (ScriptCharacter) -> Void = { _ in }
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1607,6 +1643,22 @@ private struct MapMarkerView: View {
 
     @ViewBuilder
     private var markerContextMenu: some View {
+        if element.kind == .character, !characters.isEmpty {
+            Menu("Character") {
+                ForEach(characters) { character in
+                    Button {
+                        onSetCharacter(character)
+                    } label: {
+                        if element.label.caseInsensitiveCompare(character.name) == .orderedSame {
+                            Label(character.name, systemImage: "checkmark")
+                        } else {
+                            Text(character.name)
+                        }
+                    }
+                }
+            }
+            Divider()
+        }
         Button { onMoveTo() } label: { Label("Move To…", systemImage: "arrow.forward") }
         Button { onMoveFrom() } label: { Label("Move From…", systemImage: "arrow.backward") }
         Divider()

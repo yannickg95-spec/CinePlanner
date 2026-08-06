@@ -506,14 +506,35 @@ struct CineStagerImportSheet: View {
                     && abs(element.y - mannequin.v) < sameSpot
             }
             guard !duplicate else { continue }
-            // Mannequin markers are shown unlabeled on the map.
             var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
             element.colorHex = "#4C8DFF"
             if let rot = mannequin.rotationDeg { element.rotation = rot }
             doc.elements.append(element)
         }
 
+        assignSceneCharacters(to: &doc, scene: scene)
         scene.sceneMapJSON = doc.jsonString
+    }
+
+    /// Best-effort: label the scene map's unlabeled mannequins with the scene's
+    /// detected characters (in order), tinting each with that character's project
+    /// color. Anonymous CineStager mannequins have no identity of their own, so
+    /// this is a guess the user can correct via the marker's right-click menu.
+    private func assignSceneCharacters(to doc: inout SceneMapDoc, scene: Scene) {
+        let names = scene.sceneCharacterNames
+        guard !names.isEmpty else { return }
+        let projectChars = scene.project?.scriptCharacters ?? []
+        func color(for name: String) -> String {
+            projectChars.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.colorHex ?? "#4C8DFF"
+        }
+        var next = 0
+        for i in doc.elements.indices
+        where doc.elements[i].kind == .character && doc.elements[i].label.isEmpty {
+            guard next < names.count else { break }
+            doc.elements[i].label = names[next]
+            doc.elements[i].colorHex = color(for: names[next])
+            next += 1
+        }
     }
 }
 

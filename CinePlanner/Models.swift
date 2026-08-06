@@ -36,6 +36,10 @@ final class Project {
     var scriptPDFData: Data?
     var scriptPDFPageOffset: Int = 0  // Absolute PDF page index (0-based) of the first scene
 
+    /// Characters detected in the script (name + assigned marker color), as JSON.
+    /// Optional so adding it migrates existing stores automatically.
+    var scriptCharactersJSON: String?
+
     // CloudKit requires to-many relationships to be optional. The stored arrays
     // are optional (originalName keeps them bound to the existing relationships,
     // so no data is lost); a computed wrapper preserves the non-optional API used
@@ -122,6 +126,50 @@ final class Project {
         if scriptPDFPageOffset > 0 { return scriptPDFPageOffset }
         return scenes.sorted(by: { $0.sortOrder < $1.sortOrder }).first?.pdfPageOffset ?? 0
     }
+
+    // MARK: Characters
+
+    /// Distinct marker colors handed out to characters in order.
+    static let characterPalette = [
+        "#4C8DFF", "#FF9500", "#34C759", "#AF52DE", "#FF3B30",
+        "#FFCC00", "#5AC8FA", "#FF2D55", "#A2845E", "#30B0C7",
+    ]
+
+    /// Characters detected in / added to the script, decoded from JSON.
+    var scriptCharacters: [ScriptCharacter] {
+        get {
+            guard let data = scriptCharactersJSON?.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([ScriptCharacter].self, from: data)) ?? []
+        }
+        set {
+            scriptCharactersJSON = (try? JSONEncoder().encode(newValue))
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
+    }
+
+    /// Adds any not-yet-known character names, each with the next palette color.
+    /// Case-insensitive de-dup; existing characters keep their color.
+    func addScriptCharacters(named names: [String]) {
+        var chars = scriptCharacters
+        var seen = Set(chars.map { $0.name.uppercased() })
+        for raw in names {
+            let name = raw.trimmingCharacters(in: .whitespaces)
+            let key = name.uppercased()
+            guard !name.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            let color = Project.characterPalette[chars.count % Project.characterPalette.count]
+            chars.append(ScriptCharacter(name: name, colorHex: color))
+        }
+        scriptCharacters = chars
+    }
+}
+
+/// A character found in the script, with the color used for its scene-map
+/// mannequin markers.
+struct ScriptCharacter: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var colorHex: String
 }
 
 @Model
@@ -232,6 +280,9 @@ final class Scene {
     // Script location information
     var scriptPageNumber: Int = 0  // Scene-relative page (first scene = 1, second scene = 2, etc.)
     var scriptLineNumber: Int = 0  // Line number in text where scene heading was found
+    /// Character names cued in this scene's dialogue (JSON), detected at import —
+    /// used to auto-label the scene map's mannequin markers.
+    var sceneCharactersJSON: String?
     var scriptTimeOfDay: String = ""  // Raw time-of-day from the heading ("DAY", "NIGHT", "DAY - CONTINUOUS", ...)
     var manualAnnotationY: Double = 0  // Manual Y position for PDF annotation (when user drags marker)
 
@@ -248,6 +299,18 @@ final class Scene {
     
     init(sceneNumber: Int) {
         self.sceneNumber = sceneNumber
+    }
+
+    /// Character names cued in this scene (decoded from `sceneCharactersJSON`).
+    var sceneCharacterNames: [String] {
+        get {
+            guard let data = sceneCharactersJSON?.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }
+        set {
+            sceneCharactersJSON = (try? JSONEncoder().encode(newValue))
+                .flatMap { String(data: $0, encoding: .utf8) }
+        }
     }
     
     /// Converts scene-relative page number to absolute PDF page index (0-based)

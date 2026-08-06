@@ -33,6 +33,7 @@ enum ProjectArchive {
         var scriptSplitFraction: Double
         var episodes: [EpisodeDTO]
         var autoAddFilmTool: Bool?
+        var scriptCharactersJSON: String?
     }
 
     private struct EpisodeDTO: Codable {
@@ -68,6 +69,7 @@ enum ProjectArchive {
         var sceneMapBackgroundData: Data?
         var sceneMapLocation: String?
         var sceneFloorPlanJSON: String?
+        var sceneCharactersJSON: String?
         var shots: [ShotDTO]
     }
 
@@ -164,7 +166,8 @@ enum ProjectArchive {
             scriptPDFPageOffset: project.scriptPDFPageOffset,
             scriptSplitFraction: project.scriptSplitFraction,
             episodes: episodes,
-            autoAddFilmTool: project.autoAddFilmTool
+            autoAddFilmTool: project.autoAddFilmTool,
+            scriptCharactersJSON: project.scriptCharactersJSON
         )
         let doc = Doc(
             format: currentFormat,
@@ -207,6 +210,7 @@ enum ProjectArchive {
             sceneMapBackgroundData: scene.sceneMapBackgroundData,
             sceneMapLocation: scene.sceneMapLocation,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
+            sceneCharactersJSON: scene.sceneCharactersJSON,
             shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO)
         )
     }
@@ -284,6 +288,7 @@ enum ProjectArchive {
         project.scriptPDFPageOffset = p.scriptPDFPageOffset
         project.scriptSplitFraction = p.scriptSplitFraction
         project.autoAddFilmTool = p.autoAddFilmTool ?? false
+        project.scriptCharactersJSON = p.scriptCharactersJSON
         context.insert(project)
 
         for e in p.episodes {
@@ -317,6 +322,7 @@ enum ProjectArchive {
                     scene.sceneMapBackgroundData = s.sceneMapBackgroundData
                     scene.sceneMapLocation = s.sceneMapLocation
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
+                    scene.sceneCharactersJSON = s.sceneCharactersJSON
 
                     for sh in s.shots {
                         let shot = Shot(shotNumber: sh.shotNumber, shotInformation: sh.shotInformation)

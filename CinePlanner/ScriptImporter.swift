@@ -126,6 +126,12 @@ struct ScriptImporter {
             scene.scriptPageNumber = (sceneInfo.pageNumber - firstScenePDFPage) + 1
             scene.scriptLineNumber = sceneInfo.lineNumber
 
+            // Characters cued between this scene's heading and the next scene's —
+            // used to auto-label the scene map's mannequins on CineStager import.
+            let nextSceneLine = (index + 1 < scenes.count) ? scenes[index + 1].lineNumber : lines.count
+            scene.sceneCharacterNames = ScreenplayParser.charactersIn(
+                lines: lines, from: sceneInfo.lineNumber, to: nextSceneLine)
+
             // Legacy: older builds read the PDF page offset from the first scene
             if index == 0 {
                 scene.pdfPageOffset = firstScenePDFPage
@@ -144,6 +150,12 @@ struct ScriptImporter {
         for newScene in newSceneObjects {
             project.scenes.append(newScene)
         }
+
+        // Detect characters and register any new ones (each gets its own color),
+        // used for the scene map's mannequin markers.
+        let characterNames = ScreenplayParser.extractCharacters(lines: lines)
+        project.addScriptCharacters(named: characterNames)
+        print("👥 Detected \(characterNames.count) character\(characterNames.count == 1 ? "" : "s"): \(characterNames.joined(separator: ", "))")
 
         // Persist now so the new scenes get permanent, stable persistentModelIDs.
         // Otherwise a later autosave flips their temporary IDs to permanent ones,
@@ -513,6 +525,84 @@ enum ScreenplayParser {
     static func headingLocation(of line: String) -> String? {
         if case .heading(let match) = evaluateLine(line) { return match.location }
         return nil
+    }
+
+    // MARK: Character cues
+
+    private static let cueTransitions: Set<String> = [
+        "CUT TO", "FADE IN", "FADE OUT", "FADE TO", "DISSOLVE TO", "SMASH CUT",
+        "SMASH CUT TO", "MATCH CUT", "INTERCUT", "BACK TO", "THE END", "CONTINUED",
+        "CONT'D", "TITLE", "SUPER", "MONTAGE", "OMITTED", "END", "LATER",
+        "MOMENTS LATER", "CONTINUOUS", "PRELAP", "V.O.", "O.S.", "FADE",
+    ]
+
+    /// Returns the character name if `line` reads as a screenplay character cue —
+    /// an all-caps name (parentheticals like "(V.O.)" stripped), short, not a scene
+    /// heading or transition. Nil otherwise.
+    private static func characterCueName(_ line: String) -> String? {
+        var name = line.trimmingCharacters(in: .whitespaces)
+        // Strip a trailing parenthetical extension: "JOHN (V.O.)" → "JOHN".
+        if let r = name.range(of: "\\s*\\(.*\\)\\s*$", options: .regularExpression) {
+            name.removeSubrange(r)
+        }
+        name = name.trimmingCharacters(in: CharacterSet(charactersIn: " :"))
+        guard name.count >= 2, name.count <= 30 else { return nil }
+        guard name == name.uppercased() else { return nil }              // all caps
+        guard name.rangeOfCharacter(from: .lowercaseLetters) == nil,
+              name.rangeOfCharacter(from: .uppercaseLetters) != nil else { return nil }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ .'’-&0123456789")
+        guard name.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        guard name.split(separator: " ").count <= 4 else { return nil }
+        if cueTransitions.contains(name) { return nil }
+        if typeAnywhereRegex.firstMatch(in: name, options: [], range: fullRange(name)) != nil { return nil }
+        return name
+    }
+
+    /// Best-effort list of characters (ordered by first appearance) — a cue line
+    /// immediately followed by dialogue. Only cues *after the first scene heading*
+    /// count, which drops title-page text (title, author) that would otherwise
+    /// read as a cue; that gate is strong enough that a single appearance is
+    /// enough, so characters who speak only once still register.
+    static func extractCharacters(lines: [String]) -> [String] {
+        var seen = Set<String>()
+        var order: [String] = []
+        var pastFrontMatter = false
+        for i in lines.indices {
+            if case .heading = evaluateLine(lines[i]) { pastFrontMatter = true }
+            guard pastFrontMatter, let name = characterCueName(lines[i]) else { continue }
+            // The next non-empty line should be dialogue, not another cue/heading.
+            var j = i + 1
+            while j < lines.count, lines[j].trimmingCharacters(in: .whitespaces).isEmpty { j += 1 }
+            guard j < lines.count else { continue }
+            if characterCueName(lines[j]) != nil { continue }
+            if case .heading = evaluateLine(lines[j]) { continue }
+            if seen.insert(name.uppercased()).inserted { order.append(name) }
+        }
+        return order
+    }
+
+    /// Character names cued within the line range [from, to) — used to pre-fill a
+    /// scene's characters (a scene spans from its heading to the next scene's).
+    static func charactersIn(lines: [String], from: Int, to: Int) -> [String] {
+        var seen = Set<String>()
+        var order: [String] = []
+        let hi = min(to, lines.count)
+        var i = max(0, from)
+        while i < hi {
+            if let name = characterCueName(lines[i]) {
+                var j = i + 1
+                while j < hi, lines[j].trimmingCharacters(in: .whitespaces).isEmpty { j += 1 }
+                if j < hi {
+                    let nextIsHeading = { if case .heading = evaluateLine(lines[j]) { return true } else { return false } }()
+                    if characterCueName(lines[j]) == nil, !nextIsHeading,
+                       seen.insert(name.uppercased()).inserted {
+                        order.append(name)
+                    }
+                }
+            }
+            i += 1
+        }
+        return order
     }
 
     private static func evaluateLine(_ line: String) -> LineResult {
