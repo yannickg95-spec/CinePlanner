@@ -228,6 +228,16 @@ struct SceneMapEditorView: View {
             Menu {
                 Button { startDrawing() } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
                 Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
+                Menu {
+                    let others = scenesWithBackground
+                    if others.isEmpty {
+                        Text("No other scene has a background")
+                    } else {
+                        ForEach(others, id: \.uid) { other in
+                            Button(sceneBackgroundLabel(other)) { setBackgroundFromScene(other) }
+                        }
+                    }
+                } label: { Label("Add from Scene…", systemImage: "square.on.square") }
                 Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
                 if backgroundImage != nil || !floorPlan.isEmpty {
                     Divider()
@@ -1092,6 +1102,32 @@ struct SceneMapEditorView: View {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].rotation = rotation
         persist()
+    }
+
+    /// Other scenes in the project that have a background image to borrow.
+    private var scenesWithBackground: [Scene] {
+        (scene.project?.scenes ?? [])
+            .filter { $0.uid != scene.uid && $0.sceneMapBackgroundData != nil }
+            .sorted { ($0.sceneNumber, $0.suffix) < ($1.sceneNumber, $1.suffix) }
+    }
+
+    private func sceneBackgroundLabel(_ other: Scene) -> String {
+        let nickname = other.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = "Scene \(other.sceneNumber)\(other.suffix)"
+        return nickname.isEmpty ? base : "\(base) – \(nickname)"
+    }
+
+    /// Copies another scene's background image (and its location tag) onto this
+    /// scene, replacing any current image or drawn floor plan.
+    private func setBackgroundFromScene(_ other: Scene) {
+        guard let data = other.sceneMapBackgroundData else { return }
+        isDrawing = false
+        floorPlan = FloorPlan()
+        scene.sceneFloorPlanJSON = nil
+        scene.sceneMapBackgroundData = data
+        scene.sceneMapLocation = other.sceneMapLocation
+        backgroundImage = NSImage(data: data)
+        try? scene.modelContext?.save()
     }
 
     /// Sets (replacing any existing) the scene-map background from an image file.
