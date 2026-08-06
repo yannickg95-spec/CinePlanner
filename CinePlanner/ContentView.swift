@@ -186,15 +186,15 @@ struct SceneListView: View {
         }
     }
 
-    /// Empties a scene: deletes all its shots and wipes its scene map, but keeps
-    /// the scene itself.
+    /// Empties a scene: removes all its shots and wipes its scene map, but keeps
+    /// the scene itself. Detaches the shots from the scene (the same way the shot
+    /// list's delete does) rather than calling `context.delete` on each — deleting
+    /// objects that the open shot list is still rendering can crash on the dangling
+    /// reference.
     private func clearScene(_ scene: Scene) {
-        let context = scene.modelContext
-        for shot in Array(scene.shots) {
-            context?.delete(shot)
-        }
+        scene.shots.removeAll()
         scene.clearSceneMap()
-        try? context?.save()
+        try? scene.modelContext?.save()
         sceneToClear = nil
     }
     
