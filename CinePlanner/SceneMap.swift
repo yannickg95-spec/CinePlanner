@@ -133,8 +133,9 @@ struct Furniture: Identifiable, Codable, Equatable {
     var height: Double
     var rotation: Double = 0
     var colorHex: String = "#8E8E93"
+    var label: String = ""
 
-    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex }
+    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label }
 
     init(kind: Kind, x: Double, y: Double, width: Double, height: Double) {
         self.kind = kind; self.x = x; self.y = y; self.width = width; self.height = height
@@ -150,6 +151,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         height = try c.decodeIfPresent(Double.self, forKey: .height) ?? 0.1
         rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#8E8E93"
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
     }
 }
 

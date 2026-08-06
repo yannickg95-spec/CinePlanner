@@ -30,6 +30,8 @@ struct SceneMapEditorView: View {
     @State private var cameraInfoElementID: UUID?
     @State private var showNewCharacterPrompt = false
     @State private var newCharacterName = ""
+    @State private var furnitureToLabel: UUID?
+    @State private var furnitureLabelText = ""
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
@@ -149,6 +151,19 @@ struct SceneMapEditorView: View {
         } message: {
             Text("Saved for this project with its own color, and added to the map.")
         }
+        .alert("Furniture Label", isPresented: Binding(
+            get: { furnitureToLabel != nil },
+            set: { if !$0 { furnitureToLabel = nil } }
+        )) {
+            TextField("Label", text: $furnitureLabelText)
+            Button("Save") {
+                if let id = furnitureToLabel { setFurnitureLabel(id, furnitureLabelText) }
+                furnitureToLabel = nil
+            }
+            Button("Cancel", role: .cancel) { furnitureToLabel = nil }
+        } message: {
+            Text("Shown beneath the furniture piece on the map.")
+        }
         .onDisappear { persist(); persistFloorPlan() }
     }
 
@@ -244,20 +259,22 @@ struct SceneMapEditorView: View {
                     Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
                 }
             } label: {
-                Text("Background +")
+                Label("+", systemImage: "map.fill")
             }
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("Add Background")
 
             Menu {
                 ForEach(Furniture.Kind.allCases, id: \.self) { kind in
                     Button(kind.rawValue) { addFurniture(kind) }
                 }
             } label: {
-                Text("Furniture +")
+                Label("+", systemImage: "chair.fill")
             }
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("Add Furniture")
             Spacer()
         }
         .overlay(alignment: .leading) {
@@ -352,6 +369,10 @@ struct SceneMapEditorView: View {
                             onSetColor: { hex in setFurnitureColor(item.id, hex) },
                             onReorder: { move in reorderFurniture(item.id, move) },
                             onDuplicate: { duplicateFurniture(item.id) },
+                            onEditLabel: {
+                                furnitureToLabel = item.id
+                                furnitureLabelText = item.label
+                            },
                             onDelete: { deleteFurniture(item.id) }
                         )
                         .allowsHitTesting(pendingMove == nil)
@@ -576,6 +597,12 @@ struct SceneMapEditorView: View {
     private func setFurnitureColor(_ id: UUID, _ hex: String) {
         guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
         doc.furniture[i].colorHex = hex
+        persist()
+    }
+
+    private func setFurnitureLabel(_ id: UUID, _ label: String) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         persist()
     }
 
@@ -2128,6 +2155,7 @@ private struct FurnitureView: View {
     let onSetColor: (String) -> Void
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
+    var onEditLabel: () -> Void = {}
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -2156,6 +2184,15 @@ private struct FurnitureView: View {
                 .onTapGesture { onSelect() }
                 .gesture(dragGesture)
                 .contextMenu { menu }
+            if !furniture.label.isEmpty {
+                Text(furniture.label)
+                    .font(.caption).fontWeight(.medium)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.regularMaterial, in: Capsule())
+                    .offset(y: max(w, h) / 2 + 12)
+                    .allowsHitTesting(false)
+            }
             if isSelected {
                 selectionBox(w: w, h: h)
                 cornerHandle(-1, -1, w: w, h: h)
@@ -2261,6 +2298,9 @@ private struct FurnitureView: View {
 
     @ViewBuilder
     private var menu: some View {
+        Button { onEditLabel() } label: {
+            Label(furniture.label.isEmpty ? "Add Label…" : "Edit Label…", systemImage: "textformat")
+        }
         Menu("Color") {
             ForEach(sceneMapPalette, id: \.hex) { item in
                 Button {
@@ -2274,13 +2314,16 @@ private struct FurnitureView: View {
                 }
             }
         }
+        Menu {
+            Button { onReorder(.toFront) } label: { Label("Bring to Front", systemImage: "square.3.layers.3d.top.filled") }
+            Button { onReorder(.forward) } label: { Label("Bring Forward", systemImage: "arrow.up") }
+            Button { onReorder(.backward) } label: { Label("Send Backward", systemImage: "arrow.down") }
+            Button { onReorder(.toBack) } label: { Label("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") }
+        } label: {
+            Label("Arrange", systemImage: "square.3.layers.3d")
+        }
         Divider()
         Button { onDuplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-        Button { onReorder(.toFront) } label: { Label("Bring to Front", systemImage: "square.3.layers.3d.top.filled") }
-        Button { onReorder(.forward) } label: { Label("Bring Forward", systemImage: "arrow.up") }
-        Button { onReorder(.backward) } label: { Label("Send Backward", systemImage: "arrow.down") }
-        Button { onReorder(.toBack) } label: { Label("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") }
-        Divider()
         Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
     }
 }
