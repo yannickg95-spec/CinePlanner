@@ -477,9 +477,12 @@ struct CineStagerImportSheet: View {
             // location adds its markers without a replace prompt.
             let loc = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
             scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
-            // Real-world scale: the location width (metres) spans the map; the
-            // camera's physical width is exported in cm.
-            scene.sceneMapMetersWide = (ref.mapLocationWidth ?? 0) > 0 ? ref.mapLocationWidth : nil
+            // Real-world scale: CineStager renders the top-down as a *square* map
+            // sized to the room's longer side, so the full map spans
+            // max(width, length) metres (verified against the marker world coords).
+            // The camera's physical width is exported in cm.
+            let span = max(ref.mapLocationWidth ?? 0, ref.mapLocationLength ?? 0)
+            scene.sceneMapMetersWide = span > 0 ? span : nil
             scene.sceneMapCameraSizeMeters = (ref.mapCameraPhysicalWidth ?? 0) > 0
                 ? ref.mapCameraPhysicalWidth! / 100 : nil
         }
