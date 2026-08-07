@@ -470,6 +470,7 @@ struct CineStagerImportSheet: View {
         // Background: the marker-free location map. Set it when the scene has none,
         // or when the user chose to replace an existing one; otherwise leave the
         // scene's current map untouched.
+        ref.mapCleanData = cleanData   // keep the clean map for later re-adds
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
             scene.sceneMapBackgroundData = clean
             scene.sceneMapBackgroundIsSatellite = false

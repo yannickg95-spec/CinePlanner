@@ -22,6 +22,32 @@ enum SceneMapMarkerImport {
         return CineStagerMapMetadata.markers(from: data)
     }
 
+    /// Whether the reference's clean top-down map is already the scene background.
+    static func backgroundPresent(for reference: ShotReference, in scene: Scene) -> Bool {
+        guard let bg = reference.mapCleanData ?? reference.mapData else { return true }
+        return scene.sceneMapBackgroundData == bg
+    }
+
+    /// Re-adds this shot to the scene map: sets the clean top-down as the (scaled)
+    /// background and adds any missing camera + mannequin markers.
+    static func addToSceneMap(_ markers: CineStagerMapMetadata.Markers, reference: ShotReference,
+                              shot: Shot, to scene: Scene) {
+        if let background = reference.mapCleanData ?? reference.mapData {
+            scene.sceneMapBackgroundData = background
+            scene.sceneMapBackgroundIsSatellite = false
+            scene.sceneFloorPlanJSON = nil
+            let loc = reference.mapLocationModel?.trimmingCharacters(in: .whitespaces)
+            scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
+            // Same scale as the import: a square map spanning the room's longer side.
+            let span = max(reference.mapLocationWidth ?? 0, reference.mapLocationLength ?? 0)
+            scene.sceneMapMetersWide = span > 0 ? span : nil
+            scene.sceneMapCameraSizeMeters = (reference.mapCameraPhysicalWidth ?? 0) > 0
+                ? reference.mapCameraPhysicalWidth! / 100 : nil
+            try? scene.modelContext?.save()
+        }
+        _ = addMissing(markers, shot: shot, to: scene)
+    }
+
     /// Whether every marker in `markers` is already on the scene map.
     static func allPresent(_ markers: CineStagerMapMetadata.Markers, shot: Shot, in scene: Scene) -> Bool {
         let doc = SceneMapDoc.load(from: scene.sceneMapJSON)

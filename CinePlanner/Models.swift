@@ -601,6 +601,9 @@ final class ShotReference {
     var mapData: Data?
     var mapVideoData: Data?
     var mapVideoExtension: String?  // "mov", "mp4" — used for export filenames
+    /// CineStager's marker-free ("clean") top-down map, used as the scene-map
+    /// background when re-adding this shot to the scene map.
+    @Attribute(.externalStorage) var mapCleanData: Data?
 
     /// A short user note shown under this reference's media in the PDF, the HTML
     /// export, and the published web page. Distinct from `caption`, which is EXIF
