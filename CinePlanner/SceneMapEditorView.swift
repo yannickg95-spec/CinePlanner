@@ -41,6 +41,8 @@ struct SceneMapEditorView: View {
     private let toolbarCellWidth: CGFloat = 40
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
+    @State private var markerToLabel: UUID?
+    @State private var markerLabelText = ""
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
@@ -186,6 +188,19 @@ struct SceneMapEditorView: View {
             Button("Cancel", role: .cancel) { furnitureToLabel = nil }
         } message: {
             Text("Shown beneath the furniture piece on the map.")
+        }
+        .alert("Name Label", isPresented: Binding(
+            get: { markerToLabel != nil },
+            set: { if !$0 { markerToLabel = nil } }
+        )) {
+            TextField("Name", text: $markerLabelText)
+            Button("Save") {
+                if let id = markerToLabel { setMarkerLabel(id, markerLabelText) }
+                markerToLabel = nil
+            }
+            Button("Cancel", role: .cancel) { markerToLabel = nil }
+        } message: {
+            Text("Shown beneath the character marker on the map.")
         }
         .onDisappear { persist(); persistFloorPlan() }
     }
@@ -493,6 +508,8 @@ struct SceneMapEditorView: View {
                         onDragStart: { cameraInfoElementID = nil },
                         characters: scene.project?.scriptCharacters ?? [],
                         onSetCharacter: { character in setCharacter(element.id, character) },
+                        onRequestLabel: { markerToLabel = element.id; markerLabelText = element.label },
+                        onRemoveLabel: { setMarkerLabel(element.id, "") },
                         scale: sceneMarkerScale(kind: element.kind,
                                                 metersWide: mapMetersWide,
                                                 cameraMeters: mapCameraMeters,
@@ -745,6 +762,13 @@ struct SceneMapEditorView: View {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].label = character.name
         doc.elements[index].colorHex = character.colorHex
+        persist()
+    }
+
+    /// Sets (or clears, with "") a character marker's free-text name label.
+    private func setMarkerLabel(_ id: UUID, _ label: String) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         persist()
     }
 
@@ -1866,6 +1890,9 @@ private struct MapMarkerView: View {
     var characters: [ScriptCharacter] = []
     /// Assigns the picked character (name + color) to this mannequin marker.
     var onSetCharacter: (ScriptCharacter) -> Void = { _ in }
+    /// Character-marker name label: request a text prompt to add one, or remove it.
+    var onRequestLabel: () -> Void = {}
+    var onRemoveLabel: () -> Void = {}
     /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
     var scale: CGFloat = 1
 
@@ -1956,19 +1983,26 @@ private struct MapMarkerView: View {
 
     @ViewBuilder
     private var markerContextMenu: some View {
-        if element.kind == .character, !characters.isEmpty {
-            Menu("Character") {
-                ForEach(characters) { character in
-                    Button {
-                        onSetCharacter(character)
-                    } label: {
-                        if element.label.caseInsensitiveCompare(character.name) == .orderedSame {
-                            Label(character.name, systemImage: "checkmark")
-                        } else {
-                            Text(character.name)
+        if element.kind == .character {
+            if !characters.isEmpty {
+                Menu("Character") {
+                    ForEach(characters) { character in
+                        Button {
+                            onSetCharacter(character)
+                        } label: {
+                            if element.label.caseInsensitiveCompare(character.name) == .orderedSame {
+                                Label(character.name, systemImage: "checkmark")
+                            } else {
+                                Text(character.name)
+                            }
                         }
                     }
                 }
+            }
+            if element.label.isEmpty {
+                Button { onRequestLabel() } label: { Label("Add Name Label…", systemImage: "textformat") }
+            } else {
+                Button { onRemoveLabel() } label: { Label("Remove Name Label", systemImage: "textformat.slash") }
             }
             Divider()
         }
