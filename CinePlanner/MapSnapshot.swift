@@ -14,17 +14,44 @@ import AppKit
 enum MapSnapshot {
     /// A square satellite image centred on `coordinate`, `meters` across, at
     /// `pixels`×`pixels`. North is up. Needs network access (tiles download).
+    ///
+    /// MapKit clamps very small satellite areas to its max zoom, so a direct tiny
+    /// mapRect is ignored (20 m and 60 m came out identical). Instead a reference
+    /// area MapKit will honour is rendered, then its centre is cropped to the exact
+    /// requested size — the framing is always to scale, just softer below the
+    /// imagery's native resolution.
+    @MainActor
     static func satelliteImage(coordinate: CLLocationCoordinate2D,
                                meters: Double,
                                pixels: CGFloat = 1200) async throws -> NSImage {
+        let refMeters = max(meters, 250.0)
         let options = MKMapSnapshotter.Options()
-        options.region = MKCoordinateRegion(center: coordinate,
-                                            latitudinalMeters: meters,
-                                            longitudinalMeters: meters)
+        let side = refMeters * MKMapPointsPerMeterAtLatitude(coordinate.latitude)
+        let center = MKMapPoint(coordinate)
+        options.mapRect = MKMapRect(x: center.x - side / 2, y: center.y - side / 2,
+                                    width: side, height: side)
         options.mapType = .satellite
-        options.size = CGSize(width: pixels, height: pixels)
+        let refPixels: CGFloat = 2048
+        options.size = CGSize(width: refPixels, height: refPixels)
         options.showsBuildings = true
+
         let snapshot = try await MKMapSnapshotter(options: options).start()
-        return snapshot.image
+
+        let fraction = CGFloat(meters / refMeters)     // ≤ 1
+        let cropPixels = refPixels * fraction
+        let crop = CGRect(x: (refPixels - cropPixels) / 2, y: (refPixels - cropPixels) / 2,
+                          width: cropPixels, height: cropPixels)
+        return cropAndScale(snapshot.image, crop: crop, to: CGSize(width: pixels, height: pixels))
+    }
+
+    /// Crops `crop` (in the source's points) and scales it to `size`.
+    @MainActor
+    private static func cropAndScale(_ image: NSImage, crop: CGRect, to size: CGSize) -> NSImage {
+        let result = NSImage(size: size)
+        result.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: CGRect(origin: .zero, size: size), from: crop, operation: .copy, fraction: 1)
+        result.unlockFocus()
+        return result
     }
 }
