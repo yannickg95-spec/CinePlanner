@@ -1028,7 +1028,7 @@ struct ShotDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The shot's setup, camera and coverage sections, unified into one card.
+    /// The shot's setup and camera sections, unified into one card.
     private var combinedDetailCard: some View {
         VStack(alignment: .leading, spacing: 18) {
             // Setup + camera side by side when wide, stacked when narrow.
@@ -1046,19 +1046,14 @@ struct ShotDetailView: View {
                     cameraInformationCard
                 }
             }
-
-            Divider()
-
-            scriptCoverageCard
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-        )
+        .modifier(DetailCardChrome())
+    }
+
+    /// Script coverage as its own card, matching the reference cards.
+    private var scriptCoverageStandaloneCard: some View {
+        scriptCoverageCard
+            .modifier(DetailCardChrome())
     }
 
     // Extracted so both can be laid out either side by side or stacked,
@@ -1591,10 +1586,14 @@ struct ShotDetailView: View {
                 // The shot number, nickname and size/type/grip already appear in
                 // the shots list, so the detail pane goes straight to the cards.
 
-                // Setup, camera and coverage, unified into one card.
+                // Setup + camera, unified into one card.
                 combinedDetailCard
                     .padding(.horizontal)
-                
+
+                // Script coverage, as its own card like the references.
+                scriptCoverageStandaloneCard
+                    .padding(.horizontal)
+
                 // References: each is a photo or a video with its own optional
                 // top-down map. A shot can carry as many as it needs.
                 VStack(alignment: .leading, spacing: 16) {
@@ -1635,6 +1634,22 @@ struct ShotDetailView: View {
         }
     }
 
+}
+
+/// Shared card chrome for the shot-detail cards (setup/camera, script coverage),
+/// so they match each other and the reference cards.
+private struct DetailCardChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+            )
+    }
 }
 
 // MARK: - Option Picker
