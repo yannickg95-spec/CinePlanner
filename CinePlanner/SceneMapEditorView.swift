@@ -454,6 +454,7 @@ struct SceneMapEditorView: View {
                                 furnitureToLabel = item.id
                                 furnitureLabelText = item.label
                             },
+                            metersWide: mapMetersWide,
                             onDelete: { deleteFurniture(item.id) }
                         )
                         .allowsHitTesting(pendingMove == nil)
@@ -2439,6 +2440,9 @@ private struct FurnitureView: View {
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
     var onEditLabel: () -> Void = {}
+    /// Real-world metres spanning the (square) measured background; nil = unmeasured
+    /// (no dimensions shown while resizing).
+    var metersWide: Double? = nil
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -2484,8 +2488,30 @@ private struct FurnitureView: View {
                 cornerHandle( 1,  1, w: w, h: h)
                 rotationHandle.offset(rotationHandleOffset(h: h))
             }
+            // Real dimensions while resizing (only on a measured background).
+            if liveSize != nil, let dims = realSizeText {
+                Text(dims)
+                    .font(.caption2.monospacedDigit()).fontWeight(.medium)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                    .offset(y: -(max(w, h) / 2 + 16))
+                    .allowsHitTesting(false)
+            }
         }
         .position(livePosition ?? center)
+    }
+
+    /// The furniture's real-world dimensions ("W × H") from the current point size,
+    /// or nil when the background isn't measured.
+    private var realSizeText: String? {
+        guard let metersWide, contentRect.width > 0, contentRect.height > 0 else { return nil }
+        func label(_ meters: Double) -> String {
+            meters < 1 ? String(format: "%.0f cm", meters * 100) : String(format: "%.2f m", meters)
+        }
+        let wMeters = Double(sizePts.width / contentRect.width) * metersWide
+        let hMeters = Double(sizePts.height / contentRect.height) * metersWide
+        return "\(label(wMeters)) × \(label(hMeters))"
     }
 
     private var dragGesture: some Gesture {
