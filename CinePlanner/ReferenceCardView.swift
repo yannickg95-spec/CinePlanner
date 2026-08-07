@@ -298,6 +298,24 @@ struct ReferenceCardView: View {
             .help(isMap ? "Remove map" : "Remove photo")
             .padding(8)
         }
+        .contextMenu { sceneMapMarkerMenu }
+    }
+
+    /// Right-click option (on a CineStager reference photo or map) to re-add its
+    /// camera + mannequin markers to the scene map. Disabled once they're all
+    /// already there; absent when the reference has no CineStager marker data.
+    @ViewBuilder
+    private var sceneMapMarkerMenu: some View {
+        if let shot = reference.shot, let scene = shot.scene,
+           let markers = SceneMapMarkerImport.markers(for: reference), !markers.isEmpty {
+            let allPresent = SceneMapMarkerImport.allPresent(markers, shot: shot, in: scene)
+            Button {
+                SceneMapMarkerImport.addMissing(markers, shot: shot, to: scene)
+            } label: {
+                Label("Add Markers to Scene Map", systemImage: "mappin.and.ellipse")
+            }
+            .disabled(allPresent)
+        }
     }
 
     // MARK: - Loading
