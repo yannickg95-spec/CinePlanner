@@ -34,6 +34,30 @@ enum SolarPosition {
         az = (az + 360).truncatingRemainder(dividingBy: 360)
         return (alt, az)
     }
+
+    /// Sunrise and sunset for the day, as minutes since local midnight in
+    /// `timeZone`. Found by scanning the day for the sun crossing the standard
+    /// −0.833° horizon (refraction + solar radius). Nil on a polar day/night where
+    /// there's no crossing.
+    static func sunriseSunset(date: Date, latitude: Double, longitude: Double,
+                              timeZone: TimeZone) -> (sunrise: Int, sunset: Int)? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        let startOfDay = cal.startOfDay(for: date)
+        let horizon = -0.833
+        var previous = altAzimuth(date: startOfDay, latitude: latitude, longitude: longitude).altitude
+        var sunrise: Int?
+        var sunset: Int?
+        for minute in 1...1440 {
+            let alt = altAzimuth(date: startOfDay.addingTimeInterval(Double(minute) * 60),
+                                 latitude: latitude, longitude: longitude).altitude
+            if sunrise == nil, previous < horizon, alt >= horizon { sunrise = minute }
+            if previous >= horizon, alt < horizon { sunset = minute }
+            previous = alt
+        }
+        guard let sr = sunrise, let ss = sunset else { return nil }
+        return (sr, ss)
+    }
 }
 
 /// Per-scene settings for the sun-direction overlay, stored as JSON on the scene.

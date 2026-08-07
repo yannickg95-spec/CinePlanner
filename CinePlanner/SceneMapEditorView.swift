@@ -593,28 +593,40 @@ struct SceneMapEditorView: View {
     }
 
     /// Bottom bar shown with the overlay: scrub the time of day; reads out the
-    /// sun's altitude/azimuth (or "below horizon").
+    /// sun's altitude plus the day's sunrise / sunset times.
     private var sunTimeBar: some View {
-        let readout: String = {
+        func hhmm(_ m: Int) -> String { String(format: "%02d:%02d", m / 60, m % 60) }
+        let altReadout: String = {
             guard let lat = sun.latitude, let lon = sun.longitude else { return "" }
             let pos = SolarPosition.altAzimuth(date: sun.instant, latitude: lat, longitude: lon)
-            if pos.altitude < 0 { return "Below horizon" }
-            return String(format: "Altitude %.0f°", pos.altitude)
+            return pos.altitude < 0 ? "Below horizon" : String(format: "Altitude %.0f°", pos.altitude)
+        }()
+        let riseSet: (sunrise: Int, sunset: Int)? = {
+            guard let lat = sun.latitude, let lon = sun.longitude else { return nil }
+            return SolarPosition.sunriseSunset(date: sun.date, latitude: lat, longitude: lon, timeZone: sun.timeZone)
         }()
         let minutes = Int(sun.timeMinutes)
         return HStack(spacing: 12) {
             Image(systemName: "sun.max.fill").foregroundStyle(.orange)
-            Text(String(format: "%02d:%02d", minutes / 60, minutes % 60))
+            Text(hhmm(minutes))
                 .font(.callout.monospacedDigit()).frame(width: 48, alignment: .leading)
             Slider(value: $sun.timeMinutes, in: 0...1439) { editing in if !editing { saveSun() } }
-            Text(readout).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                .frame(width: 130, alignment: .trailing)
+            HStack(spacing: 10) {
+                if let riseSet {
+                    Label(hhmm(riseSet.sunrise), systemImage: "sunrise.fill")
+                    Label(hhmm(riseSet.sunset), systemImage: "sunset.fill")
+                }
+                Text(altReadout)
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .fixedSize()
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.secondary.opacity(0.2), lineWidth: 1))
         .padding(.bottom, 12)
-        .frame(maxWidth: 520)
+        .frame(maxWidth: 640)
     }
 
     /// Floating shot-info card for the clicked camera, placed beside its marker
