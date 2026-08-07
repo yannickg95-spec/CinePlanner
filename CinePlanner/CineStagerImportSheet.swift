@@ -472,10 +472,16 @@ struct CineStagerImportSheet: View {
         // scene's current map untouched.
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
             scene.sceneMapBackgroundData = clean
+            scene.sceneMapBackgroundIsSatellite = false
             // Remember which location this map is, so another shot of the same
             // location adds its markers without a replace prompt.
             let loc = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
             scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
+            // Real-world scale: the location width (metres) spans the map; the
+            // camera's physical width is exported in cm.
+            scene.sceneMapMetersWide = (ref.mapLocationWidth ?? 0) > 0 ? ref.mapLocationWidth : nil
+            scene.sceneMapCameraSizeMeters = (ref.mapCameraPhysicalWidth ?? 0) > 0
+                ? ref.mapCameraPhysicalWidth! / 100 : nil
         }
 
         // Marker coordinates live in the top-down map image's EXIF.

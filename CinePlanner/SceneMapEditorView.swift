@@ -32,6 +32,10 @@ struct SceneMapEditorView: View {
     @State private var showManageCharacters = false
     @State private var sun = SunSettings()
     @State private var showSunSettings = false
+    /// Mirror of the scene's background scale, refreshed on every background change
+    /// so markers re-scale immediately when the measured background swaps.
+    @State private var mapMetersWide: Double?
+    @State private var mapCameraMeters: Double?
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons.
     private let toolbarCellWidth: CGFloat = 40
@@ -98,7 +102,7 @@ struct SceneMapEditorView: View {
             canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; refreshMapScale() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -118,6 +122,7 @@ struct SceneMapEditorView: View {
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(NSImage.init(data:))
+            refreshMapScale()
         }
         .onChange(of: scene.sceneFloorPlanJSON) { _, newValue in
             let incoming = FloorPlan.load(from: newValue)
@@ -353,6 +358,13 @@ struct SceneMapEditorView: View {
         try? scene.modelContext?.save()
     }
 
+    /// Re-reads the background's real-world scale into local state so markers
+    /// re-scale whenever the background (and its scale) changes.
+    private func refreshMapScale() {
+        mapMetersWide = scene.sceneMapMetersWide
+        mapCameraMeters = scene.sceneMapCameraSizeMeters
+    }
+
     /// True when there's nothing on the map to clear.
     private var mapIsEmpty: Bool {
         doc.elements.isEmpty && doc.arrows.isEmpty && doc.furniture.isEmpty
@@ -474,7 +486,11 @@ struct SceneMapEditorView: View {
                         },
                         onDragStart: { cameraInfoElementID = nil },
                         characters: scene.project?.scriptCharacters ?? [],
-                        onSetCharacter: { character in setCharacter(element.id, character) }
+                        onSetCharacter: { character in setCharacter(element.id, character) },
+                        scale: sceneMarkerScale(kind: element.kind,
+                                                metersWide: mapMetersWide,
+                                                cameraMeters: mapCameraMeters,
+                                                mapWidthPoints: rect.width)
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
                 }
@@ -1323,6 +1339,8 @@ struct SceneMapEditorView: View {
         scene.sceneMapSatelliteLat = coordinate.latitude
         scene.sceneMapSatelliteLon = coordinate.longitude
         scene.sceneMapSatelliteMeters = meters
+        scene.sceneMapMetersWide = meters          // satellite square is `meters` across
+        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.6 m
         backgroundImage = NSImage(data: data)
         try? scene.modelContext?.save()
 
@@ -1351,6 +1369,8 @@ struct SceneMapEditorView: View {
         scene.sceneMapBackgroundData = data
         scene.sceneMapBackgroundIsSatellite = other.sceneMapBackgroundIsSatellite
         scene.sceneMapLocation = other.sceneMapLocation
+        scene.sceneMapMetersWide = other.sceneMapMetersWide
+        scene.sceneMapCameraSizeMeters = other.sceneMapCameraSizeMeters
         backgroundImage = NSImage(data: data)
         try? scene.modelContext?.save()
     }
@@ -1366,6 +1386,8 @@ struct SceneMapEditorView: View {
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
         scene.sceneMapBackgroundIsSatellite = false
+        scene.sceneMapMetersWide = nil
+        scene.sceneMapCameraSizeMeters = nil
         backgroundImage = image
         try? scene.modelContext?.save()
     }
@@ -1406,6 +1428,8 @@ struct SceneMapEditorView: View {
                 scene.sceneMapLocation = nil
                 scene.sceneMapBackgroundData = data
                 scene.sceneMapBackgroundIsSatellite = false
+                scene.sceneMapMetersWide = nil
+                scene.sceneMapCameraSizeMeters = nil
                 backgroundImage = image
                 try? scene.modelContext?.save()
             }
@@ -1418,6 +1442,8 @@ struct SceneMapEditorView: View {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
         scene.sceneMapBackgroundIsSatellite = false
+        scene.sceneMapMetersWide = nil
+        scene.sceneMapCameraSizeMeters = nil
         drawTool = .wall
         chainLastVertex = nil
         isDrawing = true
@@ -1437,6 +1463,8 @@ struct SceneMapEditorView: View {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
         scene.sceneMapBackgroundIsSatellite = false
+        scene.sceneMapMetersWide = nil
+        scene.sceneMapCameraSizeMeters = nil
         scene.sceneMapLocation = nil
         persist()
         persistFloorPlan()
@@ -1450,6 +1478,8 @@ struct SceneMapEditorView: View {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
         scene.sceneMapBackgroundIsSatellite = false
+        scene.sceneMapMetersWide = nil
+        scene.sceneMapCameraSizeMeters = nil
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         try? scene.modelContext?.save()
@@ -1824,6 +1854,8 @@ private struct MapMarkerView: View {
     var characters: [ScriptCharacter] = []
     /// Assigns the picked character (name + color) to this mannequin marker.
     var onSetCharacter: (ScriptCharacter) -> Void = { _ in }
+    /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
+    var scale: CGFloat = 1
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -1857,7 +1889,8 @@ private struct MapMarkerView: View {
     /// sits near the bottom edge so the caption can't hang off the map.
     private var labelOffsetY: CGFloat {
         let c = livePosition ?? center
-        return (c.y + 40 > contentRect.maxY) ? -26 : 26
+        let d = 14 * scale + 12   // just below the scaled icon
+        return (c.y + d + 14 > contentRect.maxY) ? -d : d
     }
 
     /// Converts a canvas point back to normalized (0…1) content-rect coordinates.
@@ -1875,11 +1908,13 @@ private struct MapMarkerView: View {
             // Selection ring — a circle, so it needn't rotate.
             if isSelected {
                 Circle().stroke(Color.accentColor, lineWidth: 2)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 40 * scale, height: 40 * scale)
             }
 
-            // The icon turns to point in its facing direction.
+            // The icon turns to point in its facing direction, scaled to its
+            // real-world size when the background is measured.
             iconGraphic
+                .scaleEffect(scale)
                 .contentShape(Rectangle())
                 .onTapGesture { onSelect(); onTap() }
                 .gesture(dragGesture)
@@ -1952,8 +1987,8 @@ private struct MapMarkerView: View {
 
     private var handleOffset: CGSize {
         let r = displayRotation * .pi / 180
-        return CGSize(width: Self.handleDistance * sin(r),
-                      height: -Self.handleDistance * cos(r))
+        let d = max(Self.handleDistance * scale, 26)
+        return CGSize(width: d * sin(r), height: -d * cos(r))
     }
 
     private var rotationHandle: some View {
@@ -2057,15 +2092,19 @@ private struct MapMarkerView: View {
     private var iconGraphic: some View {
         Group {
             if element.kind == .character {
+                // Top-down head and shoulders: a wide oval (50 cm shoulder span) with
+                // a smaller head circle (20 cm) nudged forward to show facing. Base
+                // sizes are proportional (head = 20/50 of the shoulder width).
                 ZStack {
+                    // Shoulders 40 cm wide × 15 cm deep; head 20 cm. Base sizes at
+                    // scale 1 keep those proportions (width 30 pt = 40 cm).
+                    Ellipse().fill(color)
+                        .overlay(Ellipse().stroke(.white, lineWidth: 2))
+                        .frame(width: 30, height: 11)
                     Circle().fill(color)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .frame(width: 28, height: 28)
-                    // Nose triangle, with the same white outline as the head.
-                    Triangle().fill(color)
-                        .frame(width: 14, height: 10)
-                        .overlay(Triangle().stroke(.white, lineWidth: 2))
-                        .offset(y: -21)
+                        .frame(width: 15, height: 15)
+                        .offset(y: -2)
                 }
             } else {
                 // Just the camera icon, pointing in its facing direction.
@@ -2112,6 +2151,19 @@ struct Triangle: Shape {
 }
 
 /// Shared marker/furniture color choices.
+/// Scale factor for a scene-map marker so it reads at its real-world size against
+/// a measured background. 1 (default) when the background has no measurement.
+/// A mannequin's shoulders span 0.4 m; cameras use `cameraMeters` (0.6 m default).
+/// Clamped so markers stay visible/usable at extremes.
+func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
+                      mapWidthPoints: CGFloat) -> CGFloat {
+    guard let metersWide, metersWide > 0, mapWidthPoints > 0 else { return 1 }
+    let realMeters = kind == .camera ? (cameraMeters ?? 0.6) : 0.4
+    let baseDiameter: CGFloat = kind == .camera ? 26 : 30   // the icons' widths at scale 1
+    let target = CGFloat(realMeters / metersWide) * mapWidthPoints
+    return min(max(target / baseDiameter, 0.5), 3.5)
+}
+
 /// Wraps a row of borderless controls in one bordered, tinted capsule so a group
 /// of scene-map toolbar buttons reads as a single segmented control.
 private struct SegmentedGroup: ViewModifier {
@@ -2594,6 +2646,9 @@ struct SceneMapExportView: View {
     /// Resolved display labels per element id (camera → its shot's number).
     let labels: [UUID: String]
     let size: CGSize
+    /// Real-world scale data (see `sceneMarkerScale`); nil = default marker sizes.
+    var metersWide: Double? = nil
+    var cameraMeters: Double? = nil
 
     var body: some View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
@@ -2623,7 +2678,9 @@ struct SceneMapExportView: View {
                               isSelected: false, contentRect: rect,
                               onSelect: {}, onMove: { _ in }, onRotate: { _ in },
                               onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
-                              onMoveLabel: { _ in })
+                              onMoveLabel: { _ in },
+                              scale: sceneMarkerScale(kind: element.kind, metersWide: metersWide,
+                                                      cameraMeters: cameraMeters, mapWidthPoints: rect.width))
             }
         }
         .frame(width: size.width, height: size.height)

@@ -270,6 +270,13 @@ final class Scene {
     var sceneMapSatelliteLon: Double?
     var sceneMapSatelliteMeters: Double?
 
+    /// Real-world width (metres) the background represents, when known (satellite
+    /// capture size, or CineStager location width). nil for backgrounds with no
+    /// measurement → markers keep their default sizes.
+    var sceneMapMetersWide: Double?
+    /// Real camera-marker diameter (metres) from CineStager; nil → default 0.6 m.
+    var sceneMapCameraSizeMeters: Double?
+
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
@@ -1345,6 +1352,8 @@ extension Scene {
         sceneFloorPlanJSON = nil
         sceneMapBackgroundData = nil
         sceneMapBackgroundIsSatellite = false
+        sceneMapMetersWide = nil
+        sceneMapCameraSizeMeters = nil
         sceneMapLocation = nil
     }
 }
