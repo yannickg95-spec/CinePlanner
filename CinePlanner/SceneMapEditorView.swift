@@ -254,8 +254,9 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
-                    Button { startDrawing() } label: { Label("Draw", systemImage: "pencil.tip.crop.circle") }
-                    Button { showingImagePicker = true } label: { Label("Add Image…", systemImage: "photo") }
+                    Button { showingImagePicker = true } label: { Label("Image…", systemImage: "photo") }
+                    Button { showingMapBackground = true } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
+                    Button { showingModelPicker = true } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
                         let others = scenesWithBackground
                         if others.isEmpty {
@@ -265,12 +266,12 @@ struct SceneMapEditorView: View {
                                 Button(sceneBackgroundLabel(other)) { setBackgroundFromScene(other) }
                             }
                         }
-                    } label: { Label("Add from Scene…", systemImage: "square.on.square") }
-                    Button { showingMapBackground = true } label: { Label("From Map (Satellite)…", systemImage: "globe.europe.africa.fill") }
-                    Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
+                    } label: { Label("From Another Scene…", systemImage: "square.on.square") }
+                    Divider()
+                    Button { startDrawing() } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
                     if backgroundImage != nil || !floorPlan.isEmpty {
                         Divider()
-                        Button(role: .destructive) { clearBackground() } label: { Label("Clear", systemImage: "xmark") }
+                        Button(role: .destructive) { clearBackground() } label: { Label("Clear Background", systemImage: "xmark") }
                     }
                 } label: { addMenuLabel("map.fill") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)

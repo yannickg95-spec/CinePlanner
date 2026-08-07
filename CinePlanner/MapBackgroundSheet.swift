@@ -81,7 +81,7 @@ struct MapBackgroundSheet: View {
 
             HStack(spacing: 12) {
                 Text("Capture size")
-                Slider(value: $meters, in: 20...400, step: 5) { editing in
+                Slider(value: $meters, in: 10...400, step: 5) { editing in
                     if !editing { layoutMeters = meters }
                 }
                 Text("\(Int(meters)) m").monospacedDigit().frame(width: 52, alignment: .trailing)
