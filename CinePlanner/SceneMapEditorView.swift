@@ -10,6 +10,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import CoreLocation
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
@@ -158,7 +159,10 @@ struct SceneMapEditorView: View {
             SunSettingsSheet(settings: $sun, onChange: saveSun)
         }
         .sheet(isPresented: $showingMapBackground) {
-            MapBackgroundSheet { data, label in setMapBackground(data, label: label) }
+            MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
+                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil) { data, coordinate, meters, label in
+                setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+            }
         }
         .alert("Furniture Label", isPresented: Binding(
             get: { furnitureToLabel != nil },
@@ -1299,16 +1303,42 @@ struct SceneMapEditorView: View {
     }
 
     /// Sets a rendered satellite still as the scene-map background (replacing any
-    /// image or floor plan), tagging it with the looked-up address.
-    private func setMapBackground(_ data: Data, label: String?) {
+    /// image or floor plan), tagging it with the looked-up address. Also seeds the
+    /// sun overlay from the captured location — a satellite map is north-up and to
+    /// scale, so its coordinate and north (0°) are exactly what the sun needs.
+    /// The satellite capture's stored centre, so the picker reopens there.
+    private var savedSatelliteCoordinate: CLLocationCoordinate2D? {
+        guard scene.sceneMapBackgroundIsSatellite,
+              let lat = scene.sceneMapSatelliteLat, let lon = scene.sceneMapSatelliteLon else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    private func setMapBackground(_ data: Data, coordinate: CLLocationCoordinate2D, meters: Double, label: String?) {
         isDrawing = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
         scene.sceneMapBackgroundIsSatellite = true
         scene.sceneMapLocation = label
+        scene.sceneMapSatelliteLat = coordinate.latitude
+        scene.sceneMapSatelliteLon = coordinate.longitude
+        scene.sceneMapSatelliteMeters = meters
         backgroundImage = NSImage(data: data)
         try? scene.modelContext?.save()
+
+        // Seed the sun overlay from this location.
+        sun.latitude = coordinate.latitude
+        sun.longitude = coordinate.longitude
+        sun.northOffsetDeg = 0
+        if let label { sun.address = label }
+        saveSun()
+        // Fill the accurate timezone (for sunrise/sunset) in the background.
+        CLGeocoder().reverseGeocodeLocation(CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) { placemarks, _ in
+            if let tz = placemarks?.first?.timeZone {
+                sun.timeZoneID = tz.identifier
+                saveSun()
+            }
+        }
     }
 
     /// Copies another scene's background image (and its location tag) onto this

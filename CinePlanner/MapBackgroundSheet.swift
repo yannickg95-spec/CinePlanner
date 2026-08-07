@@ -14,18 +14,29 @@ import MapKit
 import CoreLocation
 
 struct MapBackgroundSheet: View {
-    /// Called with the rendered PNG and an optional location label (the address).
-    var onBackground: (Data, String?) -> Void
+    /// Called with the rendered PNG, the captured centre coordinate + size, and an
+    /// optional location label (the address).
+    var onBackground: (Data, CLLocationCoordinate2D, Double, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
     @State private var recenter: CLLocationCoordinate2D?
     @State private var visibleRect = MKMapRect.null
-    @State private var meters: Double = 60
+    @State private var meters: Double
     /// Mirrors `meters` but updates only when the slider drag *ends* — so showing
     /// or hiding the preview panel (and resizing the sheet) can't move the slider
     /// out from under the cursor mid-drag.
-    @State private var layoutMeters: Double = 60
+    @State private var layoutMeters: Double
+
+    /// `initialCoordinate`/`initialMeters` reopen the picker where it was last set.
+    init(initialCoordinate: CLLocationCoordinate2D? = nil,
+         initialMeters: Double? = nil,
+         onBackground: @escaping (Data, CLLocationCoordinate2D, Double, String?) -> Void) {
+        self.onBackground = onBackground
+        _recenter = State(initialValue: initialCoordinate)
+        _meters = State(initialValue: initialMeters ?? 60)
+        _layoutMeters = State(initialValue: initialMeters ?? 60)
+    }
     @State private var geocoding = false
     @State private var rendering = false
     @State private var errorMessage: String?
@@ -201,7 +212,7 @@ struct MapBackgroundSheet: View {
                 }
                 rendering = false
                 let label = address.trimmingCharacters(in: .whitespaces)
-                onBackground(data, label.isEmpty ? nil : label)
+                onBackground(data, center, captureMeters, label.isEmpty ? nil : label)
                 dismiss()
             } catch {
                 rendering = false
@@ -223,8 +234,10 @@ private struct MapPreview: NSViewRepresentable {
         map.delegate = context.coordinator
         map.showsZoomControls = true
         map.showsCompass = true
-        map.setRegion(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
-                                         latitudinalMeters: 300, longitudinalMeters: 300), animated: false)
+        let start = recenter ?? CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952)
+        map.setRegion(MKCoordinateRegion(center: start, latitudinalMeters: 300, longitudinalMeters: 300), animated: false)
+        // Treat the starting centre as already applied so it isn't re-animated.
+        context.coordinator.lastRecenter = recenter
         return map
     }
 

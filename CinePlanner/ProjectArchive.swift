@@ -69,6 +69,9 @@ enum ProjectArchive {
         var sceneMapBackgroundData: Data?
         var sceneMapLocation: String?
         var sceneMapBackgroundIsSatellite: Bool?
+        var sceneMapSatelliteLat: Double?
+        var sceneMapSatelliteLon: Double?
+        var sceneMapSatelliteMeters: Double?
         var sceneFloorPlanJSON: String?
         var sceneCharactersJSON: String?
         var sunSettingsJSON: String?
@@ -212,6 +215,9 @@ enum ProjectArchive {
             sceneMapBackgroundData: scene.sceneMapBackgroundData,
             sceneMapLocation: scene.sceneMapLocation,
             sceneMapBackgroundIsSatellite: scene.sceneMapBackgroundIsSatellite,
+            sceneMapSatelliteLat: scene.sceneMapSatelliteLat,
+            sceneMapSatelliteLon: scene.sceneMapSatelliteLon,
+            sceneMapSatelliteMeters: scene.sceneMapSatelliteMeters,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             sceneCharactersJSON: scene.sceneCharactersJSON,
             sunSettingsJSON: scene.sunSettingsJSON,
@@ -326,6 +332,9 @@ enum ProjectArchive {
                     scene.sceneMapBackgroundData = s.sceneMapBackgroundData
                     scene.sceneMapLocation = s.sceneMapLocation
                     scene.sceneMapBackgroundIsSatellite = s.sceneMapBackgroundIsSatellite ?? false
+                    scene.sceneMapSatelliteLat = s.sceneMapSatelliteLat
+                    scene.sceneMapSatelliteLon = s.sceneMapSatelliteLon
+                    scene.sceneMapSatelliteMeters = s.sceneMapSatelliteMeters
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
                     scene.sceneCharactersJSON = s.sceneCharactersJSON
                     scene.sunSettingsJSON = s.sunSettingsJSON

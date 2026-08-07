@@ -264,6 +264,11 @@ final class Scene {
     /// True when the background is an Apple Maps satellite still. Kept out of
     /// exports (map-data redistribution), though markers still render.
     var sceneMapBackgroundIsSatellite: Bool = false
+    /// The satellite capture's centre and size, so the map picker reopens where it
+    /// was last set.
+    var sceneMapSatelliteLat: Double?
+    var sceneMapSatelliteLon: Double?
+    var sceneMapSatelliteMeters: Double?
 
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
