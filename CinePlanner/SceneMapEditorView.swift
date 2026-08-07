@@ -39,6 +39,7 @@ struct SceneMapEditorView: View {
     @State private var backgroundImage: NSImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
+    @State private var showingMapBackground = false
     @State private var isRenderingModel = false
     @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
@@ -156,6 +157,9 @@ struct SceneMapEditorView: View {
         .sheet(isPresented: $showSunSettings) {
             SunSettingsSheet(settings: $sun, onChange: saveSun)
         }
+        .sheet(isPresented: $showingMapBackground) {
+            MapBackgroundSheet { data, label in setMapBackground(data, label: label) }
+        }
         .alert("Furniture Label", isPresented: Binding(
             get: { furnitureToLabel != nil },
             set: { if !$0 { furnitureToLabel = nil } }
@@ -262,6 +266,7 @@ struct SceneMapEditorView: View {
                             }
                         }
                     } label: { Label("Add from Scene…", systemImage: "square.on.square") }
+                    Button { showingMapBackground = true } label: { Label("From Map (Satellite)…", systemImage: "globe.europe.africa.fill") }
                     Button { showingModelPicker = true } label: { Label("Add 3D Model…", systemImage: "cube") }
                     if backgroundImage != nil || !floorPlan.isEmpty {
                         Divider()
@@ -1292,6 +1297,19 @@ struct SceneMapEditorView: View {
         return nickname.isEmpty ? base : "\(base) – \(nickname)"
     }
 
+    /// Sets a rendered satellite still as the scene-map background (replacing any
+    /// image or floor plan), tagging it with the looked-up address.
+    private func setMapBackground(_ data: Data, label: String?) {
+        isDrawing = false
+        floorPlan = FloorPlan()
+        scene.sceneFloorPlanJSON = nil
+        scene.sceneMapBackgroundData = data
+        scene.sceneMapBackgroundIsSatellite = true
+        scene.sceneMapLocation = label
+        backgroundImage = NSImage(data: data)
+        try? scene.modelContext?.save()
+    }
+
     /// Copies another scene's background image (and its location tag) onto this
     /// scene, replacing any current image or drawn floor plan.
     private func setBackgroundFromScene(_ other: Scene) {
@@ -1300,6 +1318,7 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
+        scene.sceneMapBackgroundIsSatellite = other.sceneMapBackgroundIsSatellite
         scene.sceneMapLocation = other.sceneMapLocation
         backgroundImage = NSImage(data: data)
         try? scene.modelContext?.save()
@@ -1315,6 +1334,7 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
+        scene.sceneMapBackgroundIsSatellite = false
         backgroundImage = image
         try? scene.modelContext?.save()
     }
@@ -1354,6 +1374,7 @@ struct SceneMapEditorView: View {
                 scene.sceneFloorPlanJSON = nil
                 scene.sceneMapLocation = nil
                 scene.sceneMapBackgroundData = data
+                scene.sceneMapBackgroundIsSatellite = false
                 backgroundImage = image
                 try? scene.modelContext?.save()
             }
@@ -1365,6 +1386,7 @@ struct SceneMapEditorView: View {
     private func startDrawing() {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
+        scene.sceneMapBackgroundIsSatellite = false
         drawTool = .wall
         chainLastVertex = nil
         isDrawing = true
@@ -1383,6 +1405,7 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
+        scene.sceneMapBackgroundIsSatellite = false
         scene.sceneMapLocation = nil
         persist()
         persistFloorPlan()
@@ -1395,6 +1418,7 @@ struct SceneMapEditorView: View {
         chainLastVertex = nil
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
+        scene.sceneMapBackgroundIsSatellite = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         try? scene.modelContext?.save()

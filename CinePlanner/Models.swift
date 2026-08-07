@@ -261,6 +261,10 @@ final class Scene {
     @Attribute(.externalStorage)
     var sceneMapBackgroundData: Data?
 
+    /// True when the background is an Apple Maps satellite still. Kept out of
+    /// exports (map-data redistribution), though markers still render.
+    var sceneMapBackgroundIsSatellite: Bool = false
+
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
@@ -1335,6 +1339,7 @@ extension Scene {
         sceneMapJSON = nil
         sceneFloorPlanJSON = nil
         sceneMapBackgroundData = nil
+        sceneMapBackgroundIsSatellite = false
         sceneMapLocation = nil
     }
 }
