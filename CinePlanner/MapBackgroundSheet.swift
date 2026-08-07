@@ -22,9 +22,23 @@ struct MapBackgroundSheet: View {
     @State private var recenter: CLLocationCoordinate2D?
     @State private var visibleRect = MKMapRect.null
     @State private var meters: Double = 60
+    /// Mirrors `meters` but updates only when the slider drag *ends* — so showing
+    /// or hiding the preview panel (and resizing the sheet) can't move the slider
+    /// out from under the cursor mid-drag.
+    @State private var layoutMeters: Double = 60
     @State private var geocoding = false
     @State private var rendering = false
     @State private var errorMessage: String?
+    @State private var previewImage: NSImage?
+    @State private var previewLoading = false
+    @State private var previewTask: Task<Void, Never>?
+
+    private let panelSide: CGFloat = 400
+    /// Preview shown only for small captures, where the imagery is a small patch.
+    /// Uses the committed `layoutMeters` so it doesn't toggle mid slider-drag.
+    private var showsPreview: Bool { layoutMeters < 100 }
+    /// Sheet widens for the second panel, and narrows back when it's hidden.
+    private var sheetWidth: CGFloat { showsPreview ? panelSide * 2 + 44 : panelSide + 32 }
 
     private var centerCoordinate: CLLocationCoordinate2D? {
         visibleRect.isNull ? nil : MKMapPoint(x: visibleRect.midX, y: visibleRect.midY).coordinate
@@ -51,21 +65,29 @@ struct MapBackgroundSheet: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
 
-            GeometryReader { geo in
+            HStack(alignment: .top, spacing: 12) {
                 ZStack {
                     MapPreview(recenter: recenter, visibleRect: $visibleRect)
-                    captureFrame(in: geo.size)
+                    captureFrame(in: CGSize(width: panelSide, height: panelSide))
                 }
+                .frame(width: panelSide, height: panelSide)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .onChange(of: previewKey) { schedulePreview() }
+
+                if showsPreview { previewPanel }
             }
-            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
 
             HStack(spacing: 12) {
                 Text("Capture size")
-                Slider(value: $meters, in: 20...400, step: 5)
+                Slider(value: $meters, in: 20...400, step: 5) { editing in
+                    if !editing { layoutMeters = meters }
+                }
                 Text("\(Int(meters)) m").monospacedDigit().frame(width: 52, alignment: .trailing)
             }
             .padding(.horizontal, 18).padding(.vertical, 10)
+            .onChange(of: layoutMeters) { schedulePreview() }
 
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
@@ -85,7 +107,7 @@ struct MapBackgroundSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 640, height: 760)
+        .frame(width: sheetWidth, height: 640)
     }
 
     /// The capture-frame overlay: everything outside the framed square is dimmed
@@ -108,6 +130,46 @@ struct MapBackgroundSheet: View {
                 .frame(width: side, height: side)
         }
         .allowsHitTesting(false)
+    }
+
+    /// Magnified preview of exactly what will be captured, beside the map (shown
+    /// only for small captures), upscaled so a small square is legible.
+    private var previewPanel: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.15))
+                if let previewImage {
+                    Image(nsImage: previewImage).resizable().scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                if previewLoading { ProgressView().controlSize(.small) }
+            }
+            .frame(width: panelSide, height: panelSide)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
+            Text("Capture preview").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Coarse key so the preview re-renders only when the framed area meaningfully
+    /// changes (not on every sub-pixel pan).
+    private var previewKey: String {
+        visibleRect.isNull ? "" : "\(Int(visibleRect.midX))-\(Int(visibleRect.midY))-\(Int(meters))"
+    }
+
+    /// Debounced: renders the capture ~0.35s after the last change.
+    private func schedulePreview() {
+        previewTask?.cancel()
+        guard showsPreview, let center = centerCoordinate else { previewImage = nil; return }
+        let captureMeters = meters
+        previewTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+            previewLoading = true
+            let image = try? await MapSnapshot.satelliteImage(coordinate: center, meters: captureMeters, pixels: 500)
+            if Task.isCancelled { return }
+            previewImage = image
+            previewLoading = false
+        }
     }
 
     private func geocode() {
