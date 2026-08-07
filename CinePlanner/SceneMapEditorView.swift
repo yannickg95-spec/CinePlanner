@@ -111,9 +111,14 @@ struct SceneMapEditorView: View {
         // shot from CineStager adds markers/background to the scene. Round-trip
         // equality means our own saves don't trigger a redundant reload.
         .onChange(of: scene.sceneMapJSON) { _, newValue in
+            // A nil JSON is a definitive clear ("Clear Scene" / "Clear Map") — always
+            // reset. Otherwise never let a stale/empty external value wipe a map we
+            // already have; our own edits go through `doc` directly, not this path.
+            if newValue == nil {
+                if !doc.isEmpty { doc = SceneMapDoc(); selectedID = nil }
+                return
+            }
             let incoming = SceneMapDoc.load(from: newValue)
-            // Never let a stale/empty external value wipe a map we already have;
-            // our own edits go through `doc` directly, not this path.
             guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty) else { return }
             doc = incoming
             if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
@@ -1791,6 +1796,12 @@ struct SceneMapEditorView: View {
     /// Drops shot-linked cameras whose shot no longer exists (deleted from the
     /// shot list), keeping the open editor consistent with the model.
     private func pruneOrphanedShotCameras() {
+        // If the whole map was just cleared from under us (e.g. "Clear Scene"),
+        // don't resurrect the stale in-memory doc — reset it to match.
+        if scene.sceneMapJSON == nil {
+            if !doc.isEmpty { doc = SceneMapDoc(); selectedID = nil }
+            return
+        }
         let shotUIDs = Set(scene.shots.map(\.uid))
         let before = doc.elements.count
         doc.elements.removeAll { element in
