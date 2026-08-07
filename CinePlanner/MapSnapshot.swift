@@ -2,9 +2,9 @@
 //  MapSnapshot.swift
 //  CinePlanner
 //
-//  Renders a north-up satellite still of a real-world location via MapKit's
-//  offscreen snapshotter, for use as a scene-map background. Given a coordinate
-//  and a size in metres, it produces a square, to-scale image.
+//  Renders a north-up satellite still of a location via MapKit's offscreen
+//  snapshotter, for use as a scene-map background. Given a coordinate and a size
+//  in metres, it produces a square, to-scale image.
 //
 
 import Foundation
@@ -16,10 +16,9 @@ enum MapSnapshot {
     /// `pixels`×`pixels`. North is up. Needs network access (tiles download).
     ///
     /// MapKit clamps very small satellite areas to its max zoom, so a direct tiny
-    /// mapRect is ignored (20 m and 60 m came out identical). Instead a reference
-    /// area MapKit will honour is rendered, then its centre is cropped to the exact
-    /// requested size — the framing is always to scale, just softer below the
-    /// imagery's native resolution.
+    /// mapRect is ignored. A reference area MapKit will honour is rendered, then its
+    /// centre is cropped to the exact requested size — always to scale, just softer
+    /// below the imagery's native resolution.
     @MainActor
     static func satelliteImage(coordinate: CLLocationCoordinate2D,
                                meters: Double,
@@ -53,5 +52,12 @@ enum MapSnapshot {
         image.draw(in: CGRect(origin: .zero, size: size), from: crop, operation: .copy, fraction: 1)
         result.unlockFocus()
         return result
+    }
+
+    /// Approximate width, in metres, of a map rect at its centre latitude.
+    static func metersWide(_ rect: MKMapRect) -> Double {
+        let centerLat = MKMapPoint(x: rect.midX, y: rect.midY).coordinate.latitude
+        let pointsPerMeter = MKMapPointsPerMeterAtLatitude(centerLat)
+        return pointsPerMeter > 0 ? rect.width / pointsPerMeter : 0
     }
 }
