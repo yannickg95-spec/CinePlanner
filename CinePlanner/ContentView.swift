@@ -446,6 +446,14 @@ struct ShotListView: View {
     var sortedShots: [Shot] {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
     }
+
+    /// The numbering style already in use in this project (kept uniform across all
+    /// shots), so a newly added shot matches instead of reverting to the default.
+    private var currentNumberingStyle: ShotNumberingStyle {
+        scene.shots.first?.numberingStyle
+            ?? scene.project?.scenes.first(where: { !$0.shots.isEmpty })?.shots.first?.numberingStyle
+            ?? .numbers
+    }
     
     var body: some View {
         List(selection: $selectedShots) {
@@ -505,7 +513,7 @@ struct ShotListView: View {
                     Button {
                         onEditShot?(shot)
                     } label: {
-                        Text("Edit Shot")
+                        Text("Shot Numbering")
                     }
                     Button {
                         duplicateShot(shot)
@@ -648,6 +656,7 @@ struct ShotListView: View {
         let nextNumber = (sortedShots.last?.shotNumber ?? 0) + 1
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
+        newShot.numberingStyle = currentNumberingStyle
         scene.shots.append(newShot)
         newShot.applyAutoTools()
         // Start the shot with one empty reference so its card is open and ready
@@ -673,6 +682,7 @@ struct ShotListView: View {
             let newShot = Shot(shotNumber: nextNumber)
             nextNumber += 1
             newShot.scene = scene
+            newShot.numberingStyle = currentNumberingStyle
             scene.shots.append(newShot)
             newShot.applyAutoTools()
             let reference = ShotReference(sortOrder: 0)
@@ -693,6 +703,7 @@ struct ShotListView: View {
         let nextNumber = (sortedShots.last?.shotNumber ?? 0) + 1
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
+        newShot.numberingStyle = currentNumberingStyle
         scene.shots.append(newShot)
         newShot.applyAutoTools()
         let reference = ShotReference(sortOrder: 0)

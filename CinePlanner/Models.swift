@@ -357,6 +357,9 @@ final class Scene {
 enum ShotNumberingStyle: String, Codable {
     case numbers
     case letters
+    /// A unique running number across the whole project (001, 002, 003…), ignoring
+    /// scene boundaries.
+    case continuous
 }
 enum ShotSize: String, Codable, CaseIterable {
     case none = ""
@@ -1090,16 +1093,39 @@ final class Shot {
         self.shotInformation = shotInformation
     }
     
-    var displayNumber: String {
+    var displayNumber: String { formattedNumber(style: numberingStyle) }
+
+    /// This shot's number rendered in a given style — used both for `displayNumber`
+    /// and to preview the other styles in the Edit Shot sheet.
+    func formattedNumber(style: ShotNumberingStyle) -> String {
         let sceneNumber = scene?.sceneNumber ?? 0
         let sceneSuffix = scene?.suffix ?? ""
-        
-        switch numberingStyle {
+
+        switch style {
         case .numbers:
             return "\(sceneNumber)\(sceneSuffix).\(shotNumber)\(suffix)"
         case .letters:
             return "\(sceneNumber)\(sceneSuffix).\(numberToLetter(shotNumber))\(suffix)"
+        case .continuous:
+            return String(format: "%03d", continuousIndex) + suffix
         }
+    }
+
+    /// This shot's position (1-based) among all non-archived shots of its script
+    /// version, in scene order then shot order. Gives every shot a unique running
+    /// number for the `.continuous` numbering style.
+    private var continuousIndex: Int {
+        let scenes = (scene?.scriptVersion?.scenes ?? scene?.project?.scenes ?? [])
+            .filter { !$0.isArchived }
+            .sorted { $0.sortOrder < $1.sortOrder }
+        var count = 0
+        for s in scenes {
+            for sh in s.shots.sorted(by: { $0.shotNumber < $1.shotNumber }) {
+                count += 1
+                if sh.uid == uid { return count }
+            }
+        }
+        return shotNumber
     }
     
     private func numberToLetter(_ number: Int) -> String {

@@ -994,46 +994,48 @@ struct ProjectEditorView: View {
     private func editShotSheet(for shot: Shot) -> some View {
         VStack(spacing: 0) {
             // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Edit Shot")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text("Shot \(shot.displayNumber)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Image(systemName: "number.square.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shot Numbering")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Currently shown as Shot \(shot.displayNumber)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
+            .padding(20)
 
             Divider()
 
             // Content
-            Form {
-                Section("Numbering Style") {
-                    Picker("Style", selection: Binding(
-                        get: { shot.numberingStyle },
-                        set: { newStyle in
-                            applyNumberingStyleToAllShots(newStyle)
-                        }
-                    )) {
-                        Text("Numbers (1, 2, 3...)").tag(ShotNumberingStyle.numbers)
-                        Text("Letters (A, B, C...)").tag(ShotNumberingStyle.letters)
-                    }
-                    .pickerStyle(.segmented)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("NUMBERING STYLE")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
 
-                    LabeledContent("Preview") {
-                        Text("Shot \(shot.displayNumber)")
-                            .fontWeight(.semibold)
-                    }
+                numberingOptionRow(shot, style: .numbers, title: "Scene Numbers",
+                                   detail: "Numbered within each scene: 1, 2, 3…")
+                numberingOptionRow(shot, style: .letters, title: "Scene Letters",
+                                   detail: "Lettered within each scene: A, B, C…")
+                numberingOptionRow(shot, style: .continuous, title: "Continuous",
+                                   detail: "A unique running number across the project: 001, 002, 003…")
 
-                    Text("This style will be applied to all shots in the project.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Label("Changing the style updates every shot in the project.",
+                      systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
             }
-            .formStyle(.grouped)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
 
+            Spacer(minLength: 0)
             Divider()
 
             // Footer
@@ -1045,7 +1047,48 @@ struct ProjectEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 380)
+        .frame(width: 480, height: 440)
+    }
+
+    /// One selectable numbering-style card: a radio dot, its name and description,
+    /// and a live preview of how this shot would read in that style.
+    @ViewBuilder
+    private func numberingOptionRow(_ shot: Shot, style: ShotNumberingStyle,
+                                    title: String, detail: String) -> some View {
+        let isSelected = shot.numberingStyle == style
+        Button {
+            applyNumberingStyleToAllShots(style)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).fontWeight(.semibold)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Text(shot.formattedNumber(style: style))
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .padding(12)
+            .background(isSelected ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.15),
+                            lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
     
     // MARK: - Scene Form Sections
