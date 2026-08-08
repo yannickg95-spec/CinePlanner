@@ -9,7 +9,6 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 
 struct CineStagerImportSheet: View {
     /// Supplies the reference to fill, called only once the user confirms a
@@ -554,12 +553,12 @@ struct CineStagerImportSheet: View {
 private struct CineStagerThumbnail: View {
     let library: CineStagerLibrary
     let shot: CineStagerShot
-    @State private var image: NSImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         Group {
             if let image {
-                Image(nsImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -570,7 +569,7 @@ private struct CineStagerThumbnail: View {
             }
         }
         .task(id: shot.id) {
-            if let data = await library.thumbnailData(for: shot), let ns = NSImage(data: data) {
+            if let data = await library.thumbnailData(for: shot), let ns = PlatformImage(data: data) {
                 image = ns
             }
         }

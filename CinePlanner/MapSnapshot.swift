@@ -9,7 +9,7 @@
 
 import Foundation
 import MapKit
-import AppKit
+import SwiftUI
 
 enum MapSnapshot {
     /// A square satellite image centred on `coordinate`, `meters` across, at
@@ -22,7 +22,7 @@ enum MapSnapshot {
     @MainActor
     static func satelliteImage(coordinate: CLLocationCoordinate2D,
                                meters: Double,
-                               pixels: CGFloat = 1200) async throws -> NSImage {
+                               pixels: CGFloat = 1200) async throws -> PlatformImage {
         let refMeters = max(meters, 250.0)
         let options = MKMapSnapshotter.Options()
         let side = refMeters * MKMapPointsPerMeterAtLatitude(coordinate.latitude)
@@ -45,13 +45,24 @@ enum MapSnapshot {
 
     /// Crops `crop` (in the source's points) and scales it to `size`.
     @MainActor
-    private static func cropAndScale(_ image: NSImage, crop: CGRect, to size: CGSize) -> NSImage {
+    private static func cropAndScale(_ image: PlatformImage, crop: CGRect, to size: CGSize) -> PlatformImage {
+        #if canImport(UIKit)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            // Scale the whole image so the crop region fills the destination.
+            let sx = size.width / crop.width, sy = size.height / crop.height
+            image.draw(in: CGRect(x: -crop.origin.x * sx, y: -crop.origin.y * sy,
+                                  width: image.size.width * sx, height: image.size.height * sy))
+        }
+        #else
         let result = NSImage(size: size)
         result.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
         image.draw(in: CGRect(origin: .zero, size: size), from: crop, operation: .copy, fraction: 1)
         result.unlockFocus()
         return result
+        #endif
     }
 
     /// Approximate width, in metres, of a map rect at its centre latitude.

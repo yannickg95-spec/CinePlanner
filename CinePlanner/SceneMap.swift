@@ -11,7 +11,6 @@
 
 import Foundation
 import SwiftUI
-import AppKit
 
 /// One placed item on the map.
 struct MapElement: Identifiable, Codable, Equatable {
@@ -227,10 +226,14 @@ extension Color {
     }
 
     var hexString: String {
-        let ns = NSColor(self).usingColorSpace(.sRGB) ?? .systemBlue
-        let r = Int(round(ns.redComponent * 255))
-        let g = Int(round(ns.greenComponent * 255))
-        let b = Int(round(ns.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        #if canImport(UIKit)
+        PlatformColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #else
+        let ns = PlatformColor(self).usingColorSpace(.sRGB) ?? .systemBlue
+        r = ns.redComponent; g = ns.greenComponent; b = ns.blueComponent
+        #endif
+        return String(format: "#%02X%02X%02X",
+                      Int(round(r * 255)), Int(round(g * 255)), Int(round(b * 255)))
     }
 }

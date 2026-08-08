@@ -1455,7 +1455,7 @@ struct SceneMapEditorView: View {
         isRenderingModel = true
         Task.detached {
             let image = ModelTopDownRenderer.topDownImage(from: temp)
-            let data = image?.pngDataForBackground()
+            let data = image?.pngRepresentation()
             try? FileManager.default.removeItem(at: temp)
             await MainActor.run {
                 isRenderingModel = false

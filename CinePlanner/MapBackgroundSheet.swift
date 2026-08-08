@@ -205,7 +205,7 @@ struct MapBackgroundSheet: View {
         Task {
             do {
                 let image = try await MapSnapshot.satelliteImage(coordinate: center, meters: captureMeters)
-                guard let data = image.pngDataForBackground() else {
+                guard let data = image.pngRepresentation() else {
                     throw NSError(domain: "MapSnapshot", code: -1,
                                   userInfo: [NSLocalizedDescriptionKey: "Couldn't encode the image."])
                 }
@@ -223,28 +223,31 @@ struct MapBackgroundSheet: View {
 
 /// A live satellite MKMapView. Reports its visible rect as the user pans/zooms,
 /// and recenters when `recenter` changes (keeping the current zoom).
-private struct MapPreview: NSViewRepresentable {
+private struct MapPreview {
     var recenter: CLLocationCoordinate2D?
     @Binding var visibleRect: MKMapRect
 
-    func makeNSView(context: Context) -> MKMapView {
+    /// Shared setup for both the AppKit and UIKit representable conformances.
+    func makeMap(_ coordinator: Coordinator) -> MKMapView {
         let map = MKMapView()
         map.mapType = .satellite
-        map.delegate = context.coordinator
+        map.delegate = coordinator
+        #if os(macOS)
         map.showsZoomControls = true
+        #endif
         map.showsCompass = true
         let start = recenter ?? CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952)
         map.setRegion(MKCoordinateRegion(center: start, latitudinalMeters: 300, longitudinalMeters: 300), animated: false)
         // Treat the starting centre as already applied so it isn't re-animated.
-        context.coordinator.lastRecenter = recenter
+        coordinator.lastRecenter = recenter
         return map
     }
 
-    func updateNSView(_ map: MKMapView, context: Context) {
+    func applyRecenter(_ map: MKMapView, _ coordinator: Coordinator) {
         if let recenter,
-           context.coordinator.lastRecenter?.latitude != recenter.latitude
-            || context.coordinator.lastRecenter?.longitude != recenter.longitude {
-            context.coordinator.lastRecenter = recenter
+           coordinator.lastRecenter?.latitude != recenter.latitude
+            || coordinator.lastRecenter?.longitude != recenter.longitude {
+            coordinator.lastRecenter = recenter
             var region = map.region
             region.center = recenter
             map.setRegion(region, animated: true)
@@ -262,3 +265,15 @@ private struct MapPreview: NSViewRepresentable {
         }
     }
 }
+
+#if canImport(UIKit)
+extension MapPreview: UIViewRepresentable {
+    func makeUIView(context: Context) -> MKMapView { makeMap(context.coordinator) }
+    func updateUIView(_ map: MKMapView, context: Context) { applyRecenter(map, context.coordinator) }
+}
+#else
+extension MapPreview: NSViewRepresentable {
+    func makeNSView(context: Context) -> MKMapView { makeMap(context.coordinator) }
+    func updateNSView(_ map: MKMapView, context: Context) { applyRecenter(map, context.coordinator) }
+}
+#endif

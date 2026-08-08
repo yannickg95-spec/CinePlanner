@@ -232,7 +232,7 @@ struct ProjectEditorView: View {
     private func publishedPageMenu(url: String) -> some View {
         ChipMenu(items: [
             ChipMenuItem(title: "Open Published Page", systemImage: "safari") {
-                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                if let u = URL(string: url) { PlatformURLOpener.open(u) }
             },
             ChipMenuItem(title: "Update Page", systemImage: "arrow.clockwise") { updatePublishedPage() },
             .divider,
@@ -1355,11 +1355,14 @@ struct ResizableDivider: View {
                     .contentShape(Rectangle())
             }
             .onHover { hovering in
+                // Pointer feedback for the drag handle — macOS only (no cursor on iPad).
+                #if os(macOS)
                 if hovering {
                     NSCursor.resizeLeftRight.push()
                 } else {
                     NSCursor.pop()
                 }
+                #endif
             }
             .gesture(
                 // MUST be measured in a coordinate space that doesn't move with the

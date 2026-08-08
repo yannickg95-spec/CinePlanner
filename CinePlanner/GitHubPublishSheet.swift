@@ -8,7 +8,6 @@
 //
 
 import SwiftUI
-import AppKit
 
 struct GitHubPublishSheet: View {
     let project: Project
@@ -190,12 +189,11 @@ struct GitHubPublishSheet: View {
 
         HStack(spacing: 10) {
             Button {
-                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                if let u = URL(string: url) { PlatformURLOpener.open(u) }
             } label: { Label("Open", systemImage: "safari") }
 
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url, forType: .string)
+                PlatformPasteboard.copy(url)
             } label: { Label("Copy", systemImage: "doc.on.doc") }
 
             if let repoURL, let u = URL(string: repoURL) {

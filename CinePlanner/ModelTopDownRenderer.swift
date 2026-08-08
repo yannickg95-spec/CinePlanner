@@ -15,7 +15,7 @@
 //
 
 import Foundation
-import AppKit
+import SwiftUI
 import Metal
 import SceneKit
 import SceneKit.ModelIO
@@ -26,7 +26,7 @@ enum ModelTopDownRenderer {
     /// Top-down orthographic unlit image of the model at `url`, fitted to a
     /// square. Backface culling hides the ceiling (dollhouse view). Returns nil if
     /// the file can't be loaded or the GPU is unavailable.
-    static func topDownImage(from url: URL, size: CGFloat = 1024, margin: CGFloat = 0.04) -> NSImage? {
+    static func topDownImage(from url: URL, size: CGFloat = 1024, margin: CGFloat = 0.04) -> PlatformImage? {
         guard let device = MTLCreateSystemDefaultDevice(),
               let model = loadNode(url) else { return nil }
 
@@ -41,7 +41,7 @@ enum ModelTopDownRenderer {
         let width = b.max.x - b.min.x
         let depth = b.max.z - b.min.z
         let height = b.max.y - b.min.y
-        let half = max(width, depth) / 2 * (1 + margin)
+        let half = max(width, depth) / 2 * (1 + SCNScalar(margin))
         guard half > 0 else { return nil }
 
         // Camera sits above the model looking straight down; culled backfaces hide
@@ -55,10 +55,10 @@ enum ModelTopDownRenderer {
         let cameraNode = SCNNode()
         cameraNode.camera = camera
         cameraNode.position = SCNVector3(center.x, camY, center.z)
-        cameraNode.eulerAngles = SCNVector3(-CGFloat.pi / 2, 0, 0)   // look straight down −Y
+        cameraNode.eulerAngles = SCNVector3(-SCNScalar.pi / 2, 0, 0)   // look straight down −Y
         scene.rootNode.addChildNode(cameraNode)
 
-        scene.background.contents = NSColor.clear   // transparent around the model
+        scene.background.contents = PlatformColor.clear   // transparent around the model
 
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = scene
@@ -108,8 +108,8 @@ enum ModelTopDownRenderer {
     /// World-space axis-aligned bounding box across every geometry node in the
     /// hierarchy, honouring each node's transforms.
     private static func worldBounds(_ node: SCNNode) -> (min: SCNVector3, max: SCNVector3)? {
-        var lo = SCNVector3(CGFloat.greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
-        var hi = SCNVector3(-CGFloat.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
+        var lo = SCNVector3(SCNScalar.greatestFiniteMagnitude, .greatestFiniteMagnitude, .greatestFiniteMagnitude)
+        var hi = SCNVector3(-SCNScalar.greatestFiniteMagnitude, -.greatestFiniteMagnitude, -.greatestFiniteMagnitude)
         var found = false
         node.enumerateHierarchy { n, _ in
             guard n.geometry != nil else { return }
@@ -131,10 +131,3 @@ enum ModelTopDownRenderer {
     }
 }
 
-extension NSImage {
-    /// PNG encoding that preserves transparency, for storing rendered backgrounds.
-    func pngDataForBackground() -> Data? {
-        guard let tiff = tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
-    }
-}

@@ -10,7 +10,6 @@
 import SwiftUI
 import SwiftData
 import PhotosUI
-import AppKit
 import UniformTypeIdentifiers
 
 struct ReferenceCardView: View {
@@ -21,7 +20,7 @@ struct ReferenceCardView: View {
 
     @State private var isImportingImage = false
     @State private var isImportingMap = false
-    @State private var previewImage: NSImage?
+    @State private var previewImage: PlatformImage?
     @State private var previewTitle = ""
 
     /// Images cap at this width; metadata beneath them matches.
@@ -153,7 +152,7 @@ struct ReferenceCardView: View {
                     }
                 )
                 .frame(maxWidth: .infinity)
-            } else if let data = reference.imageData, let image = NSImage(data: data) {
+            } else if let data = reference.imageData, let image = PlatformImage(data: data) {
                 imageView(image, data: data, title: "Reference")
                 if reference.imageMetadata.hasContent {
                     MetadataView(metadata: reference.imageMetadata)
@@ -232,7 +231,7 @@ struct ReferenceCardView: View {
                     onDelete: { clearMap() }
                 )
                 .frame(maxWidth: .infinity)
-            } else if let data = reference.mapData, let image = NSImage(data: data) {
+            } else if let data = reference.mapData, let image = PlatformImage(data: data) {
                 imageView(image, data: data, title: "Top Down Map", isMap: true)
                 if !reference.mapMetadata.mapDisplayItems.isEmpty {
                     TopDownMetadataView(metadata: reference.mapMetadata)
@@ -256,7 +255,7 @@ struct ReferenceCardView: View {
 
     // MARK: - Shared image view
 
-    private func imageView(_ image: NSImage, data: Data, title: String, isMap: Bool = false) -> some View {
+    private func imageView(_ image: PlatformImage, data: Data, title: String, isMap: Bool = false) -> some View {
         ZStack(alignment: .topTrailing) {
             // The picture is the button — clicking it opens the full size view,
             // so no separate enlarge control is needed. A fixed 4:3 box means the
@@ -270,7 +269,7 @@ struct ReferenceCardView: View {
                     .fill(Color.black.opacity(0.04))
                     .aspectRatio(4.0 / 3.0, contentMode: .fit)
                     .overlay {
-                        Image(nsImage: image)
+                        Image(platformImage: image)
                             .resizable()
                             .scaledToFit()
                             .padding(3)
@@ -427,7 +426,7 @@ struct ReferenceCardView: View {
 // MARK: - Full size preview
 
 struct ImagePreview: Identifiable {
-    let image: NSImage
+    let image: PlatformImage
     let title: String
     var id: String { title + "\(image.size.width)x\(image.size.height)" }
 }
@@ -458,7 +457,7 @@ struct ImagePreviewSheet: View {
 
             Divider()
 
-            Image(nsImage: preview.image)
+            Image(platformImage: preview.image)
                 .resizable()
                 .scaledToFit()
                 .padding()
@@ -469,7 +468,11 @@ struct ImagePreviewSheet: View {
     /// Sizes to the image, capped to most of the screen, never smaller than the
     /// inline slot it was opened from.
     private var size: CGSize {
+        #if canImport(UIKit)
+        let visible = UIScreen.main.bounds.size
+        #else
         let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1600, height: 1000)
+        #endif
         let maxWidth = visible.width * 0.85
         let maxHeight = visible.height * 0.85
         let chrome: CGFloat = 96

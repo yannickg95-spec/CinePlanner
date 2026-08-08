@@ -8,7 +8,28 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
-import AppKit
+
+/// The `.cineplan` content type, shared by the import/export file pickers.
+extension UTType {
+    static var cineplanProject: UTType {
+        UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data
+    }
+}
+
+/// A `.cineplan` archive as a `FileDocument`, so export uses the cross-platform
+/// `.fileExporter` (Save panel on macOS, document picker on iPad) instead of a
+/// mac-only `NSSavePanel`.
+struct ProjectArchiveDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.cineplanProject] }
+    var data: Data
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
 
 struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -21,6 +42,7 @@ struct ProjectListView: View {
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
     @State private var showingManageRepos = false
+    @State private var showingProjectImporter = false
     @StateObject private var syncMonitor = CloudSyncMonitor()
     @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
@@ -82,6 +104,13 @@ struct ProjectListView: View {
             } message: {
                 Text(importErrorMessage ?? "")
             }
+            .fileImporter(isPresented: $showingProjectImporter,
+                          allowedContentTypes: [.cineplanProject],
+                          allowsMultipleSelection: false) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    importProject(from: url)
+                }
+            }
             .sheet(isPresented: $showingRestoreSheet) {
                 RestoreBackupSheet()
             }
@@ -116,16 +145,14 @@ struct ProjectListView: View {
         .frame(minWidth: 900, minHeight: 600)
     }
 
-    /// Reads a .cineplan file and adds its project (with fresh ids) to the store.
-    @MainActor
+    /// Presents the system file picker to choose a .cineplan file to import.
     private func importProject() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Project"
-        panel.allowedContentTypes = [UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        showingProjectImporter = true
+    }
 
+    /// Reads a chosen .cineplan file and adds its project (with fresh ids).
+    @MainActor
+    private func importProject(from url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
@@ -384,6 +411,8 @@ struct ProjectCardView: View {
     @State private var showingDeleteAlert = false
     @State private var showingSeriesToFilmBlocked = false
     @State private var exportErrorMessage: String?
+    @State private var exportDocument: ProjectArchiveDocument?
+    @State private var showingExporter = false
     @Environment(\.modelContext) private var modelContext
 
     private var shotCount: Int {
@@ -473,6 +502,14 @@ struct ProjectCardView: View {
         } message: {
             Text(exportErrorMessage ?? "")
         }
+        .fileExporter(isPresented: $showingExporter,
+                      document: exportDocument,
+                      contentType: .cineplanProject,
+                      defaultFilename: ProjectArchive.suggestedFileName(for: project)) { result in
+            if case .failure(let error) = result {
+                exportErrorMessage = error.localizedDescription
+            }
+        }
         .alert("Delete “\(project.filmName)”?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete Project", role: .destructive) {
@@ -525,15 +562,10 @@ struct ProjectCardView: View {
     /// user can back up or hand off.
     @MainActor
     private func exportProject() {
-        let panel = NSSavePanel()
-        panel.title = "Export Project"
-        panel.nameFieldStringValue = ProjectArchive.suggestedFileName(for: project)
-        panel.allowedContentTypes = [UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data]
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try ProjectArchive.data(for: project)
-            try data.write(to: url, options: .atomic)
+            exportDocument = ProjectArchiveDocument(data: data)
+            showingExporter = true
         } catch {
             exportErrorMessage = error.localizedDescription
         }
@@ -852,7 +884,11 @@ struct RestoreBackupSheet: View {
             Button("Restore and Quit", role: .destructive) {
                 if let backup = confirmBackup {
                     StoreBackup.requestRestore(backup)
+                    #if os(macOS)
                     NSApp.terminate(nil)
+                    #endif
+                    // On iOS the app can't quit itself; the restore is applied on the
+                    // next launch (the user relaunches from the App Switcher).
                 }
             }
         } message: {
