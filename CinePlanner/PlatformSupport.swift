@@ -19,6 +19,7 @@ typealias PlatformFont = UIFont
 typealias PlatformBezierPath = UIBezierPath
 /// SceneKit vector components are `Float` on iOS/iPadOS…
 typealias SCNScalar = Float
+typealias PlatformViewBase = UIView
 #elseif canImport(AppKit)
 import AppKit
 typealias PlatformImage = NSImage
@@ -27,6 +28,7 @@ typealias PlatformFont = NSFont
 typealias PlatformBezierPath = NSBezierPath
 /// …but `CGFloat` on macOS.
 typealias SCNScalar = CGFloat
+typealias PlatformViewBase = NSView
 #endif
 
 // MARK: - SwiftUI Image

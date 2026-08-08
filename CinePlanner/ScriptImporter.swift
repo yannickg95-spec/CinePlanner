@@ -1294,10 +1294,7 @@ private struct PDFContentView: View {
     }
 }
 
-#if canImport(AppKit)
-import AppKit
-
-struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
+struct PDFViewerWithCoverageRepresentable {
     let document: PDFDocument
     let pageToDisplay: Int? // 0-based page index
     let sceneToAlign: Scene? // Scroll so this scene's heading sits at the top
@@ -1392,8 +1389,8 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         return named[min(index, named.count - 1)].top
     }
 
-    func makeNSView(context: Context) -> NSView {
-        let containerView = NSView()
+    func makeContainer(_ coordinator: Coordinator) -> PlatformViewBase {
+        let containerView = PlatformViewBase()
         // Clip to bounds so coverage lines/highlights for text scrolled above the
         // viewport don't spill upward over the "Script" header.
         containerView.clipsToBounds = true
@@ -1408,8 +1405,8 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         pdfView.highlightedSelections = []
         
         // Store reference in coordinator
-        context.coordinator.pdfView = pdfView
-        context.coordinator.containerView = containerView
+        coordinator.pdfView = pdfView
+        coordinator.containerView = containerView
         
         // Add PDF view to container
         containerView.addSubview(pdfView)
@@ -1424,7 +1421,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         // Create overlay view for coverage indicators
         let overlayView = PDFCoverageOverlayView()
         overlayView.pdfView = pdfView
-        context.coordinator.overlayView = overlayView
+        coordinator.overlayView = overlayView
         containerView.addSubview(overlayView)
         overlayView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -1435,41 +1432,44 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         ])
         
         // Listen for PDF view changes to update overlay
-        context.coordinator.pageChangeObserver = NotificationCenter.default.addObserver(
+        coordinator.pageChangeObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.PDFViewPageChanged,
             object: pdfView,
             queue: .main
-        ) { [weak coordinator = context.coordinator] _ in
-            overlayView.needsDisplay = true
+        ) { [weak coordinator = coordinator] _ in
+            overlayView.requestRedraw()
             if let page = pdfView.currentPage, let idx = pdfView.document?.index(for: page) {
                 coordinator?.onPageChange?(idx)
             }
         }
         
-        // Enable scroll notifications
-        // Find the scroll view in the PDF view's subviews
+        // Enable scroll notifications. macOS: observe the PDF's NSScrollView bounds
+        // so the overlay repaints as it scrolls. iOS relies on the coordinator's
+        // 30fps redraw timer instead (its scroll view is a private UIScrollView).
+        #if os(macOS)
         if let scrollView = pdfView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView {
             scrollView.contentView.postsBoundsChangedNotifications = true
-            context.coordinator.scrollObserver = NotificationCenter.default.addObserver(
+            coordinator.scrollObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView,
                 queue: .main
             ) { _ in
-                overlayView.needsDisplay = true
+                overlayView.requestRedraw()
             }
         }
+        #endif
         
         // Also listen for scale changes
-        context.coordinator.scaleChangeObserver = NotificationCenter.default.addObserver(
+        coordinator.scaleChangeObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.PDFViewScaleChanged,
             object: pdfView,
             queue: .main
         ) { _ in
-            overlayView.needsDisplay = true
+            overlayView.requestRedraw()
         }
         
         // Listen for selection mode notifications
-        context.coordinator.setupNotifications()
+        coordinator.setupNotifications()
 
         // Navigate to initial page if specified
         if let pageIndex = pageToDisplay,
@@ -1479,19 +1479,19 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             DispatchQueue.main.async {
                 scroll(pdfView, to: page, scene: scene)
             }
-            context.coordinator.lastDisplayedPage = pageIndex
-            context.coordinator.lastAlignedScene = scene?.persistentModelID
+            coordinator.lastDisplayedPage = pageIndex
+            coordinator.lastAlignedScene = scene?.persistentModelID
             print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
         }
         
         return containerView
     }
     
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard let pdfView = context.coordinator.pdfView else { return }
+    func updateContainer(_ nsView: PlatformViewBase, _ coordinator: Coordinator) {
+        guard let pdfView = coordinator.pdfView else { return }
 
         // Keep the "current page" report wired to the latest binding.
-        context.coordinator.onPageChange = { idx in
+        coordinator.onPageChange = { idx in
             if currentPageIndex != idx { currentPageIndex = idx }
         }
 
@@ -1504,7 +1504,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         // as well, so picking another scene on the same page still re-aligns.
         let sceneID = sceneToAlign?.persistentModelID
         if let pageIndex = pageToDisplay,
-           pageIndex != context.coordinator.lastDisplayedPage || sceneID != context.coordinator.lastAlignedScene,
+           pageIndex != coordinator.lastDisplayedPage || sceneID != coordinator.lastAlignedScene,
            let page = document.page(at: pageIndex) {
             // Scroll on the next tick so PDFView has finished laying out; going
             // immediately can land short of the target.
@@ -1512,13 +1512,13 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             DispatchQueue.main.async {
                 scroll(pdfView, to: page, scene: scene)
             }
-            context.coordinator.lastDisplayedPage = pageIndex
-            context.coordinator.lastAlignedScene = sceneID
+            coordinator.lastDisplayedPage = pageIndex
+            coordinator.lastAlignedScene = sceneID
             print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
         }
         
         // Update overlay with current shot and all shots from project
-        if let overlayView = context.coordinator.overlayView {
+        if let overlayView = coordinator.overlayView {
             overlayView.selectedShot = selectedShot
             
             // Collect all shots with coverage from all scenes
@@ -1531,7 +1531,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
                 }
             }
             overlayView.allShotsWithCoverage = allShotsWithCoverage
-            overlayView.needsDisplay = true
+            overlayView.requestRedraw()
         }
     }
     
@@ -1543,7 +1543,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
         var lastDisplayedPage: Int? = nil
         var lastAlignedScene: PersistentIdentifier? = nil
         var pdfView: PDFView?
-        var containerView: NSView?
+        var containerView: PlatformViewBase?
         var overlayView: PDFCoverageOverlayView?
         var selectionModeObserver: NSObjectProtocol?
         var captureObserver: NSObjectProtocol?
@@ -1572,7 +1572,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
             // Start a timer to update the overlay - using 30fps instead of 60 to be gentler on the system
             displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
                 guard let self = self else { return }
-                self.overlayView?.needsDisplay = true
+                self.overlayView?.requestRedraw()
             }
         }
         
@@ -1681,7 +1681,7 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
                 print("   📝 Text: \"\(selectedText.prefix(50))...\"")
                 
                 // Update overlay
-                overlayView?.needsDisplay = true
+                overlayView?.requestRedraw()
             } else {
                 print("⚠️ No valid page ranges found in selection")
             }
@@ -1746,13 +1746,13 @@ struct PDFViewerWithCoverageRepresentable: NSViewRepresentable {
 
 // MARK: - Coverage Overlay View
 
-class PDFCoverageOverlayView: NSView {
+class PDFCoverageOverlayView: PlatformViewBase {
     weak var pdfView: PDFView?
     var selectedShot: Shot?
     var allShotsWithCoverage: [Shot] = []
-    
+
     // Color palette for different shots within the same scene
-    private let shotColors: [NSColor] = [
+    private let shotColors: [PlatformColor] = [
         .systemBlue,
         .systemGreen,
         .systemOrange,
@@ -1764,30 +1764,46 @@ class PDFCoverageOverlayView: NSView {
         .systemYellow,
         .systemBrown
     ]
-    
-    override init(frame frameRect: NSRect) {
+
+    override init(frame frameRect: CGRect) {
         super.init(frame: frameRect)
+        #if canImport(UIKit)
+        backgroundColor = .clear
+        isOpaque = false
+        isUserInteractionEnabled = false   // let touches reach the PDF view below
+        #else
         wantsLayer = true
         layer?.backgroundColor = .clear
-        print("🎨 [EDITOR COLOR] PDFCoverageOverlayView initialized with \(shotColors.count) colors")
+        #endif
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
+    /// Repaints the overlay, cross-platform.
+    func requestRedraw() {
+        #if canImport(UIKit)
+        setNeedsDisplay()
+        #else
+        needsDisplay = true
+        #endif
+    }
+
+    #if os(macOS)
     override var isFlipped: Bool {
         return false // Don't flip - we'll handle coordinate conversion manually
     }
-    
+
     // Allow mouse events to pass through to the PDF view below
     override func hitTest(_ point: NSPoint) -> NSView? {
         return nil
     }
-    
+    #endif
+
     // Get color for a shot based on its position within its scene
     // Prefers unused colors on the visible portion of the page
-    private func color(for shot: Shot, usedColors: inout Set<Int>) -> NSColor {
+    private func color(for shot: Shot, usedColors: inout Set<Int>) -> PlatformColor {
         guard let scene = shot.scene else {
             print("🎨 [EDITOR COLOR] Shot \(shot.displayNumber) has no scene - returning systemBlue")
             return .systemBlue
@@ -1937,13 +1953,20 @@ class PDFCoverageOverlayView: NSView {
         return candidates.last ?? desiredRect
     }
     
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_ dirtyRect: CGRect) {
         super.draw(dirtyRect)
-        
+        #if canImport(UIKit)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        #else
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        #endif
+        render(in: context)
+    }
+
+    private func render(in context: CGContext) {
         guard let pdfView = pdfView,
-              let document = pdfView.document,
-              let context = NSGraphicsContext.current?.cgContext else { return }
-        
+              let document = pdfView.document else { return }
+
         // Track existing lines to prevent overlap
         var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)] = []
         var placedLabelRects: [CGRect] = []
@@ -2049,7 +2072,7 @@ class PDFCoverageOverlayView: NSView {
             // Draw shot number at the top
             let shotLabel = shot.displayNumber
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.boldSystemFont(ofSize: 11),
+                .font: PlatformFont.boldSystemFont(ofSize: 11),
                 .foregroundColor: lineColor
             ]
             
@@ -2110,7 +2133,7 @@ class PDFCoverageOverlayView: NSView {
     
     private func drawHighlightedText(for selection: ScriptTextSelection, in context: CGContext, pdfView: PDFView, document: PDFDocument) {
         // Draw yellow highlight for each selection bounds
-        context.setFillColor(NSColor.systemYellow.withAlphaComponent(0.3).cgColor)
+        context.setFillColor(PlatformColor.systemYellow.withAlphaComponent(0.3).cgColor)
         
         for pageRange in selection.pageRanges {
             guard let page = document.page(at: pageRange.pageIndex) else { continue }
@@ -2136,55 +2159,16 @@ class PDFCoverageOverlayView: NSView {
     }
 }
 
-// Old simple implementation kept for reference
-struct PDFViewerRepresentable: NSViewRepresentable {
-    let document: PDFDocument
-    let pageToDisplay: Int? // 0-based page index
-    
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
-        pdfView.document = document
-        pdfView.autoScales = true
-        pdfView.displayMode = .singlePageContinuous
-        pdfView.displayDirection = .vertical
-        
-        // Navigate to initial page if specified
-        if let pageIndex = pageToDisplay,
-           let page = document.page(at: pageIndex) {
-            pdfView.go(to: page)
-            context.coordinator.lastDisplayedPage = pageIndex
-            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
-        }
-        
-        return pdfView
-    }
-    
-    func updateNSView(_ nsView: PDFView, context: Context) {
-        // Update document if it changed
-        if nsView.document !== document {
-            nsView.document = document
-        }
-        
-        // Navigate to page when it changes, but only if it's different from what we last set
-        if let pageIndex = pageToDisplay,
-           pageIndex != context.coordinator.lastDisplayedPage,
-           let page = document.page(at: pageIndex) {
-            // Check if we're not already on this page (user might have scrolled)
-            if nsView.currentPage != page {
-                nsView.go(to: page)
-                print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
-            }
-            context.coordinator.lastDisplayedPage = pageIndex
-        }
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-    
-    class Coordinator {
-        var lastDisplayedPage: Int? = nil
-    }
-}
+// MARK: - Representable conformances (cross-platform)
 
+#if canImport(UIKit)
+extension PDFViewerWithCoverageRepresentable: UIViewRepresentable {
+    func makeUIView(context: Context) -> PlatformViewBase { makeContainer(context.coordinator) }
+    func updateUIView(_ view: PlatformViewBase, context: Context) { updateContainer(view, context.coordinator) }
+}
+#else
+extension PDFViewerWithCoverageRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> PlatformViewBase { makeContainer(context.coordinator) }
+    func updateNSView(_ view: PlatformViewBase, context: Context) { updateContainer(view, context.coordinator) }
+}
 #endif
