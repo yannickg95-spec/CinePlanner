@@ -469,6 +469,7 @@ struct SceneMapEditorView: View {
                                 furnitureToLabel = item.id
                                 furnitureLabelText = item.label
                             },
+                            onMoveLabel: { offset in moveFurnitureLabel(item.id, to: offset) },
                             metersWide: mapMetersWide,
                             onDelete: { deleteFurniture(item.id) }
                         )
@@ -823,6 +824,13 @@ struct SceneMapEditorView: View {
     private func setFurnitureLabel(_ id: UUID, _ label: String) {
         guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
         doc.furniture[i].label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        persist()
+    }
+
+    /// Commit a furniture label's nudge once its drag ends.
+    private func moveFurnitureLabel(_ id: UUID, to offset: CGSize) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        doc.furniture[i].labelOffset = offset
         persist()
     }
 
@@ -2474,6 +2482,8 @@ private struct FurnitureView: View {
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
     var onEditLabel: () -> Void = {}
+    /// Reports the label's new nudge (canvas points) once its drag ends.
+    var onMoveLabel: (CGSize) -> Void = { _ in }
     /// Real-world metres spanning the (square) measured background; nil = unmeasured
     /// (no dimensions shown while resizing).
     var metersWide: Double? = nil
@@ -2483,6 +2493,13 @@ private struct FurnitureView: View {
     @State private var grabOffset: CGSize = .zero
     @State private var liveRotation: Double?
     @State private var liveSize: CGSize?
+    /// Live label nudge while the label is being dragged; `nil` otherwise.
+    @State private var liveLabelOffset: CGSize?
+    /// Pointer-to-label offset captured when the label drag begins.
+    @State private var labelGrab: CGSize = .zero
+
+    /// Farthest a label's centre may sit from its default spot (canvas points).
+    private static let labelMaxDistance: CGFloat = 80
 
     private var color: Color { Color(hex: furniture.colorHex) }
     private var displayRotation: Double { liveRotation ?? furniture.rotation }
@@ -2506,13 +2523,15 @@ private struct FurnitureView: View {
                 .gesture(dragGesture)
                 .contextMenu { menu }
             if !furniture.label.isEmpty {
+                let nudge = liveLabelOffset ?? furniture.labelOffset
                 Text(furniture.label)
                     .font(.caption).fontWeight(.medium)
                     .lineLimit(1)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.regularMaterial, in: Capsule())
-                    .offset(y: max(w, h) / 2 + 12)
-                    .allowsHitTesting(false)
+                    .offset(x: nudge.width, y: labelBaseOffsetY(w: w, h: h) + nudge.height)
+                    .gesture(labelDragGesture(w: w, h: h))
+                    .help("Drag to move the label")
             }
             if isSelected {
                 selectionBox(w: w, h: h)
@@ -2546,6 +2565,40 @@ private struct FurnitureView: View {
         let wMeters = Double(sizePts.width / contentRect.width) * metersWide
         let hMeters = Double(sizePts.height / contentRect.height) * metersWide
         return "\(label(wMeters)) × \(label(hMeters))"
+    }
+
+    /// The label's default vertical offset (below the piece).
+    private func labelBaseOffsetY(w: CGFloat, h: CGFloat) -> CGFloat { max(w, h) / 2 + 12 }
+
+    /// Drags the label around its piece, in the fixed canvas space (like the piece
+    /// drag) so the moving label can't shift its own frame. The nudge is stored
+    /// relative to the label's default spot (centre + `labelBaseOffsetY`).
+    private func labelDragGesture(w: CGFloat, h: CGFloat) -> some Gesture {
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                let c = livePosition ?? center
+                let baseY = c.y + labelBaseOffsetY(w: w, h: h)
+                if liveLabelOffset == nil {
+                    onSelect()
+                    let current = CGPoint(x: c.x + furniture.labelOffset.width,
+                                          y: baseY + furniture.labelOffset.height)
+                    labelGrab = CGSize(width: current.x - value.location.x,
+                                       height: current.y - value.location.y)
+                }
+                let newPos = CGPoint(x: value.location.x + labelGrab.width,
+                                     y: value.location.y + labelGrab.height)
+                var dx = newPos.x - c.x, dy = newPos.y - c.y
+                let dist = hypot(dx, dy)
+                if dist > Self.labelMaxDistance {
+                    let scale = Self.labelMaxDistance / dist
+                    dx *= scale; dy *= scale
+                }
+                liveLabelOffset = CGSize(width: dx, height: dy - labelBaseOffsetY(w: w, h: h))
+            }
+            .onEnded { _ in
+                if let offset = liveLabelOffset { onMoveLabel(offset) }
+                liveLabelOffset = nil
+            }
     }
 
     private var dragGesture: some Gesture {

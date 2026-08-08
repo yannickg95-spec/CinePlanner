@@ -134,8 +134,9 @@ struct Furniture: Identifiable, Codable, Equatable {
     var rotation: Double = 0
     var colorHex: String = "#8E8E93"
     var label: String = ""
+    var labelOffset: CGSize = .zero   // canvas-point nudge from the label's default spot
 
-    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label }
+    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset }
 
     init(kind: Kind, x: Double, y: Double, width: Double, height: Double) {
         self.kind = kind; self.x = x; self.y = y; self.width = width; self.height = height
@@ -152,6 +153,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#8E8E93"
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
     }
 }
 
