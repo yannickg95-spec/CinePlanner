@@ -45,11 +45,10 @@ struct MapBackgroundSheet: View {
     @State private var previewTask: Task<Void, Never>?
 
     private let panelSide: CGFloat = 400
-    /// Preview shown only for small captures, where the imagery is a small patch.
-    /// Uses the committed `layoutMeters` so it doesn't toggle mid slider-drag.
-    private var showsPreview: Bool { layoutMeters < 100 }
-    /// Sheet widens for the second panel, and narrows back when it's hidden.
-    private var sheetWidth: CGFloat { showsPreview ? panelSide * 2 + 44 : panelSide + 32 }
+    /// The capture preview is always shown, beside the map.
+    private var showsPreview: Bool { true }
+    /// Width for the map panel plus the always-present preview panel.
+    private var sheetWidth: CGFloat { panelSide * 2 + 44 }
 
     private var centerCoordinate: CLLocationCoordinate2D? {
         visibleRect.isNull ? nil : MKMapPoint(x: visibleRect.midX, y: visibleRect.midY).coordinate

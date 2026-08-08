@@ -507,6 +507,11 @@ struct ShotListView: View {
                     } label: {
                         Text("Edit Shot")
                     }
+                    Button {
+                        duplicateShot(shot)
+                    } label: {
+                        Text("Duplicate Shot")
+                    }
                     Divider()
                     Button(role: .destructive) {
                         onDeleteShots?(deletionTargets(for: shot))
@@ -717,6 +722,24 @@ struct ShotListView: View {
         for (index, shot) in shots.enumerated() {
             shot.shotNumber = index + 1
         }
+    }
+
+    /// Duplicates a shot (all its fields, references and custom info, with fresh
+    /// ids) and drops the copy right after the original, renumbering the scene.
+    private func duplicateShot(_ shot: Shot) {
+        let copy = shot.duplicate()
+        copy.scene = scene
+        scene.shots.append(copy)
+        var ordered = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
+        ordered.removeAll { $0 === copy }
+        if let index = ordered.firstIndex(where: { $0 === shot }) {
+            ordered.insert(copy, at: index + 1)
+        } else {
+            ordered.append(copy)
+        }
+        for (index, s) in ordered.enumerated() { s.shotNumber = index + 1 }
+        try? scene.modelContext?.save()
+        selectedShots = [copy.uid]
     }
     
     private func moveShots(from source: IndexSet, to destination: Int) {
