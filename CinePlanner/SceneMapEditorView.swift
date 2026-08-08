@@ -1378,7 +1378,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapSatelliteLon = coordinate.longitude
         scene.sceneMapSatelliteMeters = meters
         scene.sceneMapMetersWide = meters          // satellite square is `meters` across
-        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.6 m
+        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
         backgroundImage = NSImage(data: data)
         try? scene.modelContext?.save()
 
@@ -2163,19 +2163,26 @@ private struct MapMarkerView: View {
             } else {
                 // Just the camera icon, pointing in its facing direction.
                 // `video.fill` points right by default, so a -90° base turn makes
-                // it face "up" when the marker's rotation is 0. The white outline is
-                // the same glyph in white, offset all around behind the coloured one
-                // — an even stroke, not a distorted scaled-up copy.
+                // it face "up" when the marker's rotation is 0. Sized into a fixed
+                // `iconSide`² box (resizable, not font-based): an SF Symbol's font
+                // point size isn't its drawn width — `video.fill` renders much wider
+                // than 26 pt — so the box pins the drawn width to `baseDiameter`
+                // (26) in `sceneMarkerScale`, otherwise the camera renders oversized.
+                // The white outline is the same glyph offset all around behind the
+                // coloured one — an even stroke, not a distorted scaled-up copy.
+                let iconSide: CGFloat = 26
                 ZStack {
                     ForEach(0..<16, id: \.self) { i in
                         Image(systemName: "video.fill")
-                            .font(.system(size: 26))
+                            .resizable().scaledToFit()
+                            .frame(width: iconSide, height: iconSide)
                             .foregroundStyle(.white)
                             .offset(x: 1.6 * cos(CGFloat(i) / 16 * 2 * .pi),
                                     y: 1.6 * sin(CGFloat(i) / 16 * 2 * .pi))
                     }
                     Image(systemName: "video.fill")
-                        .font(.system(size: 26))
+                        .resizable().scaledToFit()
+                        .frame(width: iconSide, height: iconSide)
                         .foregroundStyle(color)
                 }
                 .rotationEffect(.degrees(-90))
@@ -2207,12 +2214,15 @@ struct Triangle: Shape {
 /// Shared marker/furniture color choices.
 /// Scale factor for a scene-map marker so it reads at its real-world size against
 /// a measured background. 1 (default) when the background has no measurement.
-/// A mannequin's shoulders span 0.4 m; cameras use `cameraMeters` (0.6 m default).
+/// A mannequin's shoulders span 0.4 m; cameras use `cameraMeters` (0.35 m default).
 /// Clamped so markers stay visible/usable at extremes.
 func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
                       mapWidthPoints: CGFloat) -> CGFloat {
     guard let metersWide, metersWide > 0, mapWidthPoints > 0 else { return 1 }
-    let realMeters = kind == .camera ? (cameraMeters ?? 0.6) : 0.4
+    // Cameras use their measured width (from a CineStager map) when available;
+    // otherwise (e.g. a satellite background) fall back to 0.35 m — a real camera
+    // footprint, a touch smaller than the 0.4 m mannequin shoulders.
+    let realMeters = kind == .camera ? (cameraMeters ?? 0.35) : 0.4
     let baseDiameter: CGFloat = kind == .camera ? 26 : 30   // the icons' widths at scale 1
     let target = CGFloat(realMeters / metersWide) * mapWidthPoints
     return min(max(target / baseDiameter, 0.5), 3.5)
