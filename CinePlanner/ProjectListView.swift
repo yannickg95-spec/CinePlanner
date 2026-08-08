@@ -476,7 +476,7 @@ struct ProjectCardView: View {
         .alert("Delete “\(project.filmName)”?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete Project", role: .destructive) {
-                modelContext.delete(project)
+                deleteProject()
             }
         } message: {
             Text("This permanently deletes the project with all its episodes, scenes and shots. This cannot be undone.")
@@ -486,6 +486,30 @@ struct ProjectCardView: View {
         } message: {
             Text("A film has a single episode, but this series has \(project.episodes.count). Open it and delete the extra episodes first, then switch to a film.")
         }
+    }
+
+    /// Deletes the project and its whole object graph.
+    ///
+    /// A plain `modelContext.delete(project)` crashes: a `Scene` is cascade-
+    /// reachable both directly (`Project.scenes`) and indirectly
+    /// (`Project → Episode → ScriptVersion → scenes`), so SwiftData tries to
+    /// delete the same scene twice and trips an assertion. We instead tear the
+    /// graph down by hand — sever the cross-links, then delete each object
+    /// exactly once, leaves first — so no cascade path overlaps.
+    private func deleteProject() {
+        let episodes = project.episodes
+        let versions = episodes.flatMap { $0.scriptVersions } + project.scriptVersions
+        var seen = Set<ObjectIdentifier>()
+        var scenes: [Scene] = []
+        for scene in project.scenes + versions.flatMap({ $0.scenes })
+        where seen.insert(ObjectIdentifier(scene)).inserted {
+            scenes.append(scene)
+        }
+        for scene in scenes { scene.project = nil; scene.scriptVersion = nil }
+        for scene in scenes { modelContext.delete(scene) }   // cascades to its shots only
+        for version in versions { modelContext.delete(version) }
+        for episode in episodes { modelContext.delete(episode) }
+        modelContext.delete(project)
     }
 
     private var lastOpenedText: String {

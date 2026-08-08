@@ -158,6 +158,15 @@ struct ProjectEditorView: View {
                 selectedScenes = []
             }
         }
+        .onChange(of: orderedScenes.count) {
+            // Scenes appearing while nothing is selected — a script finished
+            // importing into a new project/version (which imports asynchronously,
+            // after the editor is already on screen). Land on Scene 1 so it never
+            // sits on "No Scene Selected"; its first shot follows via the uid watcher.
+            if selectedScenes.isEmpty, let firstScene = orderedScenes.first {
+                selectedScenes = [firstScene.uid]
+            }
+        }
         // Key on the scene's stable uid, not the scene itself: a brand-new scene's
         // persistentModelID (which drives Scene's Equatable) flips on its first
         // save, and keying on the scene would fire this handler on that flip and
