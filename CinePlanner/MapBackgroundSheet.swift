@@ -40,7 +40,7 @@ struct MapBackgroundSheet: View {
     @State private var geocoding = false
     @State private var rendering = false
     @State private var errorMessage: String?
-    @State private var previewImage: NSImage?
+    @State private var previewImage: PlatformImage?
     @State private var previewLoading = false
     @State private var previewTask: Task<Void, Never>?
 
@@ -149,7 +149,7 @@ struct MapBackgroundSheet: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.15))
                 if let previewImage {
-                    Image(nsImage: previewImage).resizable().scaledToFill()
+                    Image(platformImage: previewImage).resizable().scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 if previewLoading { ProgressView().controlSize(.small) }

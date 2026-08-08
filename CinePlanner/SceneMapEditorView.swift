@@ -43,7 +43,7 @@ struct SceneMapEditorView: View {
     @State private var furnitureLabelText = ""
     @State private var markerToLabel: UUID?
     @State private var markerLabelText = ""
-    @State private var backgroundImage: NSImage?
+    @State private var backgroundImage: PlatformImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
     @State private var showingMapBackground = false
@@ -78,7 +78,7 @@ struct SceneMapEditorView: View {
         self.scene = scene
         self.embedded = embedded
         _doc = State(initialValue: SceneMapDoc.load(from: scene.sceneMapJSON))
-        _backgroundImage = State(initialValue: scene.sceneMapBackgroundData.flatMap(NSImage.init(data:)))
+        _backgroundImage = State(initialValue: scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:)))
         _floorPlan = State(initialValue: FloorPlan.load(from: scene.sceneFloorPlanJSON))
     }
 
@@ -128,7 +128,7 @@ struct SceneMapEditorView: View {
             }
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
-            backgroundImage = newValue.flatMap(NSImage.init(data:))
+            backgroundImage = newValue.flatMap(PlatformImage.init(data:))
             refreshMapScale()
         }
         .onChange(of: scene.sceneFloorPlanJSON) { _, newValue in
@@ -424,7 +424,7 @@ struct SceneMapEditorView: View {
             let rect = contentRect(in: geo.size)
             ZStack {
                 if let backgroundImage {
-                    Image(nsImage: backgroundImage)
+                    Image(platformImage: backgroundImage)
                         .resizable()
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
@@ -561,7 +561,7 @@ struct SceneMapEditorView: View {
                 cameraShotCard(in: rect, canvas: geo.size)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(Color.platformTextBackground)
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
@@ -1379,7 +1379,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapSatelliteMeters = meters
         scene.sceneMapMetersWide = meters          // satellite square is `meters` across
         scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
-        backgroundImage = NSImage(data: data)
+        backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
 
         // Seed the sun overlay from this location.
@@ -1409,7 +1409,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapLocation = other.sceneMapLocation
         scene.sceneMapMetersWide = other.sceneMapMetersWide
         scene.sceneMapCameraSizeMeters = other.sceneMapCameraSizeMeters
-        backgroundImage = NSImage(data: data)
+        backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
     }
 
@@ -1418,7 +1418,7 @@ struct SceneMapEditorView: View {
     private func setBackground(from url: URL) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url), let image = NSImage(data: data) else { return }
+        guard let data = try? Data(contentsOf: url), let image = PlatformImage(data: data) else { return }
         isDrawing = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
@@ -2262,9 +2262,9 @@ func sceneMapAngle(from center: CGPoint, to point: CGPoint) -> Double {
 private struct CameraShotPopover: View {
     let shot: Shot
 
-    private var referenceImage: NSImage? {
+    private var referenceImage: PlatformImage? {
         shot.references.sorted { $0.sortOrder < $1.sortOrder }
-            .compactMap { $0.imageData }.first.flatMap(NSImage.init(data:))
+            .compactMap { $0.imageData }.first.flatMap(PlatformImage.init(data:))
     }
     private var sizeText: String? {
         guard shot.hasSize else { return nil }
@@ -2296,7 +2296,7 @@ private struct CameraShotPopover: View {
                 .font(.headline)
                 .lineLimit(1)
             if let image = referenceImage {
-                Image(nsImage: image)
+                Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 240, height: 135)
@@ -2376,7 +2376,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
                            fill: Color, stroke: Color, lineWidth lw: CGFloat) {
     // Opaque light tint so furniture occludes the map/background behind it, with
     // the darker outline and detail lines still reading on top.
-    let solidFill = Color(nsColor: NSColor(fill).blended(withFraction: 0.72, of: .white) ?? .white)
+    let solidFill = fill.mixedWithWhite(0.72)
     let fillC = GraphicsContext.Shading.color(solidFill)
     let strokeC = GraphicsContext.Shading.color(stroke)
     let detailC = GraphicsContext.Shading.color(stroke.opacity(0.55))
@@ -2776,7 +2776,7 @@ struct ArrowHitShape: Shape {
 struct SceneMapExportView: View {
     let doc: SceneMapDoc
     let plan: FloorPlan
-    let background: NSImage?
+    let background: PlatformImage?
     /// Resolved display labels per element id (camera → its shot's number).
     let labels: [UUID: String]
     let size: CGSize
@@ -2788,7 +2788,7 @@ struct SceneMapExportView: View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
         ZStack {
             if let background {
-                Image(nsImage: background)
+                Image(platformImage: background)
                     .resizable()
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
@@ -2818,13 +2818,13 @@ struct SceneMapExportView: View {
             }
         }
         .frame(width: size.width, height: size.height)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color.platformTextBackground)
     }
 
     /// The rect the normalized coordinates map onto: the background's aspect-fit
     /// rect, a centered square when a floor plan is present, else the whole view.
     /// Mirrors `SceneMapEditorView.contentRect(in:)`.
-    static func contentRect(in size: CGSize, background: NSImage?, hasFloorPlan: Bool) -> CGRect {
+    static func contentRect(in size: CGSize, background: PlatformImage?, hasFloorPlan: Bool) -> CGRect {
         if let bg = background, bg.size.width > 0, bg.size.height > 0 {
             let imageAspect = bg.size.width / bg.size.height
             let boxAspect = size.width / max(size.height, 1)

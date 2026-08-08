@@ -78,7 +78,7 @@ struct SceneListView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .frame(height: ProjectEditorView.paneHeaderHeight)
-                .background(Color(nsColor: .controlBackgroundColor))
+                .background(Color.platformControlBackground)
 
             Divider()
 
@@ -155,11 +155,13 @@ struct SceneListView: View {
             }
         }
         .navigationTitle(project.filmName)
+        #if os(macOS)
         .onDeleteCommand {
             if !selectedScenes.isEmpty {
                 onDeleteScenes?(orderedScenes.filter { selectedScenes.contains($0.uid) })
             }
         }
+        #endif
         .alert(
             "Delete All Old Scenes?",
             isPresented: $showDeleteOldScenesConfirmation
@@ -570,11 +572,13 @@ struct ShotListView: View {
         .sheet(isPresented: $showCineStagerImport) {
             CineStagerImportSheet(provideReference: { makeImportedShotReference() })
         }
+        #if os(macOS)
         .onDeleteCommand {
             if !selectedShots.isEmpty {
                 onDeleteShots?(sortedShots.filter { selectedShots.contains($0.uid) })
             }
         }
+        #endif
     }
 
     /// Shots a delete action should affect: the whole selection when the
@@ -1329,7 +1333,11 @@ struct ShotDetailView: View {
                 get: { !shot.lensIsPrime },
                 set: { shot.lensIsPrime = !$0 }
             ))
+            #if os(macOS)
             .toggleStyle(.checkbox)
+            #else
+            .toggleStyle(.switch)
+            #endif
             .controlSize(.small)
             .fixedSize()
             .help("On: zoom lens with a focal range. Off: prime lens with a single focal length.")

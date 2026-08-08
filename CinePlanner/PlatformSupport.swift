@@ -52,6 +52,15 @@ extension PlatformImage {
         PlatformImage(data: data)
     }
 
+    /// Wraps a `CGImage` in a platform image (macOS needs an explicit point size).
+    static func fromCGImage(_ cg: CGImage, size: CGSize) -> PlatformImage {
+        #if canImport(UIKit)
+        return UIImage(cgImage: cg)
+        #else
+        return NSImage(cgImage: cg, size: size)
+        #endif
+    }
+
     /// PNG encoding that preserves transparency, cross-platform.
     func pngRepresentation() -> Data? {
         #if canImport(UIKit)
@@ -71,6 +80,15 @@ extension PlatformImage {
         guard let tiff = tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .jpeg, properties: [.compressionFactor: quality])
+        #endif
+    }
+
+    /// The backing `CGImage`, cross-platform.
+    var cgImageForDrawing: CGImage? {
+        #if canImport(UIKit)
+        return cgImage
+        #else
+        return cgImage(forProposedRect: nil, context: nil, hints: nil)
         #endif
     }
 
@@ -98,6 +116,179 @@ enum PlatformPasteboard {
         #else
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
+        #endif
+    }
+}
+
+// MARK: - Semantic background colors
+
+extension Color {
+    /// The window/control chrome background (`controlBackgroundColor` on macOS).
+    static var platformControlBackground: Color {
+        #if canImport(UIKit)
+        return Color(uiColor: .secondarySystemBackground)
+        #else
+        return Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
+
+    /// A text-field/editor background (`textBackgroundColor` on macOS).
+    static var platformTextBackground: Color {
+        #if canImport(UIKit)
+        return Color(uiColor: .systemBackground)
+        #else
+        return Color(nsColor: .textBackgroundColor)
+        #endif
+    }
+}
+
+// MARK: - Color components
+
+extension Color {
+    /// sRGB components of this color, cross-platform.
+    var rgbaComponents: (r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+        #if canImport(UIKit)
+        PlatformColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        #else
+        let ns = PlatformColor(self).usingColorSpace(.sRGB) ?? .white
+        r = ns.redComponent; g = ns.greenComponent; b = ns.blueComponent; a = ns.alphaComponent
+        #endif
+        return (r, g, b, a)
+    }
+
+    /// This color mixed toward white by `fraction` (0…1), returned opaque.
+    func mixedWithWhite(_ fraction: CGFloat) -> Color {
+        let c = rgbaComponents
+        func mix(_ v: CGFloat) -> Double { Double(v * (1 - fraction) + fraction) }
+        return Color(red: mix(c.r), green: mix(c.g), blue: mix(c.b))
+    }
+}
+
+// MARK: - Graphics drawing (cross-platform)
+
+enum PlatformGraphics {
+    /// Makes `context` the current graphics context for the duration of `body`,
+    /// so `NSAttributedString`/`NSString` drawing routes into it. AppKit uses
+    /// `NSGraphicsContext.current`; UIKit uses `UIGraphicsPushContext`.
+    /// `flipped` matters only on macOS (whether the context's y-axis grows down).
+    static func drawing(into context: CGContext, flipped: Bool = true, _ body: () -> Void) {
+        #if canImport(UIKit)
+        UIGraphicsPushContext(context)
+        defer { UIGraphicsPopContext() }
+        body()
+        #else
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: flipped)
+        defer { NSGraphicsContext.current = previous }
+        body()
+        #endif
+    }
+
+    /// Makes `context` current for text/bezier drawing until `popContext()`.
+    /// Push/pop must be balanced on iOS; on macOS `pop` is a no-op.
+    static func pushContext(_ context: CGContext, flipped: Bool = true) {
+        #if canImport(UIKit)
+        UIGraphicsPushContext(context)
+        #else
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: flipped)
+        #endif
+    }
+
+    static func popContext() {
+        #if canImport(UIKit)
+        UIGraphicsPopContext()
+        #endif
+    }
+
+    /// Renders `size`-point content into a `PlatformImage` via a drawing closure,
+    /// cross-platform (UIGraphicsImageRenderer on iOS, lockFocus on macOS). The
+    /// closure receives a context whose origin is bottom-left, y-up — matching the
+    /// AppKit `lockFocus` convention the exporter's drawing code assumes.
+    static func image(size: CGSize, scale: CGFloat = 1, _ draw: (CGContext) -> Void) -> PlatformImage {
+        #if canImport(UIKit)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            let cg = ctx.cgContext
+            // Flip to y-up so shared drawing code matches macOS's lockFocus context.
+            cg.translateBy(x: 0, y: size.height)
+            cg.scaleBy(x: 1, y: -1)
+            drawing(into: cg, flipped: false) { draw(cg) }
+        }
+        #else
+        let image = NSImage(size: size)
+        image.lockFocus()
+        if let cg = NSGraphicsContext.current?.cgContext { draw(cg) }
+        image.unlockFocus()
+        return image
+        #endif
+    }
+}
+
+// MARK: - Semantic label color
+
+extension PlatformColor {
+    /// Primary label/text color (`textColor` on macOS, `label` on iOS).
+    static var platformLabel: PlatformColor {
+        #if canImport(UIKit)
+        return .label
+        #else
+        return .textColor
+        #endif
+    }
+}
+
+// MARK: - Rounded-rect bezier
+
+extension PlatformBezierPath {
+    /// A rounded-rect path, cross-platform (NSBezierPath uses xRadius/yRadius;
+    /// UIBezierPath uses a single cornerRadius).
+    static func rounded(_ rect: CGRect, radius: CGFloat) -> PlatformBezierPath {
+        #if canImport(UIKit)
+        return PlatformBezierPath(roundedRect: rect, cornerRadius: radius)
+        #else
+        return PlatformBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        #endif
+    }
+}
+
+// MARK: - Share sheet (iOS)
+
+#if canImport(UIKit)
+enum PlatformShare {
+    /// Presents a share sheet for the given items (e.g. exported file URLs) from
+    /// the key window's root view controller. iPad anchors the popover centrally.
+    @MainActor static func present(_ items: [Any]) {
+        guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first,
+              let root = (scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first)?
+                .rootViewController else { return }
+        let presenter = root.presentedViewController ?? root
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let pop = vc.popoverPresentationController {
+            pop.sourceView = presenter.view
+            pop.sourceRect = CGRect(x: presenter.view.bounds.midX,
+                                    y: presenter.view.bounds.midY, width: 0, height: 0)
+            pop.permittedArrowDirections = []
+        }
+        presenter.present(vc, animated: true)
+    }
+}
+#endif
+
+// MARK: - Appearance
+
+enum PlatformAppearance {
+    /// Runs `body` with the UI appearance pinned to light, so dynamic system
+    /// colors resolve to their light-mode values (exported PDFs are on white paper,
+    /// so dark-mode colors would render invisible).
+    static func performLight(_ body: () -> Void) {
+        #if canImport(UIKit)
+        UITraitCollection(userInterfaceStyle: .light).performAsCurrent { body() }
+        #else
+        let light = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
+        light.performAsCurrentDrawingAppearance { body() }
         #endif
     }
 }

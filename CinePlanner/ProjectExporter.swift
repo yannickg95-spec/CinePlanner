@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import AppKit
 import SwiftUI
 import PDFKit
 import AVFoundation
@@ -23,7 +22,50 @@ struct ProjectExporter {
         version?.scenes ?? project.scenes
     }
 
+    enum ExportError: Error { case generationFailed }
+
+    /// Generates the export for `format` into a temporary file and returns its URL,
+    /// cross-platform (no save panel). The caller presents or saves it — used by the
+    /// iPad share-sheet flow and reusable anywhere a file is needed.
+    @MainActor
+    func exportFileURL(format: ExportFormat) async throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+        func temp(_ name: String) -> URL {
+            let url = dir.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: url)
+            return url
+        }
+        switch format {
+        case .text:
+            let url = temp("\(project.filmName) - Shot List.txt")
+            try generateFullTextContent().write(to: url, atomically: true, encoding: .utf8)
+            return url
+        case .pdf:
+            guard let data = createPDFData(from: generateFullTextContent()) else { throw ExportError.generationFailed }
+            let url = temp("\(project.filmName) - Shot List.pdf")
+            try data.write(to: url)
+            return url
+        case .scriptWithCoverage:
+            guard let data = createScriptWithCoverage() else { throw ExportError.generationFailed }
+            let url = temp("\(project.filmName) - Script with Coverage.pdf")
+            try data.write(to: url)
+            return url
+        case .htmlWithMedia:
+            let filmName = project.filmName
+            let versionName = version?.name
+            let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
+            let scenes = snapshotScenesForMedia()
+            let needsFolder = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
+            let baseName = webExportBaseName(filmName)
+            let url = temp(needsFolder ? "\(baseName).zip" : "\(baseName).html")
+            try writeWebExport(filmName: filmName, episodeName: episodeName,
+                               versionName: versionName, scenes: scenes, to: url)
+            return url
+        }
+    }
+
     /// Shows a save panel and exports the shot list
+    #if os(macOS)
     func exportShotList(format: ExportFormat) {
         // These follow their own paths (need media Data, produce a package)
         if format == .htmlWithMedia {
@@ -116,7 +158,8 @@ struct ProjectExporter {
             }
         }
     }
-    
+    #endif
+
     // MARK: - HTML with Media Export
 
     /// One reference belonging to a shot: a photo or a video, plus its own map.
@@ -182,6 +225,7 @@ struct ProjectExporter {
 
     /// With videos: a self-contained folder (page + media/) zipped for sharing.
     /// Without: one HTML file, since the photos are embedded in it anyway.
+    #if os(macOS)
     private func exportHTMLWithMedia() {
         // Snapshot everything off SwiftData up front (main thread) so the save panel
         // and file writing never touch the models on another thread.
@@ -220,10 +264,11 @@ struct ProjectExporter {
             }
         }
     }
+    #endif
 
     /// The per-shot colour used for coverage highlights, matching the editor and
     /// the "script with coverage" PDF: a shot's position within its scene.
-    private static let coveragePalette: [NSColor] = [
+    private static let coveragePalette: [PlatformColor] = [
         .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemPink,
         .systemTeal, .systemIndigo, .systemRed, .systemYellow, .systemBrown
     ]
@@ -241,7 +286,7 @@ struct ProjectExporter {
     /// the same style as the "script with coverage" PDF — with the shot number
     /// above each bar. Returns nil when no shot in the scene has coverage.
     private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> CoverageImage? {
-        struct Bar { let color: NSColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
+        struct Bar { let color: PlatformColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
         var byPage: [Int: [Bar]] = [:]
         for shot in scene.shots {
             guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
@@ -260,18 +305,16 @@ struct ProjectExporter {
 
         // Higher scale than a poster: this is text meant to be read when opened.
         let scale: CGFloat = 3.0
-        var pageImages: [NSImage] = []
+        var pageImages: [PlatformImage] = []
         for pageIndex in byPage.keys.sorted() {
             guard let page = sourcePDF.page(at: pageIndex) else { continue }
             let cropBox = page.bounds(for: .cropBox)
-            let size = NSSize(width: cropBox.width * scale, height: cropBox.height * scale)
+            let size = CGSize(width: cropBox.width * scale, height: cropBox.height * scale)
             guard size.width > 1, size.height > 1 else { continue }
 
-            let image = NSImage(size: size)
-            image.lockFocus()
-            NSColor.white.setFill()
-            NSRect(origin: .zero, size: size).fill()
-            if let ctx = NSGraphicsContext.current?.cgContext {
+            let image = PlatformGraphics.image(size: size) { ctx in
+                ctx.setFillColor(PlatformColor.white.cgColor)
+                ctx.fill(CGRect(origin: .zero, size: size))
                 ctx.saveGState()
                 ctx.scaleBy(x: scale, y: scale)
                 ctx.translateBy(x: -cropBox.origin.x, y: -cropBox.origin.y)
@@ -289,7 +332,7 @@ struct ProjectExporter {
                     ctx.strokePath()
 
                     let attrs: [NSAttributedString.Key: Any] = [
-                        .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                        .font: PlatformFont.systemFont(ofSize: 9, weight: .semibold),
                         .foregroundColor: bar.color
                     ]
                     let label = NSAttributedString(string: bar.label, attributes: attrs)
@@ -298,7 +341,6 @@ struct ProjectExporter {
                 }
                 ctx.restoreGState()
             }
-            image.unlockFocus()
             pageImages.append(image)
         }
         guard !pageImages.isEmpty else { return nil }
@@ -307,22 +349,21 @@ struct ProjectExporter {
         let gap: CGFloat = 14 * scale
         let width = pageImages.map(\.size.width).max() ?? 0
         let height = pageImages.reduce(0) { $0 + $1.size.height } + gap * CGFloat(pageImages.count - 1)
-        let composite = NSImage(size: NSSize(width: width, height: height))
-        composite.lockFocus()
-        NSColor.white.setFill()
-        NSRect(x: 0, y: 0, width: width, height: height).fill()
-        var y = height
-        for image in pageImages {
-            y -= image.size.height
-            image.draw(in: NSRect(x: (width - image.size.width) / 2, y: y,
-                                  width: image.size.width, height: image.size.height))
-            y -= gap
+        let composite = PlatformGraphics.image(size: CGSize(width: width, height: height)) { ctx in
+            ctx.setFillColor(PlatformColor.white.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            var y = height
+            for image in pageImages {
+                y -= image.size.height
+                if let cg = image.cgImageForDrawing {
+                    ctx.draw(cg, in: CGRect(x: (width - image.size.width) / 2, y: y,
+                                            width: image.size.width, height: image.size.height))
+                }
+                y -= gap
+            }
         }
-        composite.unlockFocus()
 
-        guard let tiff = composite.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return nil }
+        guard let data = composite.jpegRepresentation(quality: 0.85) else { return nil }
         return CoverageImage(data: data, width: width, height: height)
     }
 
@@ -338,7 +379,7 @@ struct ProjectExporter {
         // redistribution); the markers still render on a plain canvas.
         let background = scene.sceneMapBackgroundIsSatellite
             ? nil
-            : scene.sceneMapBackgroundData.flatMap(NSImage.init(data:))
+            : scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
         guard !doc.elements.isEmpty || !doc.furniture.isEmpty || !plan.isEmpty || background != nil else { return nil }
 
         // Output aspect follows the background image; otherwise a square (which is
@@ -369,10 +410,9 @@ struct ProjectExporter {
                                       cameraMeters: scene.sceneMapCameraSizeMeters)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
-        guard let image = renderer.nsImage,
-              let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return nil }
+        guard let cg = renderer.cgImage else { return nil }
+        let image = PlatformImage.fromCGImage(cg, size: outSize)
+        guard let data = image.jpegRepresentation(quality: 0.85) else { return nil }
         return CoverageImage(data: data, width: outSize.width, height: outSize.height)
     }
 
@@ -763,8 +803,8 @@ struct ProjectExporter {
 
     /// Transcodes arbitrary image data (incl. HEIC/PNG) to JPEG so it renders in every browser.
     private static func jpegData(from data: Data, quality: CGFloat = 0.85) -> Data? {
-        guard let rep = NSBitmapImageRep(data: data) else { return data }
-        return rep.representation(using: .jpeg, properties: [.compressionFactor: quality])
+        guard let image = PlatformImage(data: data) else { return data }
+        return image.jpegRepresentation(quality: quality) ?? data
     }
 
     private static func dataURI(_ jpeg: Data) -> String {
@@ -796,8 +836,8 @@ struct ProjectExporter {
             ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
         guard let cg else { return nil }
 
-        let rep = NSBitmapImageRep(cgImage: cg)
-        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+        return PlatformImage.fromCGImage(cg, size: CGSize(width: cg.width, height: cg.height))
+            .jpegRepresentation(quality: 0.8)
     }
 
     private static func esc(_ s: String) -> String {
@@ -1620,6 +1660,7 @@ struct ProjectExporter {
         NSError(domain: "ProjectExporter", code: 10, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
+    #if os(macOS)
     /// Success alert for a batch export.
     @MainActor
     func showBatchSuccess(urls: [URL], folder: URL) {
@@ -1639,6 +1680,7 @@ struct ProjectExporter {
     func showExportError(_ error: Error) {
         showErrorAlert(error: error)
     }
+    #endif
 
     // MARK: - Text Generation
 
@@ -2100,8 +2142,7 @@ struct ProjectExporter {
     
     private func createScriptWithCoverage() -> Data? {
         var result: Data?
-        let light = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
-        light.performAsCurrentDrawingAppearance {
+        PlatformAppearance.performLight {
             result = buildScriptWithCoverage()
         }
         return result
@@ -2159,7 +2200,7 @@ struct ProjectExporter {
         print("📋 [SCRIPT_COVERAGE] Found coverage on \(coverageByPage.keys.count) pages")
         
         // Use the same color scheme as the editor tab
-        let shotColors: [NSColor] = [
+        let shotColors: [PlatformColor] = [
             .systemBlue,
             .systemGreen,
             .systemOrange,
@@ -2179,7 +2220,7 @@ struct ProjectExporter {
         
         // STEP 1: Assign base colors to each shot based on their sorted position within their scene
         // This ensures the same shot always gets the same base color (matching editor behavior)
-        var shotBaseColors: [ObjectIdentifier: (colorIndex: Int, color: NSColor)] = [:]
+        var shotBaseColors: [ObjectIdentifier: (colorIndex: Int, color: PlatformColor)] = [:]
         
         print("🎨 [EXPORT COLOR] Step 1: Assigning base colors to shots...")
         for scene in exportScenes {
@@ -2293,11 +2334,10 @@ struct ProjectExporter {
             let pageRect = page.bounds(for: .cropBox)
             
             context.beginPDFPage(nil)
-            
-            // Set up NSGraphicsContext for drawing
-            let nsContext = NSGraphicsContext(cgContext: context, flipped: false)
-            NSGraphicsContext.current = nsContext
-            
+
+            // Route text/bezier drawing into this PDF context (y-up like the page).
+            PlatformGraphics.pushContext(context, flipped: false)
+
             // Draw the original page using PDFPage's draw method
             context.saveGState()
             page.draw(with: .mediaBox, to: context)
@@ -2427,7 +2467,7 @@ struct ProjectExporter {
                     // Draw shot number ABOVE the line (only on first page or if text starts on this page)
                     if isFirstPage || (!isMultiPage) {
                         let shotNumberText = shot.displayNumber
-                        let font = NSFont.systemFont(ofSize: 9)
+                        let font = PlatformFont.systemFont(ofSize: 9)
                         let textAttributes: [NSAttributedString.Key: Any] = [
                             .font: font,
                             .foregroundColor: lineColor
@@ -2469,24 +2509,24 @@ struct ProjectExporter {
                     }
                 }
             }
-            
+
+            PlatformGraphics.popContext()
             context.endPDFPage()
         }
-        
+
         context.closePDF()
-        
+
         print("✅ [SCRIPT_COVERAGE] Script with coverage created successfully")
         return outputData as Data
     }
     
-    /// A PDF is always drawn on white paper, but NSColor.textColor and friends are
+    /// A PDF is always drawn on white paper, but PlatformColor.platformLabel and friends are
     /// dynamic: in dark mode they resolve to white, producing a page of invisible
     /// text. Drawing inside the light appearance pins every system colour to its
     /// light-mode value.
     private func createPDFData(from text: String) -> Data? {
         var result: Data?
-        let light = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
-        light.performAsCurrentDrawingAppearance {
+        PlatformAppearance.performLight {
             result = buildPDFData(from: text)
         }
         return result
@@ -2526,13 +2566,13 @@ struct ProjectExporter {
         pdfContext.saveGState()
         pdfContext.translateBy(x: 0, y: pageHeight)
         pdfContext.scaleBy(x: 1.0, y: -1.0)
-        
-        let nsContext = NSGraphicsContext(cgContext: pdfContext, flipped: true)
-        NSGraphicsContext.current = nsContext
-        
+
+        PlatformGraphics.pushContext(pdfContext)
+
         // Draw first page content
         drawFirstPage(in: pdfContext, pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, textWidth: textWidth)
-        
+
+        PlatformGraphics.popContext()
         pdfContext.restoreGState()
         pdfContext.endPDFPage()
         
@@ -2549,13 +2589,16 @@ struct ProjectExporter {
             pdfContext.saveGState()
             pdfContext.translateBy(x: 0, y: pageHeight)
             pdfContext.scaleBy(x: 1.0, y: -1.0)
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: pdfContext, flipped: true)
+            PlatformGraphics.pushContext(pdfContext)
             yPosition = margin
             pageOpen = true
             pageNumber += 1
         }
         func endContentPage() {
-            if pageOpen { pdfContext.restoreGState(); pdfContext.endPDFPage(); pageOpen = false }
+            if pageOpen {
+                PlatformGraphics.popContext()
+                pdfContext.restoreGState(); pdfContext.endPDFPage(); pageOpen = false
+            }
         }
 
         let headerHeight: CGFloat = 42
@@ -2573,7 +2616,7 @@ struct ProjectExporter {
 
             if orderedShots.isEmpty {
                 NSAttributedString(string: "No shots in this scene.",
-                                   attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor(white: 0.5, alpha: 1)])
+                                   attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
                     .draw(at: CGPoint(x: margin, y: yPosition))
                 yPosition += 18
                 continue
@@ -2602,11 +2645,11 @@ struct ProjectExporter {
         var yPosition: CGFloat = margin
         
         // Title
-        let titleFont = NSFont.boldSystemFont(ofSize: 24)
+        let titleFont = PlatformFont.boldSystemFont(ofSize: 24)
         let titleText = "\(project.filmName.uppercased())\nSHOT LIST"
         let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: titleFont,
-            .foregroundColor: NSColor.textColor
+            .foregroundColor: PlatformColor.platformLabel
         ]
         let titleAttrString = NSAttributedString(string: titleText, attributes: titleAttributes)
         let titleRect = CGRect(x: margin, y: yPosition, width: textWidth, height: 100)
@@ -2614,7 +2657,7 @@ struct ProjectExporter {
         yPosition += 80
         
         // Separator line
-        context.setStrokeColor(NSColor.gray.cgColor)
+        context.setStrokeColor(PlatformColor.gray.cgColor)
         context.setLineWidth(2)
         context.move(to: CGPoint(x: margin, y: yPosition))
         context.addLine(to: CGPoint(x: pageWidth - margin, y: yPosition))
@@ -2622,11 +2665,11 @@ struct ProjectExporter {
         yPosition += 20
         
         // Project Information Section
-        let sectionFont = NSFont.boldSystemFont(ofSize: 14)
-        let bodyFont = NSFont.systemFont(ofSize: 11)
+        let sectionFont = PlatformFont.boldSystemFont(ofSize: 14)
+        let bodyFont = PlatformFont.systemFont(ofSize: 11)
         
         let sectionTitle = "PROJECT INFORMATION"
-        let sectionAttr: [NSAttributedString.Key: Any] = [.font: sectionFont, .foregroundColor: NSColor.textColor]
+        let sectionAttr: [NSAttributedString.Key: Any] = [.font: sectionFont, .foregroundColor: PlatformColor.platformLabel]
         NSAttributedString(string: sectionTitle, attributes: sectionAttr).draw(at: CGPoint(x: margin, y: yPosition))
         yPosition += 25
         
@@ -2647,7 +2690,7 @@ struct ProjectExporter {
             "EXT/NIGHT Scenes: \(stats.extNightCount)"
         ]
         
-        let bodyAttr: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: NSColor.textColor]
+        let bodyAttr: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: PlatformColor.platformLabel]
         for info in projectInfo {
             NSAttributedString(string: info, attributes: bodyAttr).draw(at: CGPoint(x: margin, y: yPosition))
             yPosition += 18
@@ -2656,20 +2699,20 @@ struct ProjectExporter {
     
     // Chip colours mirror the web export: neutral INT/EXT, blue DAY, orange
     // NIGHT. The text label lives inside each chip, so it still reads in B&W.
-    private static let pdfChipNeutral = (fill: NSColor(white: 0.90, alpha: 1), text: NSColor(white: 0.30, alpha: 1))
-    private static let pdfChipDay = (fill: NSColor(red: 0.85, green: 0.92, blue: 1.0, alpha: 1), text: NSColor(red: 0.0, green: 0.40, blue: 0.85, alpha: 1))
-    private static let pdfChipNight = (fill: NSColor(red: 1.0, green: 0.90, blue: 0.76, alpha: 1), text: NSColor(red: 0.70, green: 0.42, blue: 0.0, alpha: 1))
+    private static let pdfChipNeutral = (fill: PlatformColor(white: 0.90, alpha: 1), text: PlatformColor(white: 0.30, alpha: 1))
+    private static let pdfChipDay = (fill: PlatformColor(red: 0.85, green: 0.92, blue: 1.0, alpha: 1), text: PlatformColor(red: 0.0, green: 0.40, blue: 0.85, alpha: 1))
+    private static let pdfChipNight = (fill: PlatformColor(red: 1.0, green: 0.90, blue: 0.76, alpha: 1), text: PlatformColor(red: 0.70, green: 0.42, blue: 0.0, alpha: 1))
 
     /// Draws a small rounded chip (INT/EXT/DAY/NIGHT). Returns the x just past it.
     @discardableResult
-    private func drawPDFChip(_ text: String, fill: NSColor, textColor: NSColor,
+    private func drawPDFChip(_ text: String, fill: PlatformColor, textColor: PlatformColor,
                              at point: CGPoint) -> CGFloat {
-        let font = NSFont.boldSystemFont(ofSize: 8)
+        let font = PlatformFont.boldSystemFont(ofSize: 8)
         let size = (text as NSString).size(withAttributes: [.font: font])
         let padX: CGFloat = 5
         let rect = CGRect(x: point.x, y: point.y, width: size.width + padX * 2, height: size.height + 4)
         fill.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+        PlatformBezierPath.rounded(rect, radius: 3).fill()
         (text as NSString).draw(at: CGPoint(x: point.x + padX, y: point.y + 2),
                                 withAttributes: [.font: font, .foregroundColor: textColor])
         return rect.maxX
@@ -2680,9 +2723,9 @@ struct ProjectExporter {
     private func drawSceneHeaderRow(_ scene: Scene, in context: CGContext, at y: CGFloat,
                                     margin: CGFloat, pageWidth: CGFloat) -> CGFloat {
         var yPosition = y
-        let titleFont = NSFont.boldSystemFont(ofSize: 16)
+        let titleFont = PlatformFont.boldSystemFont(ofSize: 16)
         let title = "Scene \(scene.sceneNumber)\(scene.suffix)"
-        NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: NSColor.black])
+        NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: PlatformColor.black])
             .draw(at: CGPoint(x: margin, y: yPosition + 2))
 
         var cx = margin + (title as NSString).size(withAttributes: [.font: titleFont]).width + 12
@@ -2699,7 +2742,7 @@ struct ProjectExporter {
         let location = scene.nickname.trimmingCharacters(in: .whitespaces)
         if !location.isEmpty {
             NSAttributedString(string: location.uppercased(),
-                               attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor(white: 0.45, alpha: 1)])
+                               attributes: [.font: PlatformFont.systemFont(ofSize: 12), .foregroundColor: PlatformColor(white: 0.45, alpha: 1)])
                 .draw(at: CGPoint(x: cx, y: yPosition + 3))
         }
 
@@ -2707,13 +2750,13 @@ struct ProjectExporter {
         if scene.scriptPageNumber > 0 { rightBits.append("Script p.\(scene.scriptPageNumber)") }
         rightBits.append("\(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s")")
         let rightText = rightBits.joined(separator: " · ")
-        let rightAttr: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: NSColor(white: 0.5, alpha: 1)]
+        let rightAttr: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 9), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)]
         let rw = (rightText as NSString).size(withAttributes: rightAttr).width
         NSAttributedString(string: rightText, attributes: rightAttr)
             .draw(at: CGPoint(x: pageWidth - margin - rw, y: yPosition + 5))
 
         yPosition += 26
-        context.setStrokeColor(NSColor(white: 0.8, alpha: 1).cgColor)
+        context.setStrokeColor(PlatformColor(white: 0.8, alpha: 1).cgColor)
         context.setLineWidth(1)
         context.move(to: CGPoint(x: margin, y: yPosition))
         context.addLine(to: CGPoint(x: pageWidth - margin, y: yPosition))
@@ -2729,7 +2772,7 @@ struct ProjectExporter {
         let loc = scene.nickname.trimmingCharacters(in: .whitespaces)
         if !loc.isEmpty { text += " — \(loc.uppercased())" }
         text += " (continued)"
-        NSAttributedString(string: text, attributes: [.font: NSFont.boldSystemFont(ofSize: 11), .foregroundColor: NSColor(white: 0.5, alpha: 1)])
+        NSAttributedString(string: text, attributes: [.font: PlatformFont.boldSystemFont(ofSize: 11), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
             .draw(at: CGPoint(x: margin, y: y))
         return y + 22
     }
@@ -2771,14 +2814,14 @@ struct ProjectExporter {
     // Card layout constants, shared by the height calc and the drawing.
     private static let pdfCardInnerInset: CGFloat = 12
     private static let pdfCardRowH: CGFloat = 15
-    private static let pdfCardBodyFont = NSFont.systemFont(ofSize: 9.5)
+    private static let pdfCardBodyFont = PlatformFont.systemFont(ofSize: 9.5)
     /// Vertical space reserved for a reference note line under its image.
     private static let pdfRefNoteH: CGFloat = 14
 
     private func pdfFullWidthHeight(_ text: String, width: CGFloat) -> CGFloat {
         NSAttributedString(string: text, attributes: [.font: Self.pdfCardBodyFont]).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]).height
+            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height
     }
 
     /// The height a shot card will occupy — same formula the drawing uses.
@@ -2804,10 +2847,10 @@ struct ProjectExporter {
     private func drawShotCard(_ shot: Shot, in context: CGContext, at yTop: CGFloat,
                               margin: CGFloat, textWidth: CGFloat) -> CGFloat {
         let c = pdfShotContent(shot)
-        let ink = NSColor.black
-        let grey = NSColor(white: 0.45, alpha: 1)
-        let cardFill = NSColor(white: 0.97, alpha: 1)
-        let cardStroke = NSColor(white: 0.88, alpha: 1)
+        let ink = PlatformColor.black
+        let grey = PlatformColor(white: 0.45, alpha: 1)
+        let cardFill = PlatformColor(white: 0.97, alpha: 1)
+        let cardStroke = PlatformColor(white: 0.88, alpha: 1)
 
         let innerX = margin + Self.pdfCardInnerInset
         let innerWidth = textWidth - Self.pdfCardInnerInset * 2
@@ -2816,29 +2859,29 @@ struct ProjectExporter {
         let labelColWidth: CGFloat = 78
         let rowH = Self.pdfCardRowH
         let bodyFont = Self.pdfCardBodyFont
-        let bodyBold = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
-        let labelFont = NSFont.systemFont(ofSize: 9)
+        let bodyBold = PlatformFont.systemFont(ofSize: 9.5, weight: .semibold)
+        let labelFont = PlatformFont.systemFont(ofSize: 9)
         let gridRows = Int(ceil(Double(c.pairs.count) / 2.0))
         let cardHeight = shotCardHeight(shot, textWidth: textWidth)
 
         let cardRect = CGRect(x: margin, y: yTop, width: textWidth, height: cardHeight)
         cardFill.setFill()
-        NSBezierPath(roundedRect: cardRect, xRadius: 7, yRadius: 7).fill()
+        PlatformBezierPath.rounded(cardRect, radius: 7).fill()
         cardStroke.setStroke()
-        let border = NSBezierPath(roundedRect: cardRect, xRadius: 7, yRadius: 7)
+        let border = PlatformBezierPath.rounded(cardRect, radius: 7)
         border.lineWidth = 0.5
         border.stroke()
 
         var cy = yTop + 11
-        let badgeFont = NSFont.boldSystemFont(ofSize: 9)
+        let badgeFont = PlatformFont.boldSystemFont(ofSize: 9)
         let badgeW = (shot.displayNumber as NSString).size(withAttributes: [.font: badgeFont]).width
         let badgeRect = CGRect(x: innerX, y: cy, width: badgeW + 12, height: 15)
-        NSColor(white: 0.90, alpha: 1).setFill()
-        NSBezierPath(roundedRect: badgeRect, xRadius: 4, yRadius: 4).fill()
+        PlatformColor(white: 0.90, alpha: 1).setFill()
+        PlatformBezierPath.rounded(badgeRect, radius: 4).fill()
         (shot.displayNumber as NSString).draw(at: CGPoint(x: innerX + 6, y: cy + 2),
                                               withAttributes: [.font: badgeFont, .foregroundColor: ink])
         if !shot.nickname.isEmpty {
-            NSAttributedString(string: shot.nickname, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: grey])
+            NSAttributedString(string: shot.nickname, attributes: [.font: PlatformFont.systemFont(ofSize: 11), .foregroundColor: grey])
                 .draw(at: CGPoint(x: badgeRect.maxX + 8, y: cy + 1))
         }
         cy += 22
@@ -2877,8 +2920,8 @@ struct ProjectExporter {
             cy += 8
             let spacing: CGFloat = 12
             func drawFramed(_ data: Data, caption: String, at origin: CGPoint, size: CGSize) {
-                guard let nsImage = NSImage(data: data) else { return }
-                NSAttributedString(string: caption, attributes: [.font: NSFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey])
+                guard let nsImage = PlatformImage(data: data) else { return }
+                NSAttributedString(string: caption, attributes: [.font: PlatformFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey])
                     .draw(at: CGPoint(x: origin.x, y: origin.y))
                 let boxY = origin.y + 12
                 let s = nsImage.size
@@ -2891,10 +2934,10 @@ struct ProjectExporter {
                 context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
                 context.scaleBy(x: 1.0, y: -1.0)
                 context.translateBy(x: 0, y: -imageRect.origin.y)
-                nsImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                if let cg = nsImage.cgImageForDrawing { context.draw(cg, in: imageRect) }
                 context.restoreGState()
                 cardStroke.setStroke()
-                let b = NSBezierPath(rect: CGRect(x: origin.x, y: boxY, width: size.width, height: size.height))
+                let b = PlatformBezierPath(rect: CGRect(x: origin.x, y: boxY, width: size.width, height: size.height))
                 b.lineWidth = 0.5
                 b.stroke()
             }
@@ -2914,7 +2957,7 @@ struct ProjectExporter {
                 // The user's note, on its own line just below the image(s).
                 if let note = Self.cleanNote(r.note) {
                     NSAttributedString(string: note,
-                                       attributes: [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: ink])
+                                       attributes: [.font: PlatformFont.systemFont(ofSize: 9), .foregroundColor: ink])
                         .draw(with: CGRect(x: innerX, y: cy + 12 + ph + 3, width: innerWidth, height: Self.pdfRefNoteH),
                               options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
                     cy += Self.pdfRefNoteH
@@ -2975,6 +3018,7 @@ struct ProjectExporter {
         }
     }
     
+    #if os(macOS)
     private func showErrorAlert(error: Error) {
         DispatchQueue.main.async {
             let alert = NSAlert()
@@ -2985,7 +3029,7 @@ struct ProjectExporter {
             alert.runModal()
         }
     }
-    
+
     private func showSuccessNotification(fileURL: URL, format: ExportFormat) {
         DispatchQueue.main.async {
             let alert = NSAlert()
@@ -2994,7 +3038,7 @@ struct ProjectExporter {
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Show in Finder")
-            
+
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
                 // Show in Finder
@@ -3002,6 +3046,7 @@ struct ProjectExporter {
             }
         }
     }
+    #endif
 }
 
 // MARK: - Export Format

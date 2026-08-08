@@ -1048,7 +1048,7 @@ struct ScriptPDFViewer: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .textBackgroundColor))
+                .background(Color.platformTextBackground)
             } else {
                 // PDF Viewer
                 VStack(spacing: 0) {
@@ -1069,7 +1069,7 @@ struct ScriptPDFViewer: View {
                         }
                         .padding(.horizontal, 12)
                         .frame(height: ProjectEditorView.paneHeaderHeight)
-                        .background(Color(nsColor: .controlBackgroundColor))
+                        .background(Color.platformControlBackground)
 
                     Divider()
 

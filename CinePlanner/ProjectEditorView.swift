@@ -502,7 +502,7 @@ struct ProjectEditorView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color.platformControlBackground)
     }
 
     private var episodeMenu: some View {
@@ -809,7 +809,7 @@ struct ProjectEditorView: View {
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear,
+                .background(isSelected ? Color.platformControlBackground : Color.clear,
                             in: RoundedRectangle(cornerRadius: 7))
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }

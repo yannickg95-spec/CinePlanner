@@ -453,7 +453,11 @@ struct ImagePreviewSheet: View {
                 .keyboardShortcut(.escape, modifiers: [])
             }
             .padding()
+            #if os(macOS)
             .background(Color(nsColor: .controlBackgroundColor))
+            #else
+            .background(Color(uiColor: .secondarySystemBackground))
+            #endif
 
             Divider()
 
