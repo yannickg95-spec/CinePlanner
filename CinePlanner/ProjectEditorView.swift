@@ -954,27 +954,34 @@ struct ProjectEditorView: View {
     private func editSceneSheet(for scene: Scene) -> some View {
         VStack(spacing: 0) {
             // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Edit Scene")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text("Scene \(scene.sceneNumber)\(scene.suffix)\(scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty ? "" : " — \(scene.nickname)")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.stack.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Edit Scene")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Scene \(scene.sceneNumber)\(scene.suffix)\(scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty ? "" : " — \(scene.nickname)")")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
+            .padding(20)
 
             Divider()
 
             // Content
-            Form {
-                sceneDetailsSection(for: scene)
-                sceneDayNightSection(for: scene)
-                sceneLocationSection(for: scene)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    sceneDetailsSection(for: scene)
+                    sceneScriptLocationSection(for: scene)
+                    sceneTimeAndLocationSection(for: scene)
+                }
+                .padding(20)
             }
-            .formStyle(.grouped)
 
             Divider()
 
@@ -987,7 +994,41 @@ struct ProjectEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 540, height: 640)
+        .frame(width: 480, height: 620)
+    }
+
+    /// A titled card matching the Edit Shot sheet — a caps label above a rounded,
+    /// tinted container. Shared by the Edit Scene sections.
+    @ViewBuilder
+    private func settingsCard<Content: View>(_ title: String,
+                                             @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+            )
+        }
+    }
+
+    /// One labelled row inside a `settingsCard`: name on the left, control right.
+    @ViewBuilder
+    private func settingsRow<Content: View>(_ label: String,
+                                            @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+            Spacer(minLength: 8)
+            content()
+        }
     }
 
     @ViewBuilder
@@ -1095,8 +1136,8 @@ struct ProjectEditorView: View {
     
     @ViewBuilder
     private func sceneDetailsSection(for scene: Scene) -> some View {
-        Section("Scene Details") {
-            LabeledContent("Scene Number") {
+        settingsCard("SCENE DETAILS") {
+            settingsRow("Scene Number") {
                 TextField("Number", value: Binding(
                     get: { scene.sceneNumber },
                     set: { scene.sceneNumber = max(1, $0) }
@@ -1107,8 +1148,15 @@ struct ProjectEditorView: View {
                 .frame(width: 96)
             }
 
-            LabeledContent("Suffix") {
+            Divider()
+
+            settingsRow("Suffix") {
                 HStack(spacing: 8) {
+                    Text("\(scene.suffix.count)/5")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+
                     TextField("None", text: Binding(
                         get: { scene.suffix },
                         set: { newValue in
@@ -1119,15 +1167,12 @@ struct ProjectEditorView: View {
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 96)
-
-                    Text("\(scene.suffix.count)/5")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            LabeledContent("Nickname") {
+            Divider()
+
+            settingsRow("Nickname") {
                 TextField("Optional name", text: Binding(
                     get: { scene.nickname },
                     set: { scene.nickname = $0 }
@@ -1137,10 +1182,19 @@ struct ProjectEditorView: View {
                 .frame(width: 220)
             }
         }
+    }
 
-        Section("Script Location") {
-            LabeledContent("Scene Page") {
+    @ViewBuilder
+    private func sceneScriptLocationSection(for scene: Scene) -> some View {
+        settingsCard("SCRIPT LOCATION") {
+            settingsRow("Scene Page") {
                 HStack(spacing: 8) {
+                    if scene.scriptPageNumber > 0 {
+                        Text("PDF page \(scene.absolutePDFPage + 1)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     TextField("Page", value: Binding(
                         get: { scene.scriptPageNumber }, // Already 1-based
                         set: { scene.scriptPageNumber = max(1, $0) } // Minimum page 1
@@ -1149,60 +1203,41 @@ struct ProjectEditorView: View {
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 96)
-
-                    if scene.scriptPageNumber > 0 {
-                        Text("PDF page \(scene.absolutePDFPage + 1)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
+        }
+    }
 
-            let hasPDF = (scene.scriptVersion?.pdfData ?? project.scriptPDFData) != nil
-            if scene.scriptPageNumber == 0 && hasPDF {
-                Text("Page number not set. Enter the scene page where this scene appears (first scene = page 1).")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if scene.scriptPageNumber > 0 {
-                Text("This is scene page \(scene.scriptPageNumber). The PDF viewer will jump to PDF page \(scene.absolutePDFPage + 1) when this scene is selected.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if !hasPDF {
-                Text("No script PDF imported. Import a script to enable PDF page synchronization.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    
     @ViewBuilder
-    private func sceneDayNightSection(for scene: Scene) -> some View {
-        Section("Time of Day") {
-            Picker("Time", selection: Binding(
-                get: { scene.isDay ? "Day" : "Night" },
-                set: { scene.isDay = ($0 == "Day") }
-            )) {
-                Text("Day").tag("Day")
-                Text("Night").tag("Night")
+    private func sceneTimeAndLocationSection(for scene: Scene) -> some View {
+        settingsCard("TIME & LOCATION") {
+            settingsRow("Time of Day") {
+                Picker("Time", selection: Binding(
+                    get: { scene.isDay ? "Day" : "Night" },
+                    set: { scene.isDay = ($0 == "Day") }
+                )) {
+                    Text("Day").tag("Day")
+                    Text("Night").tag("Night")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
             }
-            .pickerStyle(.segmented)
-        }
-    }
-    
-    @ViewBuilder
-    private func sceneLocationSection(for scene: Scene) -> some View {
-        Section("Location Type") {
-            Picker("Location", selection: Binding(
-                get: { scene.isInterior ? "Int." : "Ext." },
-                set: { scene.isInterior = ($0 == "Int.") }
-            )) {
-                Text("Int.").tag("Int.")
-                Text("Ext.").tag("Ext.")
+
+            Divider()
+
+            settingsRow("Location Type") {
+                Picker("Location", selection: Binding(
+                    get: { scene.isInterior ? "Int." : "Ext." },
+                    set: { scene.isInterior = ($0 == "Int.") }
+                )) {
+                    Text("Int.").tag("Int.")
+                    Text("Ext.").tag("Ext.")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
             }
-            .pickerStyle(.segmented)
         }
     }
     
