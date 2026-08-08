@@ -959,7 +959,7 @@ struct SceneMapEditorView: View {
             Circle().fill(.white)
                 .overlay(Circle().stroke(Color.accentColor, lineWidth: 2))
                 .frame(width: 12, height: 12)
-                .contentShape(Circle().inset(by: -7))
+                .contentShape(Circle().inset(by: -(7 + sceneMapHandleSlop)))
                 .gesture(
                     DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                         .onChanged { value in movePivot(arrowID, index, to: value.location, in: rect) }
@@ -1056,7 +1056,7 @@ struct SceneMapEditorView: View {
         Circle().fill(Color.accentColor)
             .overlay(Circle().stroke(.white, lineWidth: 1.5))
             .frame(width: 14, height: 14)
-            .contentShape(Circle().inset(by: -7))
+            .contentShape(Circle().inset(by: -(7 + sceneMapHandleSlop)))
             .gesture(
                 DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                     .onChanged { value in moveVertex(vertex.id, to: value.location, in: rect) }
@@ -1195,7 +1195,7 @@ struct SceneMapEditorView: View {
         Circle().fill(Color.accentColor)
             .overlay(Circle().stroke(.white, lineWidth: 1.5))
             .frame(width: 13, height: 13)
-            .contentShape(Circle().inset(by: -6))
+            .contentShape(Circle().inset(by: -(6 + sceneMapHandleSlop)))
             .gesture(
                 DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                     .onChanged { value in resizeWindow(id, handleLocation: value.location, in: rect) }
@@ -2055,7 +2055,7 @@ private struct MapMarkerView: View {
                     .foregroundStyle(.white)
             )
             .frame(width: 16, height: 16)
-            .contentShape(Circle())
+            .contentShape(Circle().inset(by: -sceneMapHandleSlop))
             .gesture(rotationGesture)
             .help("Drag to rotate")
     }
@@ -2216,6 +2216,15 @@ struct Triangle: Shape {
 /// a measured background. 1 (default) when the background has no measurement.
 /// A mannequin's shoulders span 0.4 m; cameras use `cameraMeters` (0.35 m default).
 /// Clamped so markers stay visible/usable at extremes.
+/// Extra hit-area padding around the scene map's small drag/rotate/resize handles,
+/// so they're comfortably tappable with a finger on iPad. Zero on macOS, where a
+/// precise cursor makes the tight targets fine (and keeps behaviour unchanged).
+#if os(iOS)
+let sceneMapHandleSlop: CGFloat = 12
+#else
+let sceneMapHandleSlop: CGFloat = 0
+#endif
+
 func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
                       mapWidthPoints: CGFloat) -> CGFloat {
     guard let metersWide, metersWide > 0, mapWidthPoints > 0 else { return 1 }
@@ -2643,7 +2652,7 @@ private struct FurnitureView: View {
         Circle().fill(Color.accentColor).overlay(Circle().stroke(.white, lineWidth: 1.5))
             .overlay(Image(systemName: "arrow.clockwise").font(.system(size: 8, weight: .bold)).foregroundStyle(.white))
             .frame(width: 16, height: 16)
-            .contentShape(Circle())
+            .contentShape(Circle().inset(by: -sceneMapHandleSlop))
             .gesture(
                 DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                     .onChanged { value in onSelect(); liveRotation = sceneMapAngle(from: center, to: value.location) }
@@ -2676,7 +2685,7 @@ private struct FurnitureView: View {
             .fill(.white)
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1.5))
             .frame(width: 11, height: 11)
-            .contentShape(Rectangle().inset(by: -7))
+            .contentShape(Rectangle().inset(by: -(7 + sceneMapHandleSlop)))
             .offset(x: ox, y: oy)
             .gesture(resizeDrag)
     }

@@ -220,7 +220,9 @@ struct ShotTransferView: View {
             }
             .padding(16)
         }
+        #if os(macOS)
         .frame(width: 980, height: 640)
+        #endif
         // Initial source + matches are set in init(); this only re-matches when the
         // user picks a different source version.
         .onChange(of: sourceVersion) { _, newValue in

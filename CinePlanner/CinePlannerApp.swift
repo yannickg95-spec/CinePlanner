@@ -97,7 +97,9 @@ struct CinePlannerApp: App {
     var body: some SwiftUI.Scene {
         WindowGroup {
             ProjectListView()
+                #if os(macOS)
                 .frame(minWidth: 1100, minHeight: 700)
+                #endif
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)

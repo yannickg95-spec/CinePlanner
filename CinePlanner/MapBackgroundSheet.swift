@@ -117,7 +117,9 @@ struct MapBackgroundSheet: View {
             }
             .padding(16)
         }
+        #if os(macOS)
         .frame(width: sheetWidth, height: 640)
+        #endif
     }
 
     /// The capture-frame overlay: everything outside the framed square is dimmed

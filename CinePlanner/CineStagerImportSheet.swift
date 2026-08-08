@@ -67,7 +67,9 @@ struct CineStagerImportSheet: View {
             Divider()
             footer
         }
+        #if os(macOS)
         .frame(width: 720, height: 620)
+        #endif
         .task { await library.refresh() }
         .alert("Replace scene map?", isPresented: Binding(
             get: { mapConflict != nil },

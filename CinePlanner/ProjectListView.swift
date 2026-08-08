@@ -142,7 +142,9 @@ struct ProjectListView: View {
                 }
             }
         }
-        .frame(minWidth: 900, minHeight: 600)
+        #if os(macOS)
+        .frame(minWidth: 900, minHeight: 600)   // macOS window minimum; iPad sizes to the screen
+        #endif
     }
 
     /// Presents the system file picker to choose a .cineplan file to import.
