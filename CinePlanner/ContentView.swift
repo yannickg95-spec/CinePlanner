@@ -154,7 +154,9 @@ struct SceneListView: View {
                 }
             }
         }
+        #if os(iOS)
         .navigationTitle(project.filmName)
+        #endif
         #if os(macOS)
         .onDeleteCommand {
             if !selectedScenes.isEmpty {
@@ -568,7 +570,9 @@ struct ShotListView: View {
             .padding(.vertical, 4)
             .listRowSeparator(.hidden)
         }
+        #if os(iOS)
         .navigationTitle(scene.project?.filmName ?? "")
+        #endif
         .sheet(isPresented: $showCineStagerImport) {
             CineStagerImportSheet(provideReference: { makeImportedShotReference() })
         }

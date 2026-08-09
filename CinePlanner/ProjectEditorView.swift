@@ -108,8 +108,32 @@ struct ProjectEditorView: View {
 
     private var coreView: some View {
         editorView
+        #if os(iOS)
+        // Inline title sits centered in the toolbar row (next to Export), instead of
+        // iOS's default large title below the bar.
         .navigationTitle(project.filmName)
+        .navigationBarTitleDisplayMode(.inline)
+        #else
+        // macOS: no navigationTitle (which would also show at the leading edge next
+        // to the back button); the centered title comes from the principal item below.
+        .navigationTitle("")
+        #endif
         .toolbar {
+            #if os(macOS)
+            // Centre the project name in the toolbar row, matching iPad's inline title.
+            if #available(macOS 26.0, *) {
+                // Hide the macOS 26 "Liquid Glass" pill so it reads as a plain title.
+                ToolbarItem(placement: .principal) {
+                    Text(project.filmName).font(.headline)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    Text(project.filmName).font(.headline)
+                }
+            }
+            #endif
+
             ToolbarItem(placement: .primaryAction) {
                 actionButtons
             }
