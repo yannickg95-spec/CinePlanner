@@ -155,6 +155,9 @@ struct SceneListView: View {
             }
         }
         #if os(iOS)
+        // Plain style + tight insets let the scene cards span the full column width
+        // on iPad (the default grouped style insets them with side margins).
+        .listStyle(.plain)
         .navigationTitle(project.filmName)
         #endif
         #if os(macOS)
@@ -275,6 +278,10 @@ struct SceneListView: View {
                 Text(sceneDeleteLabel(for: scene))
             }
         }
+        #if os(iOS)
+        // Tight row insets so the card content uses the full column width on iPad.
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+        #endif
     }
 
     /// Scenes a delete action should affect: the whole selection when the
@@ -531,6 +538,10 @@ struct ShotListView: View {
                         Text(shotDeleteLabel(for: shot))
                     }
                 }
+                #if os(iOS)
+                // Tight row insets so the shot card uses the full column width on iPad.
+                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                #endif
             }
             .onDelete(perform: deleteShots)
             .onMove(perform: moveShots)
@@ -571,6 +582,9 @@ struct ShotListView: View {
             .listRowSeparator(.hidden)
         }
         #if os(iOS)
+        // Plain style + tight insets let the shot cards span the full column width
+        // on iPad (the default grouped style insets them with side margins).
+        .listStyle(.plain)
         .navigationTitle(scene.project?.filmName ?? "")
         #endif
         .sheet(isPresented: $showCineStagerImport) {
