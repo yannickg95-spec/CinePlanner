@@ -698,7 +698,12 @@ struct ProjectEditorView: View {
                     applyScriptSplit(available: newWidth)
                 }
         }
+        #if os(macOS)
+        // Keep the macOS window from shrinking below what the columns need. On iPad
+        // the editor sizes to the screen instead (forcing this width would overflow
+        // a portrait iPad and leave the divider no room to move).
         .frame(minWidth: minimumEditorWidth, minHeight: 700)
+        #endif
     }
 
     private func editorColumnStack(available: CGFloat) -> some View {
@@ -1373,10 +1378,37 @@ struct ResizableDivider: View {
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .overlay {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 8) // Wider hit area for easier dragging
-                    .contentShape(Rectangle())
+                // Hit area wider than the 1pt line so it's easy to grab — and wider
+                // still on iPad, where a fingertip needs a bigger target than a cursor.
+                #if os(iOS)
+                let hitWidth: CGFloat = 36
+                #else
+                let hitWidth: CGFloat = 12
+                #endif
+                ZStack {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: hitWidth)
+                        .contentShape(Rectangle())
+                    // A visible grip pill with three dots, so it's obvious the
+                    // divider can be dragged. Doesn't intercept the drag itself.
+                    RoundedRectangle(cornerRadius: 3.5)
+                        .fill(.regularMaterial)
+                        .overlay(RoundedRectangle(cornerRadius: 3.5)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5))
+                        .overlay {
+                            VStack(spacing: 3) {
+                                ForEach(0..<3, id: \.self) { _ in
+                                    Circle().fill(Color.secondary.opacity(0.6))
+                                        .frame(width: 2.5, height: 2.5)
+                                }
+                            }
+                        }
+                        .frame(width: 7, height: 46)
+                        .shadow(color: .black.opacity(0.12), radius: 1.5, y: 0.5)
+                        .opacity(isDragging ? 1 : 0.9)
+                        .allowsHitTesting(false)
+                }
             }
             .onHover { hovering in
                 // Pointer feedback for the drag handle — macOS only (no cursor on iPad).
