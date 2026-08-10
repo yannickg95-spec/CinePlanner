@@ -2102,8 +2102,11 @@ class PDFCoverageOverlayView: PlatformViewBase {
             context.addLine(to: CGPoint(x: pageX, y: maxY))
             context.strokePath()
             
-            // Draw background rectangle for text at the top of the line
-            let labelY = max(minY, maxY) // Use the larger Y value (top in view coordinates)
+            // Place the shot number above the line's visual top. The overlay is
+            // y-up on macOS (larger Y is the top) and y-down on iOS (smaller Y is
+            // the top), so the "above" direction differs per platform.
+            #if os(macOS)
+            let labelY = max(minY, maxY) // larger Y = visual top
             let unconstrainedLabelRect = CGRect(
                 x: pageX - textSize.width / 2,
                 y: labelY + padding,
@@ -2124,13 +2127,24 @@ class PDFCoverageOverlayView: PlatformViewBase {
                 existingLineRects: lineCollisionRects(from: existingLines),
                 placedLabelRects: placedLabelRects
             )
-            
-            // Draw text
-            attributedString.draw(at: CGPoint(
-                x: labelRect.minX,
-                y: labelRect.minY
-            ))
+            attributedString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
             placedLabelRects.append(labelRect)
+            #else
+            let top = min(minY, maxY) // smaller Y = visual top in UIKit
+            var labelRect = CGRect(
+                x: pageX - textSize.width / 2,
+                y: top - padding - textSize.height,
+                width: labelWidth,
+                height: textSize.height
+            )
+            labelRect.origin.x = min(max(labelRect.minX, minimumPageX),
+                                     max(minimumPageX, maximumPageX - textSize.width))
+            while placedLabelRects.contains(where: { $0.intersects(labelRect.insetBy(dx: -1, dy: -1)) }) {
+                labelRect.origin.y -= (textSize.height + 2)
+            }
+            attributedString.draw(at: labelRect.origin)
+            placedLabelRects.append(labelRect)
+            #endif
             
             print("   ✅ [EDITOR DRAW] Drew line from (\(pageX), \(minY)) to (\(pageX), \(maxY))")
         } else {

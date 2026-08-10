@@ -337,7 +337,21 @@ struct ProjectExporter {
                     ]
                     let label = NSAttributedString(string: bar.label, attributes: attrs)
                     let ls = label.size()
-                    label.draw(at: CGPoint(x: x - ls.width / 2, y: bar.maxY + 3))
+                    let labelOrigin = CGPoint(x: x - ls.width / 2, y: bar.maxY + 3)
+                    // The context is y-up (see PlatformGraphics.image). AppKit text
+                    // draws upright in it, but UIKit text would be mirrored — the
+                    // shot number upside down. On iOS, flip locally about the label
+                    // box so the glyphs are upright.
+                    #if canImport(UIKit)
+                    let labelRect = CGRect(origin: labelOrigin, size: ls)
+                    ctx.saveGState()
+                    ctx.translateBy(x: 0, y: labelRect.minY + labelRect.maxY)
+                    ctx.scaleBy(x: 1, y: -1)
+                    label.draw(at: labelOrigin)
+                    ctx.restoreGState()
+                    #else
+                    label.draw(at: labelOrigin)
+                    #endif
                 }
                 ctx.restoreGState()
             }
@@ -2491,8 +2505,20 @@ struct ProjectExporter {
                             placedLabelRects: shotNumberRects
                         )
                         
+                        // The page context is y-up (flipped: false). AppKit text
+                        // draws upright in it, but UIKit text would come out
+                        // mirrored (the shot number upside down). On iOS, flip
+                        // locally about the label box so the glyphs are upright.
+                        #if canImport(UIKit)
+                        context.saveGState()
+                        context.translateBy(x: 0, y: labelRect.minY + labelRect.maxY)
+                        context.scaleBy(x: 1, y: -1)
                         attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
-                        
+                        context.restoreGState()
+                        #else
+                        attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
+                        #endif
+
                         shotNumberRects.append(labelRect)
                     }
                 }

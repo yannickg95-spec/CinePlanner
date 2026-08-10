@@ -624,19 +624,17 @@ private final class CoverageBarsView: UIView {
             ctx.addLine(to: CGPoint(x: x, y: maxY))
             ctx.strokePath()
 
-            // Label — placed just below the bottom of the line, matching the Mac overlay.
-            let padding: CGFloat = 4
-            let labelY = maxY
-            let desired = CGRect(x: x - textSize.width / 2, y: labelY + padding,
-                                 width: textSize.width, height: textSize.height)
-            let pageRect = CGRect(x: minimumPageX, y: minY,
-                                  width: max(0, maximumPageX - minimumPageX),
-                                  height: max(0, maxY - minY) + 400)
-            let labelRect = Self.resolvedLabelRect(
-                desired: desired, lineX: x, lineTopY: labelY, pageBounds: pageRect,
-                existingLineRects: Self.collisionRects(from: existingLines),
-                placedLabelRects: placedLabelRects)
-            label.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
+            // Label — above the top of the line (minY is the visual top in UIKit's
+            // y-down space), matching the Mac editor. Stagger upward to avoid
+            // overlapping a label already placed for another line.
+            let padding: CGFloat = 2
+            var labelRect = CGRect(x: x - textSize.width / 2, y: minY - padding - textSize.height,
+                                   width: textSize.width, height: textSize.height)
+            labelRect.origin.x = min(max(labelRect.minX, 0), max(0, bounds.width - textSize.width))
+            while placedLabelRects.contains(where: { $0.intersects(labelRect.insetBy(dx: -1, dy: -1)) }) {
+                labelRect.origin.y -= (textSize.height + 2)
+            }
+            label.draw(at: labelRect.origin)
             placedLabelRects.append(labelRect)
         }
     }
@@ -673,60 +671,6 @@ private final class CoverageBarsView: UIView {
         let fallbackX = xRange.lowerBound
         existingLines.append((range: verticalRange, offset: fallbackX))
         return fallbackX
-    }
-
-    private static func collisionRects(
-        from lines: [(range: ClosedRange<CGFloat>, offset: CGFloat)],
-        horizontalPadding: CGFloat = 5,
-        verticalPadding: CGFloat = 2
-    ) -> [CGRect] {
-        lines.map { line in
-            CGRect(x: line.offset - horizontalPadding,
-                   y: line.range.lowerBound - verticalPadding,
-                   width: horizontalPadding * 2,
-                   height: (line.range.upperBound - line.range.lowerBound) + verticalPadding * 2)
-        }
-    }
-
-    private static func resolvedLabelRect(
-        desired: CGRect,
-        lineX: CGFloat,
-        lineTopY: CGFloat,
-        pageBounds: CGRect,
-        existingLineRects: [CGRect],
-        placedLabelRects: [CGRect]
-    ) -> CGRect {
-        let topGap: CGFloat = 4
-        let sideGap: CGFloat = 8
-        let verticalStep: CGFloat = desired.height + 3
-        let halfHeight = desired.height / 2
-
-        func clampedX(_ originX: CGFloat) -> CGFloat {
-            min(max(originX, pageBounds.minX), max(pageBounds.minX, pageBounds.maxX - desired.width))
-        }
-        func candidate(_ originX: CGFloat, _ originY: CGFloat) -> CGRect {
-            CGRect(x: clampedX(originX), y: originY, width: desired.width, height: desired.height)
-        }
-
-        var candidates: [CGRect] = []
-        for step in 0..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX - (desired.width / 2), y))
-        }
-        candidates.append(candidate(lineX + sideGap, lineTopY - halfHeight))
-        candidates.append(candidate(lineX - desired.width - sideGap, lineTopY - halfHeight))
-        for step in 1..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX + sideGap, y))
-            candidates.append(candidate(lineX - desired.width - sideGap, y))
-        }
-
-        for rect in candidates {
-            let overlapsLine = existingLineRects.contains { $0.intersects(rect) }
-            let overlapsLabel = placedLabelRects.contains { $0.intersects(rect.insetBy(dx: -2, dy: -1)) }
-            if !overlapsLine && !overlapsLabel { return rect }
-        }
-        return candidates.last ?? desired
     }
 }
 #endif
