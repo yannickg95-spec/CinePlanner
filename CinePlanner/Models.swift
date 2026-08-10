@@ -315,6 +315,14 @@ final class Scene {
         get { shotsStore ?? [] }
         set { shotsStore = newValue }
     }
+
+    /// Shots in their canonical display order. `shots` is an unordered SwiftData
+    /// relationship whose iteration order can differ between stores/platforms, so
+    /// anything that must be deterministic across Mac and iPad (e.g. per-shot
+    /// coverage colours) indexes off this instead.
+    var orderedShots: [Shot] {
+        shots.sorted { ($0.shotNumber, $0.displayNumber) < ($1.shotNumber, $1.displayNumber) }
+    }
     
     init(sceneNumber: Int) {
         self.sceneNumber = sceneNumber

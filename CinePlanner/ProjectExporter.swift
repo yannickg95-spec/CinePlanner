@@ -290,7 +290,7 @@ struct ProjectExporter {
         var byPage: [Int: [Bar]] = [:]
         for shot in scene.shots {
             guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
-            let colorIndex = (scene.shots.firstIndex { $0 === shot } ?? 0) % Self.coveragePalette.count
+            let colorIndex = (scene.orderedShots.firstIndex { $0 === shot } ?? 0) % Self.coveragePalette.count
             let color = Self.coveragePalette[colorIndex]
             for selection in selections {
                 for pageRange in selection.pageRanges {
@@ -2225,7 +2225,7 @@ struct ProjectExporter {
         print("🎨 [EXPORT COLOR] Step 1: Assigning base colors to shots...")
         for scene in exportScenes {
             for shot in scene.shots {
-                guard let shotIndex = scene.shots.firstIndex(where: { $0 === shot }) else { continue }
+                guard let shotIndex = scene.orderedShots.firstIndex(where: { $0 === shot }) else { continue }
                 let colorIndex = shotIndex % shotColors.count
                 shotBaseColors[ObjectIdentifier(shot)] = (colorIndex, shotColors[colorIndex])
                 print("   - Scene \(scene.sceneNumber)\(scene.suffix), Shot \(shot.displayNumber): Base color index \(colorIndex)")
@@ -2234,7 +2234,6 @@ struct ProjectExporter {
         
         print("✅ [EXPORT COLOR] Base color assignment complete")
         
-        var selectionColorIndices: [String: Int] = [:]
         var selectionSlotIndices: [String: Int] = [:]
         var occupiedRangesByPageAndSlot: [Int: [Int: [ClosedRange<CGFloat>]]] = [:]
         
@@ -2320,7 +2319,6 @@ struct ProjectExporter {
             } ?? 7
             
             selectionSlotIndices[layout.key] = assignedSlot
-            selectionColorIndices[layout.key] = layout.preferredColorIndex
             
             for pageRange in layout.pageRanges {
                 occupiedRangesByPageAndSlot[pageRange.pageIndex, default: [:]][assignedSlot, default: []].append(pageRange.range)
@@ -2367,8 +2365,7 @@ struct ProjectExporter {
                 }
                 var placedLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)] = []
                 var shotNumberRects: [CGRect] = []
-                var usedColorIndices: Set<Int> = []
-                
+
                 for (shot, selection) in sortedCoverages {
                     // Find the page range for this specific page
                     guard let pageRange = selection.pageRanges.first(where: { $0.pageIndex == pageIndex }) else {
@@ -2381,18 +2378,9 @@ struct ProjectExporter {
                         continue
                     }
 
-                    let preferredColorIndex = baseColorInfo.colorIndex
-                    let finalColorIndex: Int
-                    if let persistedColorIndex = selectionColorIndices[selectionKey] {
-                        finalColorIndex = persistedColorIndex
-                    } else if !usedColorIndices.contains(preferredColorIndex) {
-                        finalColorIndex = preferredColorIndex
-                    } else {
-                        finalColorIndex = (0..<shotColors.count).first { !usedColorIndices.contains($0) } ?? preferredColorIndex
-                    }
-                    usedColorIndices.insert(finalColorIndex)
-                    selectionColorIndices[selectionKey] = finalColorIndex
-                    let lineColor = shotColors[finalColorIndex]
+                    // Deterministic per-shot colour (position within its scene) so it
+                    // matches the editor and the web-export images on both platforms.
+                    let lineColor = shotColors[baseColorInfo.colorIndex]
                     
                     print("   🖊️ [EXPORT DRAW] Drawing line for shot \(shot.displayNumber)")
                     print("      - Color: \(lineColor)")

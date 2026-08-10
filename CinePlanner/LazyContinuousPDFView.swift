@@ -232,7 +232,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             for scene in scenes {
                 for shot in scene.shots {
                     guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
-                    let colorIndex = (scene.shots.firstIndex { $0 === shot } ?? 0) % LazyContinuousPDFView.palette.count
+                    let colorIndex = (scene.orderedShots.firstIndex { $0 === shot } ?? 0) % LazyContinuousPDFView.palette.count
                     let color = LazyContinuousPDFView.palette[colorIndex]
                     for selection in selections {
                         for pageRange in selection.pageRanges {

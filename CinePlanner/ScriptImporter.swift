@@ -1848,48 +1848,13 @@ class PDFCoverageOverlayView: PlatformViewBase {
     }
     #endif
 
-    // Get color for a shot based on its position within its scene
-    // Prefers unused colors on the visible portion of the page
-    private func color(for shot: Shot, usedColors: inout Set<Int>) -> PlatformColor {
-        guard let scene = shot.scene else {
-            print("🎨 [EDITOR COLOR] Shot \(shot.displayNumber) has no scene - returning systemBlue")
-            return .systemBlue
-        }
-        
-        // Find the default index based on shot position within its scene
-        var defaultColorIndex = 0
-        if let shotIndex = scene.shots.firstIndex(where: { $0 === shot }) {
-            defaultColorIndex = shotIndex % shotColors.count
-            print("🎨 [EDITOR COLOR] Shot \(shot.displayNumber) in scene \(scene.sceneNumber)\(scene.suffix)")
-            print("   - Shot index in scene.shots: \(shotIndex)")
-            print("   - Default color index: \(defaultColorIndex) (color: \(shotColors[defaultColorIndex]))")
-            print("   - Used colors on page: \(usedColors)")
-        } else {
-            print("⚠️ [EDITOR COLOR] Shot \(shot.displayNumber) not found in scene.shots array")
-        }
-        
-        // Check if the default color is already used
-        if usedColors.contains(defaultColorIndex) {
-            print("   ⚠️ Default color \(defaultColorIndex) already used, finding alternative...")
-            // Try to find an unused color
-            for (index, _) in shotColors.enumerated() {
-                if !usedColors.contains(index) {
-                    usedColors.insert(index)
-                    print("   ✅ Found unused color: \(index) (\(shotColors[index]))")
-                    return shotColors[index]
-                }
-            }
-            // All colors are used, use default anyway
-            print("   ⚠️ All colors used, using default \(defaultColorIndex) anyway")
-        } else {
-            // Default color is available
-            usedColors.insert(defaultColorIndex)
-            print("   ✅ Using default color \(defaultColorIndex)")
-        }
-        
-        let finalColor = shotColors[defaultColorIndex]
-        print("   🎨 Final color: \(finalColor)")
-        return finalColor
+    // A shot's coverage colour is a pure function of its position within its
+    // scene. Deterministic (no scroll- or page-dependent collision avoidance) so
+    // it matches the iPad viewer and every exporter exactly.
+    private func color(for shot: Shot) -> PlatformColor {
+        guard let scene = shot.scene,
+              let index = scene.orderedShots.firstIndex(where: { $0 === shot }) else { return .systemBlue }
+        return shotColors[index % shotColors.count]
     }
     
     // Place overlapping lines across the left page margin before stacking them.
@@ -2017,14 +1982,11 @@ class PDFCoverageOverlayView: PlatformViewBase {
         // Track existing lines to prevent overlap
         var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)] = []
         var placedLabelRects: [CGRect] = []
-        
-        // Track which colors are used on the visible portion of the page
-        var usedColorIndices: Set<Int> = []
-        
+
         // Draw vertical lines for all shots with coverage (always visible)
         for shot in allShotsWithCoverage {
             guard let selections = shot.scriptCoverageSelections else { continue }
-            
+
             for selection in selections {
                 drawVerticalLine(
                     for: selection,
@@ -2033,8 +1995,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
                     pdfView: pdfView,
                     document: document,
                     existingLines: &existingLines,
-                    placedLabelRects: &placedLabelRects,
-                    usedColors: &usedColorIndices
+                    placedLabelRects: &placedLabelRects
                 )
             }
         }
@@ -2055,8 +2016,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
         pdfView: PDFView,
         document: PDFDocument,
         existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)],
-        placedLabelRects: inout [CGRect],
-        usedColors: inout Set<Int>
+        placedLabelRects: inout [CGRect]
     ) {
         print("📏 [EDITOR DRAW] Drawing vertical line for shot \(shot.displayNumber)")
         
@@ -2112,8 +2072,8 @@ class PDFCoverageOverlayView: PlatformViewBase {
             let lineRangeUpperBound = min(maximumPageX, marginLimitX)
             let lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
             
-            // Get color for this shot (with color collision avoidance)
-            let lineColor = color(for: shot, usedColors: &usedColors)
+            // Deterministic per-shot colour (matches iPad viewer and exporters).
+            let lineColor = color(for: shot)
             print("   ✏️ [EDITOR DRAW] Using color \(lineColor) for shot \(shot.displayNumber)")
 
             // Draw shot number at the top
