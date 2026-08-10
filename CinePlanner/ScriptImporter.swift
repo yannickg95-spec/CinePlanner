@@ -1094,7 +1094,11 @@ struct ScriptPDFViewer: View {
             }
         }
         .onChange(of: version) {
-            cachedPDFDocument = nil
+            // Swap the document in place rather than nil-ing it. Nil-ing removed the
+            // PDF view and rebuilt it from scratch on every version switch (a new
+            // PDFView, document load, coordinator and layout), which froze iPad.
+            // Setting a new document keeps the same view and updates it in place.
+            cachedPDFDocument = currentPDFData.flatMap { PDFDocument(data: $0) }
         }
         .onChange(of: requestImport?.wrappedValue ?? false) { _, shouldImport in
             if shouldImport {
@@ -1398,7 +1402,14 @@ struct PDFViewerWithCoverageRepresentable {
         let pdfView = PDFView()
         pdfView.document = document
         pdfView.autoScales = true
+        #if canImport(UIKit)
+        // Single-page (paged) on iPad: laying out the whole screenplay continuously
+        // froze on every version switch. macOS keeps continuous vertical scrolling.
+        pdfView.displayMode = .singlePage
+        pdfView.usePageViewController(true)
+        #else
         pdfView.displayMode = .singlePageContinuous
+        #endif
         pdfView.displayDirection = .vertical
         
         // Configure selection appearance
@@ -1443,9 +1454,9 @@ struct PDFViewerWithCoverageRepresentable {
             }
         }
         
-        // Enable scroll notifications. macOS: observe the PDF's NSScrollView bounds
-        // so the overlay repaints as it scrolls. iOS relies on the coordinator's
-        // 30fps redraw timer instead (its scroll view is a private UIScrollView).
+        // Repaint the overlay as the PDF scrolls. macOS: observe the NSScrollView's
+        // bounds. iOS: KVO the internal UIScrollView's contentOffset — this fires
+        // only while scrolling (nothing when idle), unlike a continuous timer.
         #if os(macOS)
         if let scrollView = pdfView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView {
             scrollView.contentView.postsBoundsChangedNotifications = true
@@ -1455,6 +1466,12 @@ struct PDFViewerWithCoverageRepresentable {
                 queue: .main
             ) { _ in
                 overlayView.requestRedraw()
+            }
+        }
+        #else
+        if let scrollView = pdfView.firstScrollView {
+            coordinator.scrollOffsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak overlayView] _, _ in
+                overlayView?.requestRedraw()
             }
         }
         #endif
@@ -1517,10 +1534,10 @@ struct PDFViewerWithCoverageRepresentable {
             print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
         }
         
-        // Update overlay with current shot and all shots from project
+        // Update overlay with current shot and all shots from project.
         if let overlayView = coordinator.overlayView {
             overlayView.selectedShot = selectedShot
-            
+
             // Collect all shots with coverage from all scenes
             var allShotsWithCoverage: [Shot] = []
             for scene in (version?.scenes ?? project.scenes) {
@@ -1549,6 +1566,7 @@ struct PDFViewerWithCoverageRepresentable {
         var captureObserver: NSObjectProtocol?
         var cancelObserver: NSObjectProtocol?
         var scrollObserver: NSObjectProtocol?
+        var scrollOffsetObservation: NSKeyValueObservation?
         var pageChangeObserver: NSObjectProtocol?
         var scaleChangeObserver: NSObjectProtocol?
         var onPageChange: ((Int) -> Void)?
@@ -1568,12 +1586,11 @@ struct PDFViewerWithCoverageRepresentable {
                 
                 self.enterSelectionMode(for: shot)
             }
-            
-            // Start a timer to update the overlay - using 30fps instead of 60 to be gentler on the system
-            displayTimer = Timer.scheduledTimer(withTimeInterval: 0.033, repeats: true) { [weak self] _ in
-                guard let self = self else { return }
-                self.overlayView?.requestRedraw()
-            }
+            // No continuous redraw timer: the overlay repaints on scroll (macOS: the
+            // NSScrollView bounds observer; iOS: the scroll-view contentOffset KVO in
+            // makeContainer) and on page/scale/coverage changes. A 30fps timer ran
+            // heavy per-frame PDFKit coordinate conversions and pegged iPad's main
+            // thread while just viewing a coverage-heavy script.
         }
         
         func enterSelectionMode(for shot: Shot) {
@@ -1721,7 +1738,8 @@ struct PDFViewerWithCoverageRepresentable {
         deinit {
             displayTimer?.invalidate()
             displayTimer = nil
-            
+            scrollOffsetObservation?.invalidate()
+
             if let observer = selectionModeObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -1743,6 +1761,20 @@ struct PDFViewerWithCoverageRepresentable {
         }
     }
 }
+
+#if canImport(UIKit)
+private extension UIView {
+    /// The first `UIScrollView` in this view's subtree (PDFView wraps its document
+    /// in a private scroll view), for observing scroll offset.
+    var firstScrollView: UIScrollView? {
+        if let scroll = self as? UIScrollView { return scroll }
+        for sub in subviews {
+            if let found = sub.firstScrollView { return found }
+        }
+        return nil
+    }
+}
+#endif
 
 // MARK: - Coverage Overlay View
 

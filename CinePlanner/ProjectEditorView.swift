@@ -914,20 +914,38 @@ struct ProjectEditorView: View {
     }
 
     private func deleteVersion(_ version: ScriptVersion) {
-        let wasSelected = selectedVersion === version
-        // Detach the version's scenes from the project list, then delete the
-        // version — its scenes (and their shots) cascade with it.
-        for scene in version.scenes {
-            if let index = project.scenes.firstIndex(where: { $0 === scene }) {
-                project.scenes.remove(at: index)
+        // Move the selection off this version FIRST, so no editor view is still
+        // bound to one of its scenes when we delete them — otherwise a view holding
+        // a now-deleted Scene traps with "this model instance was invalidated".
+        if selectedVersion === version {
+            selectedShots = []
+            selectedScenes = []
+            selectedVersion = selectedEpisode?.orderedVersions.first(where: { $0 !== version })
+        }
+
+        // Delete on the next runloop tick, after SwiftUI has re-rendered onto the
+        // newly-selected version and released the old scenes.
+        let context = modelContext
+        DispatchQueue.main.async {
+            // A Scene is cascade-reachable from BOTH its Project and its
+            // ScriptVersion, so letting `delete(version)` cascade can double-delete
+            // the scenes and trip a SwiftData assertion. Tear the graph down by hand:
+            // sever both links, delete each scene once (cascading to its shots), then
+            // delete the version.
+            let scenes = version.scenes
+            for scene in scenes {
+                scene.project = nil
+                scene.scriptVersion = nil
             }
-        }
-        if let episode = version.episode, let index = episode.scriptVersions.firstIndex(where: { $0 === version }) {
-            episode.scriptVersions.remove(at: index)
-        }
-        modelContext.delete(version)
-        if wasSelected {
-            selectedVersion = selectedEpisode?.orderedVersions.last
+            for scene in scenes {
+                context.delete(scene)
+            }
+            if let episode = version.episode,
+               let index = episode.scriptVersions.firstIndex(where: { $0 === version }) {
+                episode.scriptVersions.remove(at: index)
+            }
+            context.delete(version)
+            try? context.save()
         }
     }
     
