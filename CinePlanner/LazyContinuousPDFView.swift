@@ -45,13 +45,14 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         layout.scrollDirection = .vertical
         layout.minimumLineSpacing = 12
         layout.sectionInset = UIEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        let cv = WidthAwareCollectionView(frame: .zero, collectionViewLayout: layout)
         cv.backgroundColor = .secondarySystemBackground
         cv.dataSource = context.coordinator
         cv.delegate = context.coordinator
         cv.register(PageCell.self, forCellWithReuseIdentifier: PageCell.reuseID)
         cv.alwaysBounceVertical = true
         cv.translatesAutoresizingMaskIntoConstraints = false
+        cv.onWidthChange = { [weak coordinator = context.coordinator] in coordinator?.handleWidthChange() }
 
         // Selectable continuous PDFView, shown only while marking coverage — so a
         // selection can span pages. Loaded on demand (once), not on every switch.
@@ -202,6 +203,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private var pageAspect: CGFloat = 1.294
         private let renderCache = NSCache<NSNumber, UIImage>()
         private let renderQueue = DispatchQueue(label: "pdf.page.render", qos: .userInitiated)
+        private var resharpenWork: DispatchWorkItem?
 
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
@@ -265,26 +267,53 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let index = indexPath.item
             cell.setBars(bars[index] ?? [])
             cell.overlayPageBounds = document?.page(at: index)?.bounds(for: .cropBox) ?? .zero
+            loadImage(for: cell, at: index, in: collectionView)
+            return cell
+        }
 
+        /// Sets the page image from cache, or renders it (off the main thread) at
+        /// the collection view's current width and caches it. `clearFirst` blanks
+        /// the cell while rendering — skip it when re-sharpening after a resize so
+        /// the existing (stretched) image stays visible until the crisp one lands.
+        private func loadImage(for cell: PageCell, at index: Int, in cv: UICollectionView, clearFirst: Bool = true) {
             if let cached = renderCache.object(forKey: NSNumber(value: index)) {
                 cell.setImage(cached)
-            } else {
-                cell.setImage(nil)
-                let size = self.collectionView(collectionView, layout: collectionView.collectionViewLayout, sizeForItemAt: indexPath)
-                let scale = collectionView.traitCollection.displayScale
-                renderQueue.async { [weak self, weak collectionView] in
-                    guard let self, let page = self.document?.page(at: index) else { return }
-                    let image = Self.render(page: page, size: size, scale: scale)
-                    self.renderCache.setObject(image, forKey: NSNumber(value: index))
-                    DispatchQueue.main.async {
-                        guard let cv = collectionView,
-                              let visible = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? PageCell
-                        else { return }
-                        visible.setImage(image)
-                    }
+                return
+            }
+            if clearFirst { cell.setImage(nil) }
+            let width = cv.bounds.width
+            let size = CGSize(width: width, height: (width * pageAspect).rounded())
+            let scale = cv.traitCollection.displayScale
+            renderQueue.async { [weak self, weak cv] in
+                guard let self, let page = self.document?.page(at: index) else { return }
+                let image = Self.render(page: page, size: size, scale: scale)
+                self.renderCache.setObject(image, forKey: NSNumber(value: index))
+                DispatchQueue.main.async {
+                    guard let cv,
+                          let visible = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? PageCell
+                    else { return }
+                    visible.setImage(image)
                 }
             }
-            return cell
+        }
+
+        /// The script pane is user-resizable; when its width changes, re-lay out so
+        /// each page fills the new width and re-render the visible pages crisply
+        /// (images are cached by page index, so a stale one would only be stretched).
+        /// Debounced so a live drag doesn't thrash the renderer.
+        func handleWidthChange() {
+            resharpenWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let cv = self.collectionView else { return }
+                cv.collectionViewLayout.invalidateLayout()
+                self.renderCache.removeAllObjects()
+                for cell in cv.visibleCells {
+                    guard let pc = cell as? PageCell, let ip = cv.indexPath(for: cell) else { continue }
+                    self.loadImage(for: pc, at: ip.item, in: cv, clearFirst: false)
+                }
+            }
+            resharpenWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -526,6 +555,23 @@ private extension UIView {
     }
 }
 
+// MARK: - Width-aware collection view
+
+/// Reports when its width changes so the page images can be re-rendered to fill
+/// the new (user-resizable) pane width instead of being stretched.
+private final class WidthAwareCollectionView: UICollectionView {
+    var onWidthChange: (() -> Void)?
+    private var lastWidth: CGFloat = -1
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard abs(bounds.width - lastWidth) > 0.5 else { return }
+        let isFirstLayout = lastWidth < 0
+        lastWidth = bounds.width
+        if !isFirstLayout { onWidthChange?() }
+    }
+}
+
 // MARK: - Page cell (image + coverage overlay)
 
 private final class PageCell: UICollectionViewCell {
@@ -548,6 +594,9 @@ private final class PageCell: UICollectionViewCell {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.backgroundColor = .clear
+        // Recompute the coverage lines on resize instead of stretching the last
+        // drawing, so line positions and thickness stay correct at any pane width.
+        overlay.contentMode = .redraw
         contentView.addSubview(imageView)
         contentView.addSubview(overlay)
         NSLayoutConstraint.activate([
