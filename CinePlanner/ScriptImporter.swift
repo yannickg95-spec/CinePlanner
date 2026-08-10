@@ -970,11 +970,6 @@ struct ScriptPDFViewer: View {
     @State private var autoLoadScenes = false
     @State private var showRemoveConfirmation = false
     @State private var currentPageIndex = 0
-    #if os(iOS)
-    /// The shot being marked for coverage on iPad (drives the marking sheet, since
-    /// the lazy image viewer can't select text inline).
-    @State private var markingShot: Shot?
-    #endif
 
     private var currentPDFData: Data? {
         version?.pdfData ?? project.scriptPDFData
@@ -1111,20 +1106,6 @@ struct ScriptPDFViewer: View {
                 requestImport?.wrappedValue = false
             }
         }
-        #if os(iOS)
-        // iPad marks coverage in a sheet (the inline lazy viewer can't select text).
-        .onReceive(NotificationCenter.default.publisher(for: .startScriptTextSelection)) { note in
-            if let shot = note.userInfo?["shot"] as? Shot { markingShot = shot }
-        }
-        .sheet(isPresented: Binding(
-            get: { markingShot != nil },
-            set: { if !$0 { markingShot = nil } }
-        )) {
-            if let shot = markingShot, let document = cachedPDFDocument {
-                MarkCoverageSheet(document: document, shot: shot, initialPage: selectedScenePage)
-            }
-        }
-        #endif
         .fileImporter(
             isPresented: $isImporting,
             allowedContentTypes: [.pdf],
