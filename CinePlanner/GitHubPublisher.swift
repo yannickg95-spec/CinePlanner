@@ -111,17 +111,17 @@ enum GitHubPublisher {
         }
     }
 
-    // MARK: - Per-project repo (so re-publishing keeps the same link)
+    // MARK: - Per-project repo (legacy UserDefaults → model migration)
 
-    /// Stored as "owner/repo".
-    static func savedRepo(forProjectUID uid: String) -> String? {
+    /// The project→repo link now lives on `Project.publishedRepoFullName` (synced
+    /// via CloudKit). Older builds stored it in UserDefaults keyed by project uid;
+    /// this reads that legacy value once so existing links can be migrated onto the
+    /// model. Returns nil when there's nothing to migrate.
+    static func legacySavedRepo(forProjectUID uid: String) -> String? {
         UserDefaults.standard.string(forKey: "githubRepo-\(uid)")
     }
-    private static func saveRepo(_ fullName: String, forProjectUID uid: String) {
-        UserDefaults.standard.set(fullName, forKey: "githubRepo-\(uid)")
-    }
-    /// Forget the repo tied to a project, so the next publish creates a new one.
-    static func forgetRepo(forProjectUID uid: String) {
+    /// Removes the legacy UserDefaults mapping after it's been migrated onto the model.
+    static func clearLegacyRepo(forProjectUID uid: String) {
         UserDefaults.standard.removeObject(forKey: "githubRepo-\(uid)")
     }
 
@@ -176,9 +176,10 @@ enum GitHubPublisher {
         return repos
     }
 
-    /// Permanently deletes a repository by full name ("owner/repo"), then clears
-    /// any local project→repo mapping that pointed at it. Tolerates a 404 (already
-    /// gone). Throws `.cannotDeleteRepo` when the token lacks the delete_repo scope.
+    /// Permanently deletes a repository by full name ("owner/repo"). Tolerates a
+    /// 404 (already gone). Throws `.cannotDeleteRepo` when the token lacks the
+    /// delete_repo scope. The caller clears any `Project.publishedRepoFullName`
+    /// that pointed at this repo.
     static func deleteRepo(fullName: String) async throws {
         guard let token = token else { throw GitHubError.notAuthenticated }
         guard let slash = fullName.firstIndex(of: "/") else { return }
@@ -191,46 +192,25 @@ enum GitHubPublisher {
             }
             throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        forgetMappings(toRepo: fullName)
     }
 
-    /// Removes any project→repo mappings referencing this repo, so re-publishing
-    /// that project starts fresh rather than pointing at a deleted repo.
-    private static func forgetMappings(toRepo fullName: String) {
-        let defaults = UserDefaults.standard
-        for (key, value) in defaults.dictionaryRepresentation()
-        where key.hasPrefix("githubRepo-") && (value as? String) == fullName {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
-    /// The public URL of a project's published page, if any.
-    static func publishedURL(forProjectUID uid: String) -> String? {
-        guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return nil }
-        let owner = String(full[..<slash]).lowercased()
-        let name = String(full[full.index(after: slash)...])
-        return "https://\(owner).github.io/\(name)/"
-    }
-
-    /// Permanently deletes the project's whole GitHub repository (page included).
-    /// Requires the delete_repo scope; throws a clear error if the token lacks it,
-    /// leaving the repo — and the local mapping — intact. Forgets the mapping only
-    /// once the repo is actually gone.
-    static func deletePublishedPage(forProjectUID uid: String) async throws {
+    /// Permanently deletes a project's whole GitHub repository (page included) by
+    /// full name. Requires the delete_repo scope; throws a clear error if the token
+    /// lacks it, leaving the repo intact. Tolerates a 404 (already gone). The caller
+    /// clears `Project.publishedRepoFullName` once this returns.
+    static func deletePublishedPage(repoFullName: String) async throws {
         guard let token = token else { throw GitHubError.notAuthenticated }
-        guard let full = savedRepo(forProjectUID: uid), let slash = full.firstIndex(of: "/") else { return }
-        let owner = String(full[..<slash])
-        let name = String(full[full.index(after: slash)...])
+        guard let slash = repoFullName.firstIndex(of: "/") else { return }
+        let owner = String(repoFullName[..<slash])
+        let name = String(repoFullName[repoFullName.index(after: slash)...])
 
         let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
-        guard (200..<300).contains(http.statusCode) else {
+        guard (200..<300).contains(http.statusCode) || http.statusCode == 404 else {
             if http.statusCode == 403 {
                 throw GitHubError.cannotDeleteRepo(scopes: http.value(forHTTPHeaderField: "X-OAuth-Scopes"))
             }
-            if http.statusCode == 404 { forgetRepo(forProjectUID: uid); return }   // already gone
             throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        forgetRepo(forProjectUID: uid)
     }
 
     // MARK: - Publish
@@ -247,13 +227,15 @@ enum GitHubPublisher {
     /// Builds files from `siteDirectory`, commits them to the project's repo
     /// (creating it the first time), enables Pages, and waits for the build.
     static func publish(siteDirectory: URL, existingRepo: String?,
-                        projectName: String, projectUID: String,
+                        projectName: String,
                         onProgress: @escaping GitHubProgress = { _ in }) async throws -> Result {
         guard let token = token else { throw GitHubError.notAuthenticated }
 
         let login = try await fetchLogin(token: token)
 
         // 1. Resolve the repo (owner, name), creating it if this is the first publish.
+        //    The caller persists `Result.repoFullName` onto the project (a synced
+        //    model field) so the link survives across devices.
         let owner: String
         let repo: String
         if let existingRepo, let slash = existingRepo.firstIndex(of: "/") {
@@ -263,7 +245,6 @@ enum GitHubPublisher {
         } else {
             owner = login
             repo = try await createRepo(desiredName: repoName(for: projectName), token: token)
-            saveRepo("\(owner)/\(repo)", forProjectUID: projectUID)
         }
 
         // 2. Gather files (relative paths, no leading slash) plus a .nojekyll marker

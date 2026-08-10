@@ -67,6 +67,21 @@ final class Project {
     /// Optional so adding it migrates existing stores automatically.
     var scriptCharactersJSON: String?
 
+    /// The GitHub repository ("owner/repo") this project's web page was published
+    /// to, so re-publishing reuses the same repo and the "Manage Repositories"
+    /// list can tell which pages are still in use. Stored on the model (not
+    /// UserDefaults) so the link syncs across devices via CloudKit — otherwise a
+    /// publish on iPad leaves the Mac showing the repo as orphaned.
+    var publishedRepoFullName: String?
+
+    /// The public GitHub Pages URL for `publishedRepoFullName`, or nil if unpublished.
+    var publishedPagesURL: String? {
+        guard let full = publishedRepoFullName, let slash = full.firstIndex(of: "/") else { return nil }
+        let owner = String(full[..<slash]).lowercased()
+        let name = String(full[full.index(after: slash)...])
+        return "https://\(owner).github.io/\(name)/"
+    }
+
     // CloudKit requires to-many relationships to be optional. The stored arrays
     // are optional (originalName keeps them bound to the existing relationships,
     // so no data is lost); a computed wrapper preserves the non-optional API used

@@ -58,7 +58,7 @@ struct ProjectListView: View {
     /// Repo full names still tied to a project in the app, so the manage-repos
     /// sheet can flag which published pages are still "in use".
     private var inUseRepoNames: Set<String> {
-        Set(projects.compactMap { GitHubPublisher.savedRepo(forProjectUID: $0.uid) })
+        Set(projects.compactMap { $0.publishedRepoFullName })
     }
 
     private var visibleProjects: [Project] {
@@ -118,7 +118,13 @@ struct ProjectListView: View {
                 WalkthroughView()
             }
             .sheet(isPresented: $showingManageRepos) {
-                ManageRepositoriesSheet(inUseRepos: inUseRepoNames)
+                ManageRepositoriesSheet(inUseRepos: inUseRepoNames) { deletedRepo in
+                    // Clear the link on any project that pointed at the deleted repo,
+                    // so re-publishing it starts fresh.
+                    for project in projects where project.publishedRepoFullName == deletedRepo {
+                        project.publishedRepoFullName = nil
+                    }
+                }
             }
             .alert("Data Recovery", isPresented: Binding(
                 get: { recoveryMessage != nil },

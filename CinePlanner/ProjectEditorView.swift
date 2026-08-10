@@ -52,7 +52,7 @@ struct ProjectEditorView: View {
     @State private var updatePageError: String?
     @State private var pageIsLive = false
 
-    private var publishedURL: String? { GitHubPublisher.publishedURL(forProjectUID: project.uid) }
+    private var publishedURL: String? { project.publishedPagesURL }
     @State private var sceneForShotImport: Scene?
     @State private var versionPendingDeletion: ScriptVersion?
     @State private var versionToRename: ScriptVersion?
@@ -300,7 +300,7 @@ struct ProjectEditorView: View {
     /// Falls back to the publish sheet if the token or repo isn't available.
     private func updatePublishedPage() {
         guard GitHubPublisher.hasToken,
-              let repo = GitHubPublisher.savedRepo(forProjectUID: project.uid) else {
+              let repo = project.publishedRepoFullName else {
             showPublishSheet = true
             return
         }
@@ -311,12 +311,12 @@ struct ProjectEditorView: View {
                 let exporter = ProjectExporter(project: project, version: selectedVersion)
                 let siteDir = try await exporter.buildSiteDirectory()
                 defer { try? FileManager.default.removeItem(at: siteDir) }
-                _ = try await GitHubPublisher.publish(
+                let result = try await GitHubPublisher.publish(
                     siteDirectory: siteDir,
                     existingRepo: repo,
                     projectName: project.filmName,
-                    projectUID: project.uid,
                     onProgress: { _ in })
+                project.publishedRepoFullName = result.repoFullName
             } catch {
                 updatePageError = error.localizedDescription
             }
@@ -336,10 +336,12 @@ struct ProjectEditorView: View {
     }
 
     private func deletePublishedPage() {
+        guard let repo = project.publishedRepoFullName else { return }
         isDeletingPage = true
         Task { @MainActor in
             do {
-                try await GitHubPublisher.deletePublishedPage(forProjectUID: project.uid)
+                try await GitHubPublisher.deletePublishedPage(repoFullName: repo)
+                project.publishedRepoFullName = nil
             } catch {
                 deletePageError = error.localizedDescription
             }

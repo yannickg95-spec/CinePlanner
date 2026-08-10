@@ -20,7 +20,7 @@ struct GitHubPublishSheet: View {
     @State private var phase: GitHubPublishPhase?
     @State private var result: GitHubPublisher.Result?
     @State private var errorMessage: String?
-    private var existingRepo: String? { GitHubPublisher.savedRepo(forProjectUID: project.uid) }
+    private var existingRepo: String? { project.publishedRepoFullName }
 
     /// A classic token pre-filled with the scopes we need: public_repo to publish,
     /// delete_repo so "Delete Published Page" can fully remove the repository.
@@ -213,7 +213,7 @@ struct GitHubPublishSheet: View {
     /// Subtle "start over on a fresh repo" action.
     private var newRepoButton: some View {
         Button("Publish to a new repository instead") {
-            GitHubPublisher.forgetRepo(forProjectUID: project.uid)
+            project.publishedRepoFullName = nil
             result = nil
             publish()
         }
@@ -261,15 +261,17 @@ struct GitHubPublishSheet: View {
                     phase = .compressing(done: done, total: total)
                 })
                 defer { try? FileManager.default.removeItem(at: siteDir) }
-                result = try await GitHubPublisher.publish(
+                let published = try await GitHubPublisher.publish(
                     siteDirectory: siteDir,
                     existingRepo: existingRepo,
                     projectName: project.filmName,
-                    projectUID: project.uid,
                     onProgress: { newPhase in
                         // Called off the main thread; hop back to update UI state.
                         Task { @MainActor in phase = newPhase }
                     })
+                // Persist the repo link on the project so it syncs across devices.
+                project.publishedRepoFullName = published.repoFullName
+                result = published
             } catch {
                 errorMessage = error.localizedDescription
             }

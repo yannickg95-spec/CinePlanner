@@ -7,6 +7,11 @@
 
 import SwiftUI
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 @main
 struct CinePlannerApp: App {
@@ -33,6 +38,7 @@ struct CinePlannerApp: App {
         func finish(_ container: ModelContainer) -> ModelContainer {
             StoreBackup.recordStoreURL(container)
             Self.backfillUIDsIfNeeded(container)
+            Self.migrateLegacyGitHubReposIfNeeded(container)
             StoreBackup.backupIfNeeded(container: container)
             return container
         }
@@ -94,12 +100,45 @@ struct CinePlannerApp: App {
         UserDefaults.standard.set(true, forKey: key)
     }
     
+    /// The project→GitHub-repo link used to live in UserDefaults (keyed by project
+    /// uid), which doesn't sync across devices — so a publish on one device left
+    /// others showing the repo as orphaned. It now lives on `Project` (synced via
+    /// CloudKit). Copy any legacy UserDefaults mapping onto the model once, so
+    /// already-published projects keep their link and it propagates to other
+    /// devices. Idempotent: only fills a link that isn't already set.
+    private static func migrateLegacyGitHubReposIfNeeded(_ container: ModelContainer) {
+        let context = ModelContext(container)
+        guard let projects = try? context.fetch(FetchDescriptor<Project>()) else { return }
+        var changed = false
+        for project in projects where project.publishedRepoFullName == nil {
+            if let legacy = GitHubPublisher.legacySavedRepo(forProjectUID: project.uid) {
+                project.publishedRepoFullName = legacy
+                GitHubPublisher.clearLegacyRepo(forProjectUID: project.uid)
+                changed = true
+            }
+        }
+        if changed { try? context.save() }
+    }
+
+    /// Register for silent CloudKit pushes so changes from another device (e.g. a
+    /// GitHub publish on iPad) are pulled promptly, not only on next launch. The
+    /// SwiftData/CloudKit container consumes the push and imports automatically;
+    /// this just ensures the app is registered to receive it.
+    private func registerForCloudKitPush() {
+        #if os(iOS)
+        UIApplication.shared.registerForRemoteNotifications()
+        #elseif os(macOS)
+        NSApplication.shared.registerForRemoteNotifications()
+        #endif
+    }
+
     var body: some SwiftUI.Scene {
         WindowGroup {
             ProjectListView()
                 #if os(macOS)
                 .frame(minWidth: 1100, minHeight: 700)
                 #endif
+                .task { registerForCloudKitPush() }
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)

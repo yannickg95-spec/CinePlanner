@@ -15,6 +15,9 @@ struct ManageRepositoriesSheet: View {
     /// Repo full names ("owner/repo") still tied to a project in the app, so those
     /// rows can be flagged "In use" rather than "Orphaned".
     let inUseRepos: Set<String>
+    /// Called after a repo is deleted from GitHub, so the caller can clear the
+    /// matching `Project.publishedRepoFullName`.
+    var onRepoDeleted: (String) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -220,6 +223,7 @@ struct ManageRepositoriesSheet: View {
         do {
             try await GitHubPublisher.deleteRepo(fullName: repo.fullName)
             repos.removeAll { $0.fullName == repo.fullName }
+            onRepoDeleted(repo.fullName)
         } catch {
             errorMessage = error.localizedDescription
         }
