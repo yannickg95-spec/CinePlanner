@@ -12,6 +12,14 @@ import PhotosUI
 import AVKit
 import UniformTypeIdentifiers
 
+/// Width of the focal-length text fields. Wider on iPad, where the larger text
+/// field font needs more room to show three-digit focal lengths (100 mm+).
+#if os(iOS)
+private let focalFieldWidth: CGFloat = 60
+#else
+private let focalFieldWidth: CGFloat = 35
+#endif
+
 // MARK: - Notifications
 
 extension Notification.Name {
@@ -1317,7 +1325,7 @@ struct ShotDetailView: View {
             HStack(spacing: 4) {
                 TextField("", value: $shot.lensfocal, format: .number)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 35)
+                    .frame(width: focalFieldWidth)
                     .multilineTextAlignment(.leading)
                 
                 Text("mm")
@@ -1334,7 +1342,7 @@ struct ShotDetailView: View {
                 HStack(spacing: 4) {
                     TextField("", value: $shot.lensfocalEnd, format: .number)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 35)
+                        .frame(width: focalFieldWidth)
                         .multilineTextAlignment(.leading)
 
                     Text("mm")
@@ -1836,28 +1844,43 @@ struct OptionPickerView: View {
         }
     }
 
-    private var popover: some View {
-        // No fixed height — the popover fits its content, so a short list (sizes)
-        // doesn't leave empty space below.
-        VStack(alignment: .leading, spacing: 12) {
-            if grouped {
-                let split = splitColumns(allSections)
-                HStack(alignment: .top, spacing: 16) {
-                    sectionColumn(split.left)
-                    sectionColumn(split.right)
+    /// The option columns/sections, without the Add/Clear footer.
+    @ViewBuilder private var pickerOptions: some View {
+        if grouped {
+            let split = splitColumns(allSections)
+            HStack(alignment: .top, spacing: 16) {
+                sectionColumn(split.left)
+                sectionColumn(split.right)
+            }
+        } else {
+            // A single column of titled sections (e.g. Sizes and Framing),
+            // like the grouped picker but not split into two columns.
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(sections, id: \.title) { section in
+                    optionSection(section)
                 }
-            } else {
-                // A single column of titled sections (e.g. Sizes and Framing),
-                // like the grouped picker but not split into two columns.
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(sections, id: \.title) { section in
-                        optionSection(section)
-                    }
-                    if !customOptions.isEmpty {
-                        optionSection((title: "Custom", options: customOptions.map { (label: $0, value: $0) }))
-                    }
+                if !customOptions.isEmpty {
+                    optionSection((title: "Custom", options: customOptions.map { (label: $0, value: $0) }))
                 }
             }
+        }
+    }
+
+    private var popover: some View {
+        // No fixed height — the popover fits its content, so a short list (sizes)
+        // doesn't leave empty space below. On iPad the taller lists (Type) can
+        // exceed the available popover height, so the options scroll there while
+        // the Add/Clear footer stays pinned.
+        VStack(alignment: .leading, spacing: 12) {
+            #if os(iOS)
+            ScrollView {
+                pickerOptions.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: 440)
+            #else
+            pickerOptions
+            #endif
 
             Divider()
             HStack {
@@ -1886,6 +1909,10 @@ struct OptionPickerView: View {
         }
         .padding(12)
         .frame(width: grouped ? 360 : 240)
+        #if os(iOS)
+        // Keep it a popover (not a full-screen sheet) even in a compact width.
+        .presentationCompactAdaptation(.popover)
+        #endif
     }
 
     /// One of the two side-by-side columns: a stack of whole sections.
