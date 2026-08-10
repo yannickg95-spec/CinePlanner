@@ -9,6 +9,33 @@ import Foundation
 import SwiftData
 import SwiftUI
 
+extension ModelContext {
+    /// Runs an irreversible cascade delete without undo/autosave snapshotting.
+    ///
+    /// The app attaches an `UndoManager` to the main context, so every delete
+    /// makes SwiftData snapshot the affected objects for undo. During a cascade
+    /// delete that reaches un-faulted rows — notably shot references holding
+    /// inline image/video data — snapshot creation crashes
+    /// (`ModelSnapshot.swift: Unexpected backing data … _FullFutureBackingData`).
+    /// These deletes are irreversible by design, so drop undo + autosave for the
+    /// operation, clear the undo history that would otherwise dangle onto the
+    /// deleted graph, run the deletions, then save explicitly (while autosave is
+    /// still off, so the pending deletes are flushed before it re-enables).
+    func destructiveDelete(_ body: () -> Void) {
+        let undo = undoManager
+        let autosave = autosaveEnabled
+        undo?.removeAllActions()
+        undoManager = nil
+        autosaveEnabled = false
+        defer {
+            autosaveEnabled = autosave
+            undoManager = undo
+        }
+        body()
+        try? save()
+    }
+}
+
 @Model
 final class Project {
     /// Stable identity assigned at creation. Unlike persistentModelID (which is

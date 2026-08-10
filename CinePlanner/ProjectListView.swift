@@ -536,19 +536,21 @@ struct ProjectCardView: View {
     /// graph down by hand — sever the cross-links, then delete each object
     /// exactly once, leaves first — so no cascade path overlaps.
     private func deleteProject() {
-        let episodes = project.episodes
-        let versions = episodes.flatMap { $0.scriptVersions } + project.scriptVersions
         var seen = Set<ObjectIdentifier>()
         var scenes: [Scene] = []
+        let versions = project.episodes.flatMap { $0.scriptVersions } + project.scriptVersions
         for scene in project.scenes + versions.flatMap({ $0.scenes })
         where seen.insert(ObjectIdentifier(scene)).inserted {
             scenes.append(scene)
         }
-        for scene in scenes { scene.project = nil; scene.scriptVersion = nil }
-        for scene in scenes { modelContext.delete(scene) }   // cascades to its shots only
-        for version in versions { modelContext.delete(version) }
-        for episode in episodes { modelContext.delete(episode) }
-        modelContext.delete(project)
+        modelContext.destructiveDelete {
+            // Sever the direct Project→Scene link so every scene is owned solely by
+            // its version; deleting the project then cascades through
+            // episodes → versions → scenes → shots as a single tree — no scene is
+            // reached twice (which would trip a double-delete assertion).
+            for scene in scenes { scene.project = nil }
+            modelContext.delete(project)
+        }
     }
 
     private var lastOpenedText: String {

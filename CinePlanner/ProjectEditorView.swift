@@ -884,17 +884,19 @@ struct ProjectEditorView: View {
         let wasSelected = selectedEpisode === episode
         // Detach every scene of the episode's versions from the project list, then
         // delete the episode — its versions/scenes/shots cascade with it.
-        for version in episode.scriptVersions {
-            for scene in version.scenes {
-                if let index = project.scenes.firstIndex(where: { $0 === scene }) {
-                    project.scenes.remove(at: index)
+        modelContext.destructiveDelete {
+            for version in episode.scriptVersions {
+                for scene in version.scenes {
+                    if let index = project.scenes.firstIndex(where: { $0 === scene }) {
+                        project.scenes.remove(at: index)
+                    }
                 }
             }
+            if let index = project.episodes.firstIndex(where: { $0 === episode }) {
+                project.episodes.remove(at: index)
+            }
+            modelContext.delete(episode)
         }
-        if let index = project.episodes.firstIndex(where: { $0 === episode }) {
-            project.episodes.remove(at: index)
-        }
-        modelContext.delete(episode)
         if wasSelected {
             selectedEpisode = project.orderedEpisodes.first
             selectedVersion = selectedEpisode?.orderedVersions.last
@@ -927,25 +929,20 @@ struct ProjectEditorView: View {
         // newly-selected version and released the old scenes.
         let context = modelContext
         DispatchQueue.main.async {
-            // A Scene is cascade-reachable from BOTH its Project and its
-            // ScriptVersion, so letting `delete(version)` cascade can double-delete
-            // the scenes and trip a SwiftData assertion. Tear the graph down by hand:
-            // sever both links, delete each scene once (cascading to its shots), then
-            // delete the version.
-            let scenes = version.scenes
-            for scene in scenes {
-                scene.project = nil
-                scene.scriptVersion = nil
+            context.destructiveDelete {
+                // A Scene is cascade-reachable from BOTH its Project and its
+                // ScriptVersion. Sever only the (legacy) Project link so the version
+                // is the sole owner, then delete the version and let SwiftData's
+                // cascade remove its scenes (and their shots) exactly once. Deleting
+                // the scenes by hand as well double-deletes them — the version's
+                // cascade still targets them, because severing `scene.scriptVersion`
+                // doesn't synchronously empty `version.scenesStore` — and trips an
+                // assertion.
+                for scene in version.scenes {
+                    scene.project = nil
+                }
+                context.delete(version)
             }
-            for scene in scenes {
-                context.delete(scene)
-            }
-            if let episode = version.episode,
-               let index = episode.scriptVersions.firstIndex(where: { $0 === version }) {
-                episode.scriptVersions.remove(at: index)
-            }
-            context.delete(version)
-            try? context.save()
         }
     }
     
@@ -1295,15 +1292,17 @@ struct ProjectEditorView: View {
     private func deleteScenes(_ scenes: [Scene]) {
         guard !scenes.isEmpty else { return }
 
-        for scene in scenes {
-            if let index = project.scenes.firstIndex(where: { $0 === scene }) {
-                project.scenes.remove(at: index)
+        modelContext.destructiveDelete {
+            for scene in scenes {
+                if let index = project.scenes.firstIndex(where: { $0 === scene }) {
+                    project.scenes.remove(at: index)
+                }
+                if let version = scene.scriptVersion,
+                   let index = version.scenes.firstIndex(where: { $0 === scene }) {
+                    version.scenes.remove(at: index)
+                }
+                modelContext.delete(scene)
             }
-            if let version = scene.scriptVersion,
-               let index = version.scenes.firstIndex(where: { $0 === scene }) {
-                version.scenes.remove(at: index)
-            }
-            modelContext.delete(scene)
         }
 
         selectedScenes = []
@@ -1325,12 +1324,14 @@ struct ProjectEditorView: View {
         guard !shots.isEmpty else { return }
         let affectedScenes = Set(shots.compactMap { $0.scene })
 
-        for shot in shots {
-            shot.scene?.removeSceneMapMarkers(forShotUID: shot.uid)
-            if let scene = shot.scene, let index = scene.shots.firstIndex(where: { $0 === shot }) {
-                scene.shots.remove(at: index)
+        modelContext.destructiveDelete {
+            for shot in shots {
+                shot.scene?.removeSceneMapMarkers(forShotUID: shot.uid)
+                if let scene = shot.scene, let index = scene.shots.firstIndex(where: { $0 === shot }) {
+                    scene.shots.remove(at: index)
+                }
+                modelContext.delete(shot)
             }
-            modelContext.delete(shot)
         }
 
         selectedShots = []
