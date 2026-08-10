@@ -63,6 +63,15 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         marking.isHidden = true
         marking.translatesAutoresizingMaskIntoConstraints = false
 
+        // Auto-scroll the selection past the visible edge, so a drag can "push"
+        // onto the next page to keep selecting. Runs alongside PDFKit's own
+        // selection gesture; only acts while a selection is in progress.
+        let edgePan = UIPanGestureRecognizer(target: context.coordinator,
+                                             action: #selector(Coordinator.handleEdgePan(_:)))
+        edgePan.delegate = context.coordinator
+        edgePan.cancelsTouchesInView = false
+        marking.addGestureRecognizer(edgePan)
+
         // Coverage lines over the marking view, so existing coverage is visible
         // while marking. Same overlay the mac viewer uses; passes touches through.
         let markingOverlay = PDFCoverageOverlayView()
@@ -177,7 +186,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UIGestureRecognizerDelegate {
         weak var collectionView: UICollectionView?
         weak var markingView: PDFView?
         weak var markingOverlay: PDFCoverageOverlayView?
@@ -197,7 +206,17 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
 
+        // Edge auto-scroll while selecting.
+        private var autoScrollLink: CADisplayLink?
+        private var autoScrollDirection: CGFloat = 0   // +1 down, -1 up
+        private var selectionAnchorPage: PDFPage?
+        private var selectionAnchorPoint: CGPoint = .zero
+        private var lastFingerLocation: CGPoint = .zero
+
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
         func refreshPageAspect() {
             if let first = document?.page(at: 0) {
@@ -397,7 +416,92 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
         }
 
+        // MARK: Edge auto-scroll during selection
+
+        @objc func handleEdgePan(_ g: UIPanGestureRecognizer) {
+            guard selectionShot != nil, let marking = markingView else { return }
+            switch g.state {
+            case .changed:
+                lastFingerLocation = g.location(in: marking)
+                // Only auto-scroll once an actual text selection is under way.
+                guard marking.currentSelection?.string?.isEmpty == false else {
+                    stopAutoScroll(); return
+                }
+                let threshold: CGFloat = 64
+                let h = marking.bounds.height
+                if lastFingerLocation.y > h - threshold {
+                    startAutoScroll(direction: 1)
+                } else if lastFingerLocation.y < threshold {
+                    startAutoScroll(direction: -1)
+                } else {
+                    stopAutoScroll()
+                }
+            case .ended, .cancelled, .failed:
+                stopAutoScroll()
+            default:
+                break
+            }
+        }
+
+        private func startAutoScroll(direction: CGFloat) {
+            guard let marking = markingView, let sel = marking.currentSelection else { return }
+            if autoScrollLink != nil && autoScrollDirection == direction { return }
+            autoScrollDirection = direction
+
+            // Anchor is the far end of the selection from the scroll direction, so
+            // we extend toward the finger as content scrolls under it.
+            let lines = sel.selectionsByLine()
+            if direction > 0, let page = sel.pages.first, let line = lines.first {
+                let b = line.bounds(for: page)
+                selectionAnchorPage = page
+                selectionAnchorPoint = CGPoint(x: b.minX, y: b.maxY)   // top-left
+            } else if direction < 0, let page = sel.pages.last, let line = lines.last {
+                let b = line.bounds(for: page)
+                selectionAnchorPage = page
+                selectionAnchorPoint = CGPoint(x: b.maxX, y: b.minY)   // bottom-right
+            }
+            guard selectionAnchorPage != nil else { return }
+
+            if autoScrollLink == nil {
+                let link = CADisplayLink(target: self, selector: #selector(autoScrollTick))
+                link.add(to: .main, forMode: .common)
+                autoScrollLink = link
+            }
+        }
+
+        @objc private func autoScrollTick() {
+            guard let marking = markingView,
+                  let sv = marking.firstMarkingScrollView,
+                  let anchorPage = selectionAnchorPage,
+                  let doc = document else { stopAutoScroll(); return }
+
+            var offset = sv.contentOffset
+            let maxY = max(0, sv.contentSize.height - sv.bounds.height)
+            let newY = min(max(0, offset.y + 9 * autoScrollDirection), maxY)
+            if newY == offset.y { stopAutoScroll(); return }   // reached the end
+            offset.y = newY
+            sv.setContentOffset(offset, animated: false)
+
+            // Re-derive the selection from the fixed anchor to the finger, which is
+            // now hovering over freshly-scrolled content.
+            guard let endPage = marking.page(for: lastFingerLocation, nearest: true) else { return }
+            let endPoint = marking.convert(lastFingerLocation, to: endPage)
+            if let sel = doc.selection(from: anchorPage, at: selectionAnchorPoint,
+                                       to: endPage, at: endPoint) {
+                marking.setCurrentSelection(sel, animate: false)
+            }
+            markingOverlay?.requestRedraw()
+        }
+
+        private func stopAutoScroll() {
+            autoScrollLink?.invalidate()
+            autoScrollLink = nil
+            autoScrollDirection = 0
+            selectionAnchorPage = nil
+        }
+
         private func endMarking() {
+            stopAutoScroll()
             selectionShot = nil
             markingScrollObs?.invalidate()
             markingScrollObs = nil
