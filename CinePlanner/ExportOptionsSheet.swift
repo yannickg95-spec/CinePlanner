@@ -294,9 +294,9 @@ struct ExportOptionsSheet: View {
         let exporter = ProjectExporter(project: project, version: version)
         let formats = orderedSelection
         guard !formats.isEmpty else { return }
-        dismiss()
 
         #if os(macOS)
+        dismiss()
         // Let the sheet finish dismissing before a panel appears.
         DispatchQueue.main.async {
             // A single format keeps the familiar "name your file" save panel.
@@ -328,14 +328,16 @@ struct ExportOptionsSheet: View {
         }
         #else
         // iPad: generate each format to a temp file and hand them to a share sheet
-        // (Save to Files, AirDrop, Mail, etc.).
+        // (Save to Files, AirDrop, Mail, etc.). Keep this sheet open behind the
+        // share sheet — dismissing first races the presentation and it never
+        // appears — and close it once the share sheet finishes.
         Task { @MainActor in
             var urls: [URL] = []
             for format in formats {
                 if let url = try? await exporter.exportFileURL(format: format) { urls.append(url) }
             }
-            guard !urls.isEmpty else { return }
-            PlatformShare.present(urls)
+            guard !urls.isEmpty else { dismiss(); return }
+            PlatformShare.present(urls) { dismiss() }
         }
         #endif
     }

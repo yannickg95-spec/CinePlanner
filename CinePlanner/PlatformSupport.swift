@@ -258,14 +258,21 @@ extension PlatformBezierPath {
 #if canImport(UIKit)
 enum PlatformShare {
     /// Presents a share sheet for the given items (e.g. exported file URLs) from
-    /// the key window's root view controller. iPad anchors the popover centrally.
-    @MainActor static func present(_ items: [Any]) {
+    /// the top-most presented view controller. iPad anchors the popover centrally.
+    /// `onComplete` fires after the share sheet is dismissed (shared or cancelled).
+    @MainActor static func present(_ items: [Any], onComplete: (() -> Void)? = nil) {
         guard let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene }).first,
               let root = (scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first)?
-                .rootViewController else { return }
-        let presenter = root.presentedViewController ?? root
+                .rootViewController else { onComplete?(); return }
+        // Present from the top-most controller (e.g. an open export sheet), not one
+        // that's mid-dismissal — otherwise the share sheet silently fails to appear.
+        var presenter = root
+        while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+            presenter = presented
+        }
         let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, _, _, _ in onComplete?() }
         if let pop = vc.popoverPresentationController {
             pop.sourceView = presenter.view
             pop.sourceRect = CGRect(x: presenter.view.bounds.midX,
