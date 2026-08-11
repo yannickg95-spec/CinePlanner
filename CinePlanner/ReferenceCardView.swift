@@ -22,6 +22,13 @@ struct ReferenceCardView: View {
     @State private var isImportingMap = false
     @State private var previewImage: PlatformImage?
     @State private var previewTitle = ""
+    #if os(iOS)
+    // iPad lets the user pick a reference/map from Files or the Photos library.
+    @State private var isPresentingImagePhotos = false
+    @State private var selectedImagePhoto: PhotosPickerItem?
+    @State private var isPresentingMapPhotos = false
+    @State private var selectedMapPhoto: PhotosPickerItem?
+    #endif
 
     /// Images cap at this width; metadata beneath them matches.
     private static let mediaMaxWidth: CGFloat = 700
@@ -164,8 +171,33 @@ struct ReferenceCardView: View {
         }
     }
 
-    /// Nothing added yet: one button offering either kind of media.
+    /// Nothing added yet: one control offering either kind of media.
+    @ViewBuilder
     private var emptyMediaRow: some View {
+        #if os(iOS)
+        // iPad: a styled dropdown to pick the source — Files or Photos.
+        ChipMenu(items: [
+            ChipMenuItem(title: "Choose from Files", systemImage: "folder") {
+                presentImporter($isImportingImage)
+            },
+            ChipMenuItem(title: "Choose from Photos", systemImage: "photo.on.rectangle") {
+                isPresentingImagePhotos = true
+            },
+        ], width: 240) {
+            addMediaLabel("Photo or Video", systemImage: "photo.badge.plus")
+        }
+        .fileImporter(isPresented: $isImportingImage,
+                      allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                      allowsMultipleSelection: false) { result in
+            handlePickedMedia(result)
+        }
+        .photosPicker(isPresented: $isPresentingImagePhotos, selection: $selectedImagePhoto,
+                      matching: .any(of: [.images, .videos]))
+        .onChange(of: selectedImagePhoto) { _, item in
+            handlePickedPhoto(item) { handlePickedMedia($0) }
+            selectedImagePhoto = nil
+        }
+        #else
         Button {
             presentImporter($isImportingImage)
         } label: {
@@ -179,6 +211,7 @@ struct ReferenceCardView: View {
                       allowsMultipleSelection: false) { result in
             handlePickedMedia(result)
         }
+        #endif
     }
 
     /// Shared dashed drop-zone label used by every "add media" button, so the
@@ -238,6 +271,29 @@ struct ReferenceCardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
+                #if os(iOS)
+                ChipMenu(items: [
+                    ChipMenuItem(title: "Choose from Files", systemImage: "folder") {
+                        presentImporter($isImportingMap)
+                    },
+                    ChipMenuItem(title: "Choose from Photos", systemImage: "photo.on.rectangle") {
+                        isPresentingMapPhotos = true
+                    },
+                ], width: 240) {
+                    addMediaLabel("Map Image or Video", systemImage: "map")
+                }
+                .fileImporter(isPresented: $isImportingMap,
+                              allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                              allowsMultipleSelection: false) { result in
+                    handlePickedMap(result)
+                }
+                .photosPicker(isPresented: $isPresentingMapPhotos, selection: $selectedMapPhoto,
+                              matching: .any(of: [.images, .videos]))
+                .onChange(of: selectedMapPhoto) { _, item in
+                    handlePickedPhoto(item) { handlePickedMap($0) }
+                    selectedMapPhoto = nil
+                }
+                #else
                 Button {
                     presentImporter($isImportingMap)
                 } label: {
@@ -249,6 +305,7 @@ struct ReferenceCardView: View {
                               allowsMultipleSelection: false) { result in
                     handlePickedMap(result)
                 }
+                #endif
             }
         }
     }
@@ -329,6 +386,26 @@ struct ReferenceCardView: View {
         flag.wrappedValue = false
         DispatchQueue.main.async { flag.wrappedValue = true }
     }
+
+    #if os(iOS)
+    /// Bridges a Photos-library pick to the same URL-based handlers as Files:
+    /// writes the item's original bytes (EXIF intact — `Data.self` isn't
+    /// re-encoded) to a temp file, routes it through `handler`, then cleans up.
+    private func handlePickedPhoto(_ item: PhotosPickerItem?,
+                                   into handler: @escaping (Result<[URL], Error>) -> Void) {
+        guard let item else { return }
+        Task { @MainActor in
+            guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+            let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(ext)
+            guard (try? data.write(to: url)) != nil else { return }
+            handler(.success([url]))
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+    #endif
 
     /// Reads the file the user picked, honouring the security scope.
     private func readPickedFile(_ result: Result<[URL], Error>) -> Data? {
