@@ -260,6 +260,11 @@ struct SceneListView: View {
                     Text("Import Shots from Version…")
                 }
             }
+            Button {
+                bumpSceneNumber(from: scene)
+            } label: {
+                Label("Increase Scene Number", systemImage: "arrow.up")
+            }
             Divider()
             Button(role: .destructive) {
                 sceneToClear = scene
@@ -314,6 +319,17 @@ struct SceneListView: View {
     private func sceneDeleteLabel(for scene: Scene) -> String {
         let count = deletionTargets(for: scene).count
         return count > 1 ? "Delete \(count) Scenes" : "Delete Scene"
+    }
+
+    /// Increments this scene's number and every scene ordered after it, opening a
+    /// gap in the numbering (e.g. to make room for a scene inserted before it).
+    private func bumpSceneNumber(from scene: Scene) {
+        let ordered = orderedScenes
+        guard let index = ordered.firstIndex(where: { $0 === scene }) else { return }
+        for s in ordered[index...] {
+            s.sceneNumber += 1
+        }
+        try? scene.modelContext?.save()
     }
     
     private var totalShotsCount: Int {
