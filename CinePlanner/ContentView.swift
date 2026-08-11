@@ -1915,7 +1915,15 @@ struct OptionPickerView: View {
             )
         }
         .buttonStyle(.plain)
+        // On iPad, open beside the button (arrow on its trailing edge) rather than
+        // above/below, so the popover has the full screen height and the Size/Type/
+        // Grip lists show without scrolling. iOS flips it if there's no room on that
+        // side. macOS keeps the usual below-the-button placement.
+        #if os(iOS)
+        .popover(isPresented: $isPresented, arrowEdge: .trailing) { popover }
+        #else
         .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
+        #endif
         .alert("Add Custom \(noun.capitalized)", isPresented: $showAdd) {
             TextField("\(noun.capitalized) name", text: $newName)
             Button("Add") { addCustom(newName) }
@@ -1958,7 +1966,9 @@ struct OptionPickerView: View {
                 pickerOptions.frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: 440)
+            // Tall enough that the built-in Size/Type/Grip lists show in full on any
+            // iPad (all are ≥744pt high); only very long custom lists still scroll.
+            .frame(maxHeight: 600)
             #else
             pickerOptions
             #endif
