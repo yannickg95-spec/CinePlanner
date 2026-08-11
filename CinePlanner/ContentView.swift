@@ -233,27 +233,13 @@ struct SceneListView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                HStack(spacing: 6) {
-                    Text(scene.isInterior ? "INT" : "EXT")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    Text(scene.isDay ? "DAY" : "NIGHT")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background((scene.isDay ? Color.blue : Color.orange).opacity(0.25))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    Text("\(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s")")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+                // "NIGHT" when the column has room, else the shorter "NITE" — so it
+                // never clips on smaller iPads or at larger text sizes.
+                ViewThatFits(in: .horizontal) {
+                    sceneTagRow(scene, nightLabel: "NIGHT")
+                    sceneTagRow(scene, nightLabel: "NITE")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.vertical, 2)
         }
@@ -290,6 +276,33 @@ struct SceneListView: View {
         // Tight row insets so the card content uses the full column width on iPad.
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
         #endif
+    }
+
+    /// The INT/EXT + time-of-day + shot-count tags. `nightLabel` lets a caller pass
+    /// a shorter spelling ("NITE") for the compact fallback. No trailing spacer, so
+    /// `ViewThatFits` can measure the row's true width.
+    private func sceneTagRow(_ scene: Scene, nightLabel: String) -> some View {
+        HStack(spacing: 6) {
+            Text(scene.isInterior ? "INT" : "EXT")
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Color.secondary.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            Text(scene.isDay ? "DAY" : nightLabel)
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background((scene.isDay ? Color.blue : Color.orange).opacity(0.25))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            Text("\(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// Scenes a delete action should affect: the whole selection when the
