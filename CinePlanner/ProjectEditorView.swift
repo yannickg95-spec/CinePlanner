@@ -688,7 +688,15 @@ struct ProjectEditorView: View {
 
     private var editorColumns: some View {
         GeometryReader { geo in
-            editorColumnStack(available: geo.size.width)
+            // On iPad in portrait there isn't room for three columns, so the script
+            // pane is hidden — leaving Scenes and Shots/Scene Map. macOS always
+            // shows it.
+            #if os(iOS)
+            let showScript = geo.size.width >= geo.size.height
+            #else
+            let showScript = true
+            #endif
+            editorColumnStack(available: geo.size.width, showScript: showScript)
                 .onAppear {
                     // Seed here, right before deriving the width, so the order
                     // relative to the view's own onAppear can't matter.
@@ -709,7 +717,7 @@ struct ProjectEditorView: View {
         #endif
     }
 
-    private func editorColumnStack(available: CGFloat) -> some View {
+    private func editorColumnStack(available: CGFloat, showScript: Bool) -> some View {
         HStack(spacing: 0) {
             // Sidebar - Scenes (fixed width, matching the shots column)
             SceneListView(
@@ -776,42 +784,44 @@ struct ProjectEditorView: View {
             }
             .frame(maxWidth: .infinity)
 
-            // Draggable divider setting the script pane's width. The script pane
-            // is to the right, so the drag is inverted. Its range is the split
-            // band, so the two panes stay near even.
-            ResizableDivider(
-                width: $scriptWidth,
-                minWidth: scriptWidthBounds(available: available).min,
-                maxWidth: scriptWidthBounds(available: available).max,
-                invertDrag: true
-            ) { newWidth in
-                let combined = combinedPaneWidth(available: available)
-                guard combined > 0 else { return }
-                scriptFraction = newWidth / combined
-                project.scriptSplitFraction = Double(scriptFraction)
-            }
+            if showScript {
+                // Draggable divider setting the script pane's width. The script pane
+                // is to the right, so the drag is inverted. Its range is the split
+                // band, so the two panes stay near even.
+                ResizableDivider(
+                    width: $scriptWidth,
+                    minWidth: scriptWidthBounds(available: available).min,
+                    maxWidth: scriptWidthBounds(available: available).max,
+                    invertDrag: true
+                ) { newWidth in
+                    let combined = combinedPaneWidth(available: available)
+                    guard combined > 0 else { return }
+                    scriptFraction = newWidth / combined
+                    project.scriptSplitFraction = Double(scriptFraction)
+                }
 
-            // Fourth column - Script PDF Viewer (preferred width, can compress)
-            ScriptPDFViewer(
-                project: project,
-                version: selectedVersion,
-                selectedScenePage: selectedScene?.absolutePDFPage,
-                selectedScene: selectedScene,
-                selectedShot: selectedShot,
-                onScenesImported: { _ in
-                    // Offer to copy shots over when another version has planned shots
-                    if !otherVersionsWithShots.isEmpty {
-                        showCopyShotsPrompt = true
-                    }
-                },
-                requestImport: $requestScriptImport,
-                isMarkingScenePage: sceneBeingMarked != nil,
-                markingSceneLabel: sceneBeingMarked.map { "\($0.sceneNumber)\($0.suffix)" } ?? "",
-                onFinishMarking: { finishMarkingScenePage(atPageIndex: $0) },
-                onCancelMarking: { sceneBeingMarked = nil }
-            )
-            .frame(minWidth: Self.paneMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
-            .clipped()
+                // Fourth column - Script PDF Viewer (preferred width, can compress)
+                ScriptPDFViewer(
+                    project: project,
+                    version: selectedVersion,
+                    selectedScenePage: selectedScene?.absolutePDFPage,
+                    selectedScene: selectedScene,
+                    selectedShot: selectedShot,
+                    onScenesImported: { _ in
+                        // Offer to copy shots over when another version has planned shots
+                        if !otherVersionsWithShots.isEmpty {
+                            showCopyShotsPrompt = true
+                        }
+                    },
+                    requestImport: $requestScriptImport,
+                    isMarkingScenePage: sceneBeingMarked != nil,
+                    markingSceneLabel: sceneBeingMarked.map { "\($0.sceneNumber)\($0.suffix)" } ?? "",
+                    onFinishMarking: { finishMarkingScenePage(atPageIndex: $0) },
+                    onCancelMarking: { sceneBeingMarked = nil }
+                )
+                .frame(minWidth: Self.paneMinWidth, idealWidth: scriptWidth, maxWidth: scriptWidth)
+                .clipped()
+            }
         }
     }
 
