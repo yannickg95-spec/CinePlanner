@@ -1092,6 +1092,23 @@ struct ShotDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// A SHOT SETUP row: the label sits beside its controls when the pane is wide
+    /// enough, and stacks above them when it's too narrow — so the controls (a
+    /// zoom range, or several sizes/types) never overlap or clip.
+    private func setupRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        let controls = content()
+        return ViewThatFits(in: .horizontal) {
+            HStack {
+                Text(label).font(.headline).frame(width: 100, alignment: .leading)
+                controls
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label).font(.headline)
+                controls
+            }
+        }
+    }
+
     /// The shot's setup and camera sections, unified into one card.
     private var combinedDetailCard: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -1155,21 +1172,13 @@ struct ShotDetailView: View {
 
     private var shotSetupCard: some View {
     sectionCard("SHOT SETUP") {
-    HStack {
-        Text("Nickname")
-            .font(.headline)
-            .frame(width: 100, alignment: .leading)
-
+    setupRow("Nickname") {
         TextField("Add a nickname for this shot", text: $shot.nickname)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 200)
     }
-    
-    HStack {
-        Text("Size")
-            .font(.headline)
-            .frame(width: 100, alignment: .leading)
 
+    setupRow("Size") {
         HStack(spacing: 8) {
             OptionPickerView(
                 noun: "size",
@@ -1223,11 +1232,7 @@ struct ShotDetailView: View {
         }
     }
 
-    HStack {
-        Text("Type")
-            .font(.headline)
-            .frame(width: 100, alignment: .leading)
-
+    setupRow("Type") {
         HStack(spacing: 8) {
             OptionPickerView(
                 noun: "type",
@@ -1315,11 +1320,7 @@ struct ShotDetailView: View {
         }
     }
     
-    HStack {
-        Text("Focal Length")
-            .font(.headline)
-            .frame(width: 100, alignment: .leading)
-        
+    setupRow("Focal Length") {
         HStack(spacing: 8) {
             // First focal length field
             HStack(spacing: 4) {
@@ -1347,6 +1348,7 @@ struct ShotDetailView: View {
 
                     Text("mm")
                         .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
             }
 
@@ -1354,27 +1356,32 @@ struct ShotDetailView: View {
                 .frame(height: 16)
                 .padding(.horizontal, 4)
 
-            // Zoom checkbox (off = prime lens, the default)
-            Toggle("Zoom", isOn: Binding(
+            // Zoom toggle (off = prime lens, the default).
+            let zoomBinding = Binding(
                 get: { !shot.lensIsPrime },
                 set: { shot.lensIsPrime = !$0 }
-            ))
+            )
             #if os(macOS)
-            .toggleStyle(.checkbox)
+            Toggle("Zoom", isOn: zoomBinding)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .fixedSize()
+                .help("On: zoom lens with a focal range. Off: prime lens with a single focal length.")
             #else
-            .toggleStyle(.switch)
-            #endif
-            .controlSize(.small)
-            .fixedSize()
+            // A compact switch so the row fits more often before it has to stack.
+            HStack(spacing: 10) {
+                Text("Zoom").foregroundStyle(.secondary).fixedSize()
+                Toggle("", isOn: zoomBinding)
+                    .labelsHidden()
+                    .scaleEffect(0.8)
+                    .frame(width: 42, height: 26)
+            }
             .help("On: zoom lens with a focal range. Off: prime lens with a single focal length.")
+            #endif
         }
     }
     
-    HStack {
-        Text("Grip")
-            .font(.headline)
-            .frame(width: 100, alignment: .leading)
-
+    setupRow("Grip") {
         OptionPickerView(
             noun: "grip",
             placeholder: "Select grip",
