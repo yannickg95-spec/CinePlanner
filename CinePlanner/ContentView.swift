@@ -2368,14 +2368,10 @@ struct MetadataView: View {
 
     var body: some View {
         if !items.isEmpty {
-            // Columns are built explicitly (rather than with LazyVGrid) so the
-            // values read top-to-bottom down each column instead of across rows.
-            // ViewThatFits picks the widest column count that still fits.
-            ViewThatFits(in: .horizontal) {
-                columnLayout(3)
-                columnLayout(2)
-                columnLayout(1)
-            }
+            // Label above value, wrapping into as many columns as fit — the same
+            // layout the map reference's metadata uses, so nothing runs off the
+            // edge in a narrow card (iPad, or a narrow Mac window).
+            stackedLayout
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(Color.secondary.opacity(0.05))
@@ -2387,56 +2383,29 @@ struct MetadataView: View {
         }
     }
 
-    /// Splits the values into `count` columns, filling each column top-to-bottom.
-    private func splitIntoColumns(_ count: Int) -> [[(label: String, value: String)]] {
-        guard count > 1, items.count > 1 else { return [items] }
-        let perColumn = Int((Double(items.count) / Double(count)).rounded(.up))
-        var columns: [[(label: String, value: String)]] = []
-        var index = 0
-        while index < items.count {
-            let end = min(index + perColumn, items.count)
-            columns.append(Array(items[index..<end]))
-            index = end
-        }
-        return columns
-    }
-
-    private func columnLayout(_ count: Int) -> some View {
-        let columns = splitIntoColumns(count)
-        return HStack(alignment: .top, spacing: 20) {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(column, id: \.label) { item in
-                        MetadataRow(label: item.label, value: item.value)
-                    }
-                }
-                // Matches the map metadata's minimum so, side by side in the
-                // reference card, the two columns split evenly and their image
-                // boxes come out the same size. ViewThatFits still uses this to
-                // drop to fewer columns as the pane narrows.
-                .frame(minWidth: 130, alignment: .leading)
+    /// Label above value, wrapping into as many columns as fit — the same layout
+    /// the map reference's metadata uses, so nothing runs off the edge in a narrow
+    /// card.
+    private var stackedLayout: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 18, alignment: .topLeading)],
+                  alignment: .leading, spacing: 8) {
+            ForEach(items, id: \.label) { item in
+                stackedPair(item.label, item.value)
             }
         }
     }
-}
 
-struct MetadataRow: View {
-    let label: String
-    let value: String
-    var labelWidth: CGFloat = 92
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+    private func stackedPair(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: labelWidth, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
             Text(value)
                 .font(.caption)
                 .fontWeight(.medium)
-                .fixedSize(horizontal: false, vertical: true)   // wrap, don't clip, when narrow
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
