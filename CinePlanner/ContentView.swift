@@ -461,6 +461,11 @@ struct ShotListView: View {
     var onDeleteShots: (([Shot]) -> Void)? = nil
     @State private var showCineStagerImport = false
     @State private var isImportingShotImages = false
+    #if os(iOS)
+    // iPad lets the user pick the source: Files or the Photos library.
+    @State private var isPresentingShotPhotos = false
+    @State private var selectedShotPhotos: [PhotosPickerItem] = []
+    #endif
 
     var sortedShots: [Shot] {
         scene.shots.sorted { $0.shotNumber < $1.shotNumber }
@@ -565,6 +570,33 @@ struct ShotListView: View {
                 Divider()
                 // Bulk add: pick several photos/videos at once — each becomes its
                 // own shot (EXIF + size guessed per image).
+                #if os(iOS)
+                // iPad: a styled dropdown to pick the source — Files or Photos.
+                ChipMenu(items: [
+                    ChipMenuItem(title: "Choose from Files", systemImage: "folder") {
+                        isImportingShotImages = false
+                        DispatchQueue.main.async { isImportingShotImages = true }
+                    },
+                    ChipMenuItem(title: "Choose from Photos", systemImage: "photo.on.rectangle") {
+                        isPresentingShotPhotos = true
+                    },
+                ], width: 240) {
+                    addSourceRowLabel("From Images", systemImage: "photo.on.rectangle.angled")
+                }
+                .fileImporter(isPresented: $isImportingShotImages,
+                              allowedContentTypes: [.image, .movie, .video, .quickTimeMovie, .mpeg4Movie],
+                              allowsMultipleSelection: true) { result in
+                    if case .success(let urls) = result { addShotsFromMedia(urls) }
+                }
+                .photosPicker(isPresented: $isPresentingShotPhotos, selection: $selectedShotPhotos,
+                              matching: .any(of: [.images, .videos]))
+                .onChange(of: selectedShotPhotos) { _, items in
+                    guard !items.isEmpty else { return }
+                    let picked = items
+                    selectedShotPhotos = []
+                    addShotsFromPhotos(picked)
+                }
+                #else
                 addSourceRow("From Images", systemImage: "photo.on.rectangle.angled") {
                     isImportingShotImages = false
                     DispatchQueue.main.async { isImportingShotImages = true }
@@ -574,6 +606,7 @@ struct ShotListView: View {
                               allowsMultipleSelection: true) { result in
                     if case .success(let urls) = result { addShotsFromMedia(urls) }
                 }
+                #endif
                 Divider()
                 // Add a shot straight from a CineStager AR capture.
                 addSourceRow("From CineStager", assetImage: "CineStagerLogo") {
@@ -656,29 +689,35 @@ struct ShotListView: View {
                               assetImage: String? = nil,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                if let assetImage {
-                    Image(assetImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 15, height: 15)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
-                }
-                Text(title)
-                    .fontWeight(.medium)
-                Spacer(minLength: 0)
-            }
-            .font(.subheadline)
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            addSourceRowLabel(title, systemImage: systemImage, assetImage: assetImage)
         }
         .buttonStyle(.plain)
+    }
+
+    private func addSourceRowLabel(_ title: String,
+                                  systemImage: String? = nil,
+                                  assetImage: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            if let assetImage {
+                Image(assetImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 15, height: 15)
+            } else if let systemImage {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
+            Text(title)
+                .fontWeight(.medium)
+            Spacer(minLength: 0)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func addShot() {
@@ -725,6 +764,28 @@ struct ShotListView: View {
         try? scene.modelContext?.save()
         selectedShots = Set(created.map { $0.uid })
     }
+
+    #if os(iOS)
+    /// Bulk add from the Photos library: writes each picked item to a temporary
+    /// file so it can reuse the same URL-based media loader as the Files path
+    /// (which reads EXIF and guesses size/type), then cleans the temp files up.
+    private func addShotsFromPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        Task { @MainActor in
+            var urls: [URL] = []
+            for item in items {
+                guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(ext)
+                if (try? data.write(to: url)) != nil { urls.append(url) }
+            }
+            addShotsFromMedia(urls)
+            for url in urls { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+    #endif
 
     /// Creates a new shot with one empty reference, selects it, and returns that
     /// reference for the CineStager import sheet to fill. Called only when the
