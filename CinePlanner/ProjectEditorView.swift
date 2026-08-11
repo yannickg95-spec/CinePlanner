@@ -138,13 +138,14 @@ struct ProjectEditorView: View {
                 actionButtons
             }
 
-            ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 8) {
-                    if let url = publishedURL {
-                        publishedPageMenu(url: url)
-                    }
-                    exportButton
-                }
+            // The GitHub indicator's live-badge and the Export capsule have their own
+            // backgrounds; hide the OS 26 "Liquid Glass" toolbar pill so it doesn't
+            // clip the badge and the button edges.
+            if #available(iOS 26.0, macOS 26.0, *) {
+                ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
             }
         }
         .onAppear {
@@ -958,6 +959,17 @@ struct ProjectEditorView: View {
             .padding(.vertical, 8)
     }
     
+    /// The GitHub published-page indicator (when published) plus the Export button.
+    @ViewBuilder
+    private var exportToolbarGroup: some View {
+        HStack(spacing: 8) {
+            if let url = publishedURL {
+                publishedPageMenu(url: url)
+            }
+            exportButton
+        }
+    }
+
     /// Primary export action — an accent capsule matching the version tabs
     /// and the chips used elsewhere in the app.
     private var exportButton: some View {
