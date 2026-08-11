@@ -916,18 +916,6 @@ extension ShotCustomInfo {
     }
 }
 
-extension Shot {
-    /// Adds project-wide auto tools (the film-length calculator) if the project
-    /// has them enabled and this shot doesn't already carry one. Called right
-    /// after a new shot is created.
-    func applyAutoTools() {
-        guard scene?.project?.autoAddFilmTool == true else { return }
-        guard !customInfo.contains(where: { $0.kind == "filmstock" }) else { return }
-        let item = ShotCustomInfo(sortOrder: (customInfo.map(\.sortOrder).max() ?? -1) + 1, kind: "filmstock")
-        item.shot = self
-    }
-}
-
 @Model
 final class Shot {
     var uid: String = UUID().uuidString

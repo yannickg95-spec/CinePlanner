@@ -740,7 +740,6 @@ struct ShotListView: View {
         newShot.scene = scene
         newShot.numberingStyle = currentNumberingStyle
         scene.shots.append(newShot)
-        newShot.applyAutoTools()
         // Start the shot with one empty reference so its card is open and ready
         // for media, rather than only an "Add Reference" button.
         let reference = ShotReference(sortOrder: 0)
@@ -766,7 +765,6 @@ struct ShotListView: View {
             newShot.scene = scene
             newShot.numberingStyle = currentNumberingStyle
             scene.shots.append(newShot)
-            newShot.applyAutoTools()
             let reference = ShotReference(sortOrder: 0)
             reference.shot = newShot
             newShot.references.append(reference)
@@ -809,7 +807,6 @@ struct ShotListView: View {
         newShot.scene = scene
         newShot.numberingStyle = currentNumberingStyle
         scene.shots.append(newShot)
-        newShot.applyAutoTools()
         let reference = ShotReference(sortOrder: 0)
         reference.shot = newShot
         newShot.references.append(reference)
@@ -1507,7 +1504,7 @@ struct ShotDetailView: View {
                 Label("Time of day", systemImage: "sun.horizon")
             }
             Button {
-                addFilmToolToProject()
+                addCustomInfo(kind: "filmstock")
             } label: {
                 Label("Film length calculator", systemImage: "film")
             }
@@ -1527,21 +1524,6 @@ struct ShotDetailView: View {
         if kind == "timeofday" { item.value = ShotCustomInfo.timeOfDayPresets.first ?? "" }
         item.shot = shot
         shotModelContext.insert(item)
-        try? shotModelContext.save()
-    }
-
-    /// The film-length calculator is project-wide: add it to every shot that
-    /// doesn't have one and turn on auto-add for future shots.
-    private func addFilmToolToProject() {
-        guard let project = shot.scene?.project else { addCustomInfo(kind: "filmstock"); return }
-        project.autoAddFilmTool = true
-        for scene in project.scenes {
-            for s in scene.shots where !s.customInfo.contains(where: { $0.kind == "filmstock" }) {
-                let item = ShotCustomInfo(sortOrder: (s.customInfo.map(\.sortOrder).max() ?? -1) + 1,
-                                          kind: "filmstock")
-                item.shot = s
-            }
-        }
         try? shotModelContext.save()
     }
 

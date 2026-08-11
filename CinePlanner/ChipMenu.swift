@@ -26,6 +26,10 @@ struct ChipMenuItem: Identifiable {
 struct ChipMenu<Label: View>: View {
     var items: [ChipMenuItem]
     var width: CGFloat = 240
+    /// Which edge of the button the popover's arrow attaches to. `.bottom` (the
+    /// default) opens above the button; `.top` opens below it — useful when the
+    /// button sits near the top of the screen with little room above.
+    var arrowEdge: Edge = .bottom
     @ViewBuilder var label: () -> Label
 
     @State private var isPresented = false
@@ -33,7 +37,7 @@ struct ChipMenu<Label: View>: View {
     var body: some View {
         Button { isPresented = true } label: { label() }
             .buttonStyle(.plain)
-            .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            .popover(isPresented: $isPresented, arrowEdge: arrowEdge) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(items) { item in

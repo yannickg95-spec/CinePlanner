@@ -553,7 +553,10 @@ struct ProjectEditorView: View {
                              isDisabled: project.episodes.count <= 1) {
                     episodePendingDeletion = selectedEpisode
                 },
-            ]
+            ],
+            // Opens below the button — it sits near the top of the window, so there's
+            // little room above for the popover.
+            arrowEdge: .top
         ) {
             HStack(spacing: 6) {
                 Image(systemName: "tv")
