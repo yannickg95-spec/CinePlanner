@@ -222,6 +222,11 @@ struct ShotTransferView: View {
         }
         #if os(macOS)
         .frame(width: 980, height: 640)
+        #else
+        // iPad: grow the sheet to fit a roomy layout instead of the narrow default
+        // page-sheet width, so both scene columns are clearly readable.
+        .frame(idealWidth: 900, maxWidth: .infinity, idealHeight: 680, maxHeight: .infinity)
+        .presentationSizing(.fitted)
         #endif
         // Initial source + matches are set in init(); this only re-matches when the
         // user picks a different source version.
