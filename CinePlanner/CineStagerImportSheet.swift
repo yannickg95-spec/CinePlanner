@@ -450,8 +450,7 @@ struct CineStagerImportSheet: View {
 
         // Seed the parent shot's camera fields if empty, like a photo import does.
         if let shot = ref.shot {
-            if shot.camera.isEmpty { shot.camera = cs.cameraFamily }
-            if shot.format.isEmpty { shot.format = cs.cameraFormat }
+            if shot.camera.isEmpty { shot.camera = Shot.combinedCamera(cs.cameraFamily, cs.cameraFormat) }
             if let lines = cs.framelines, shot.framelines.isEmpty { shot.framelines = lines }
             if let lens = cs.lensPresetName, shot.lensPreset.isEmpty { shot.lensPreset = lens }
             if let focal = cs.focalLengthMM, focal > 0, shot.lensfocal == 0 {

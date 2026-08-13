@@ -516,7 +516,6 @@ struct ProjectExporter {
         }
         if shot.hasGrip { rows.append(("Grip", shot.gripName)) }
         if !shot.camera.isEmpty { rows.append(("Camera", shot.camera)) }
-        if !shot.format.isEmpty { rows.append(("Format", shot.format)) }
         if !shot.framelines.isEmpty { rows.append(("Framelines", shot.framelines)) }
         if !shot.lensPreset.isEmpty { rows.append(("Lens", shot.lensPreset)) }
         if !shot.extraInfo.isEmpty { rows.append(("Extra info", shot.extraInfo)) }
@@ -979,7 +978,7 @@ struct ProjectExporter {
                 // lens) and keeps the framing essentials, focal length included.
                 // Film length gets its own always-visible chip below, so leave it
                 // out of the generic values line.
-                let inlineHidden: Set<String> = ["Camera", "Format", "Lens", "Framelines", "Film length", "Time of day"]
+                let inlineHidden: Set<String> = ["Camera", "Lens", "Framelines", "Film length", "Time of day"]
                 let inlineDetails = shot.details.filter { !inlineHidden.contains($0.label) }
                 let toggleID = "shot-\(shotSeq)"
                 shotSeq += 1
@@ -1061,7 +1060,7 @@ struct ProjectExporter {
                 if shot.details.isEmpty {
                     body += "        <p class=\"empty\">No details.</p>\n"
                 } else {
-                    let cameraLabels: Set<String> = ["Camera", "Format", "Framelines", "Lens", "Film length"]
+                    let cameraLabels: Set<String> = ["Camera", "Framelines", "Lens", "Film length"]
                     let groups: [(title: String, rows: [(label: String, value: String)])] = [
                         ("Shot setup", shot.details.filter { !cameraLabels.contains($0.label) }),
                         ("Camera information", shot.details.filter { cameraLabels.contains($0.label) })
@@ -1919,9 +1918,6 @@ struct ProjectExporter {
                 }
                 if !shot.camera.isEmpty {
                     output += detailRow("Camera", shot.camera)
-                }
-                if !shot.format.isEmpty {
-                    output += detailRow("Format", shot.format)
                 }
                 if !shot.framelines.isEmpty {
                     output += detailRow("Framelines", shot.framelines)
@@ -2810,7 +2806,6 @@ struct ProjectExporter {
         }
         if shot.hasGrip { pairs.append(("Grip", shot.gripName)) }
         if !shot.camera.isEmpty { pairs.append(("Camera", shot.camera)) }
-        if !shot.format.isEmpty { pairs.append(("Format", shot.format)) }
         if !shot.framelines.isEmpty { pairs.append(("Framelines", shot.framelines)) }
         if !shot.lensPreset.isEmpty { pairs.append(("Lens", shot.lensPreset)) }
         for info in shot.orderedCustomInfo {

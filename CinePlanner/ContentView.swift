@@ -1118,34 +1118,17 @@ struct ShotDetailView: View {
         return Array(cameras).sorted()
     }
     
-    private var previousFormatValues: [String] {
-        guard let project = shot.scene?.project else { return [] }
-        
-        var formats = Set<String>()
-        for scene in project.scenes {
-            for projectShot in scene.shots {
-                // Don't include the current shot
-                if projectShot.id != shot.id && !projectShot.format.isEmpty {
-                    formats.insert(projectShot.format)
-                }
-            }
-        }
-        return Array(formats).sorted()
-    }
-    
-    /// When this shot's camera+format matches one already imported from CineStager
-    /// (which carries a real sensor width), reuse that sensor for this shot. So a
-    /// manually-added shot set to a previously-imported camera/format gets the
+    /// When this shot's (combined) camera matches one already imported from
+    /// CineStager — which carries a real sensor width — reuse that sensor for this
+    /// shot. So a manually-added shot set to a previously-imported camera gets the
     /// correct scene-map FOV, without a CineStager import of its own. Only ever
     /// copies a value in — never clears one — so it can't wipe an imported shot's
-    /// own sensor. Runs when the camera or format changes.
+    /// own sensor. Runs when the camera changes.
     private func inheritCineStagerSensorWidth() {
-        guard !shot.camera.isEmpty, !shot.format.isEmpty,
-              let project = shot.scene?.project else { return }
+        guard !shot.camera.isEmpty, let project = shot.scene?.project else { return }
         for scene in project.scenes {
             for other in scene.shots where other.id != shot.id {
-                if let sensor = other.sensorWidthMM, sensor > 0,
-                   other.camera == shot.camera, other.format == shot.format {
+                if let sensor = other.sensorWidthMM, sensor > 0, other.camera == shot.camera {
                     if shot.sensorWidthMM != sensor { shot.sensorWidthMM = sensor }
                     return
                 }
@@ -1643,7 +1626,7 @@ struct ShotDetailView: View {
                 .frame(width: 92, alignment: .leading)
 
             HStack(spacing: 4) {
-                TextField("Camera name", text: $shot.camera)
+                TextField("Camera · Format", text: $shot.camera)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
                     .onChange(of: shot.camera) { inheritCineStagerSensorWidth() }
@@ -1657,32 +1640,6 @@ struct ShotDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     .help("Select from previously used cameras")
-                }
-            }
-        }
-
-        // Format - Always editable
-        HStack {
-            Text("Format")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 92, alignment: .leading)
-
-            HStack(spacing: 4) {
-                TextField("Format", text: $shot.format)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 200)
-                    .onChange(of: shot.format) { inheritCineStagerSensorWidth() }
-
-                // Show suggestions menu if there are previous values
-                if !previousFormatValues.isEmpty {
-                    ChipMenu(items: previousFormatValues.map { v in
-                        ChipMenuItem(title: v) { shot.format = v }
-                    }) {
-                        Image(systemName: "chevron.down.circle")
-                            .foregroundStyle(.secondary)
-                    }
-                    .help("Select from previously used formats")
                 }
             }
         }
@@ -2371,9 +2328,9 @@ struct MetadataView: View {
     /// lets the pairs flow side by side so the box stays short.
     private var items: [(label: String, value: String)] {
         var rows: [(String, String)] = []
-        // Camera / Format / Focal Length stay adjacent — they're read together.
-        if let family = metadata.cameraFamily { rows.append(("Camera", family)) }
-        if let format = metadata.cameraFormat { rows.append(("Format", format)) }
+        // Camera (name + format as one) and Focal Length stay adjacent — read together.
+        let camera = Shot.combinedCamera(metadata.cameraFamily ?? "", metadata.cameraFormat ?? "")
+        if !camera.isEmpty { rows.append(("Camera", camera)) }
         if let focal = metadata.focalLength {
             let focalString = focal.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0fmm", focal)

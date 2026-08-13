@@ -1906,7 +1906,7 @@ struct SceneMapEditorView: View {
     }
 
     /// Every distinct CineStager camera profile imported anywhere in the project
-    /// — a (camera, format, sensor width) any camera marker's FOV can be based on.
+    /// — a (combined camera, sensor width) any camera marker's FOV can be based on.
     private var cineStagerProfiles: [CineStagerProfile] {
         guard let project = scene.project else { return [] }
         var seen = Set<String>()
@@ -1914,46 +1914,39 @@ struct SceneMapEditorView: View {
         for scn in project.scenes {
             for s in scn.shots {
                 guard let sensor = s.sensorWidthMM, sensor > 0, !s.camera.isEmpty else { continue }
-                let profile = CineStagerProfile(camera: s.camera, format: s.format, sensorWidthMM: sensor)
+                let profile = CineStagerProfile(camera: s.camera, sensorWidthMM: sensor)
                 if seen.insert(profile.id).inserted { result.append(profile) }
             }
         }
         return result
     }
 
-    /// The profile rows for the FOV menu: (id, display label). A camera name is
-    /// shown alone unless the project has more than one format for it, in which
-    /// case the format disambiguates.
+    /// The profile rows for the FOV menu: (id, display label) — the combined
+    /// camera value, which already carries its format.
     private var fovProfileRows: [(id: String, label: String)] {
-        let profiles = cineStagerProfiles
-        return profiles
-            .map { p -> (id: String, label: String) in
-                let sameCamera = profiles.filter { $0.camera == p.camera }.count
-                let label = (sameCamera > 1 && !p.format.isEmpty) ? "\(p.camera) · \(p.format)" : p.camera
-                return (id: p.id, label: label)
-            }
+        cineStagerProfiles
+            .map { (id: $0.id, label: $0.camera) }
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
     /// Which profile row is checked for a camera marker: the one matching its
-    /// shot's camera+format, when the marker is on the CineStager basis.
+    /// shot's camera, when the marker is on the CineStager basis.
     private func selectedFOVProfileID(for element: MapElement) -> String? {
         guard effectiveBasis(for: element) == .cineStager,
               let uid = element.shotUID,
               let shot = scene.shots.first(where: { $0.uid == uid }) else { return nil }
-        return CineStagerProfile(camera: shot.camera, format: shot.format, sensorWidthMM: 0).id
+        return shot.camera
     }
 
     /// Picks a project CineStager profile as a camera marker's FOV basis, and
-    /// fills the linked shot's camera / format / sensor to match — so the shot
-    /// editor shows the same camera the FOV is drawn from.
+    /// fills the linked shot's camera + sensor to match — so the shot editor shows
+    /// the same camera the FOV is drawn from.
     private func selectFOVProfile(_ id: String, for element: MapElement) {
         guard let profile = cineStagerProfiles.first(where: { $0.id == id }),
               let index = doc.elements.firstIndex(where: { $0.id == element.id }) else { return }
         doc.elements[index].fovBasis = .cineStager   // draw from the shot's own sensor…
         if let uid = element.shotUID, let shot = scene.shots.first(where: { $0.uid == uid }) {
             shot.camera = profile.camera              // …which we set to match the profile.
-            shot.format = profile.format
             shot.sensorWidthMM = profile.sensorWidthMM
         }
         persist()
@@ -2014,14 +2007,13 @@ struct SceneMapEditorView: View {
 /// One draggable token on the map. Owns its drag offset locally so that
 /// dragging re-renders only this view — the grid and the other markers stay
 /// put — and commits the final position to the document on release.
-/// A distinct camera profile imported from CineStager: the camera name, its
-/// recording format, and the sensor width that pair frames on. Identified by
-/// camera+format so different recording modes of one camera stay distinct.
+/// A distinct camera profile imported from CineStager: the combined camera value
+/// ("Arri Alexa 35 · 4.6K 16:9") and the sensor width it frames on. Identified by
+/// the camera value, which already carries the recording format.
 private struct CineStagerProfile: Identifiable, Hashable {
     let camera: String
-    let format: String
     let sensorWidthMM: Double
-    var id: String { "\(camera)|\(format)" }
+    var id: String { camera }
 }
 
 private struct MapMarkerView: View {

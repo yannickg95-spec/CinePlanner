@@ -56,8 +56,10 @@ enum ReferenceMediaLoader {
 
         // Fill the shot's camera fields from the first reference that has them.
         if let shot = reference.shot {
-            if let family = metadata.cameraFamily, shot.camera.isEmpty { shot.camera = family }
-            if let format = metadata.cameraFormat, shot.format.isEmpty { shot.format = format }
+            if shot.camera.isEmpty {
+                let combined = Shot.combinedCamera(metadata.cameraFamily ?? "", metadata.cameraFormat ?? "")
+                if !combined.isEmpty { shot.camera = combined }
+            }
             if let lines = metadata.framelines, shot.framelines.isEmpty { shot.framelines = lines }
             if let lens = metadata.lensPreset, shot.lensPreset.isEmpty { shot.lensPreset = lens }
             // A single focal length is a prime lens; only fill it when the shot

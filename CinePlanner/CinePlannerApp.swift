@@ -39,6 +39,7 @@ struct CinePlannerApp: App {
             StoreBackup.recordStoreURL(container)
             Self.backfillUIDsIfNeeded(container)
             Self.migrateLegacyGitHubReposIfNeeded(container)
+            Self.migrateCombineCameraFormatIfNeeded(container)
             StoreBackup.backupIfNeeded(container: container)
             return container
         }
@@ -118,6 +119,25 @@ struct CinePlannerApp: App {
             }
         }
         if changed { try? context.save() }
+    }
+
+    /// Camera and format used to be two separate fields; they're now one combined
+    /// `camera` value ("Arri Alexa 35 · 4.6K 16:9"). Once, fold every shot's legacy
+    /// `format` into `camera` and clear it. Idempotent: after it runs `format` is
+    /// empty, so re-running is a no-op — but a guard flag skips the fetch entirely.
+    private static func migrateCombineCameraFormatIfNeeded(_ container: ModelContainer) {
+        let key = "didCombineCameraFormat_v1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let context = ModelContext(container)
+        if let shots = try? context.fetch(FetchDescriptor<Shot>()) {
+            for shot in shots where !shot.format.isEmpty {
+                shot.camera = Shot.combinedCamera(shot.camera, shot.format)
+                shot.format = ""
+            }
+            try? context.save()
+        }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     /// Register for silent CloudKit pushes so changes from another device (e.g. a

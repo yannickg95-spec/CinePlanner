@@ -945,11 +945,23 @@ final class Shot {
     var sensorWidthMM: Double?
     var extraInfo: String = ""
     
-    // Auto-filled from metadata
+    // Auto-filled from metadata. `camera` is the single combined camera value
+    // ("Arri Alexa 35 · 4.6K 16:9"); `format` is legacy — its old contents were
+    // folded into `camera` by a one-time migration and it's no longer written or
+    // shown. Kept so the migration can read it and old archives still decode.
     var camera: String = ""
     var format: String = ""
     var framelines: String = ""
     var lensPreset: String = ""
+
+    /// Joins a camera name and a recording format into the single combined camera
+    /// value ("Arri Alexa 35 · 4.6K 16:9"). Either part may be empty.
+    static func combinedCamera(_ camera: String, _ format: String) -> String {
+        [camera, format]
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
     
     // Store photo data as Data
     @Attribute(.externalStorage)

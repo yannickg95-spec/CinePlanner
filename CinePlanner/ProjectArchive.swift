@@ -367,8 +367,9 @@ enum ProjectArchive {
                         shot.lensfocalEnd = sh.lensfocalEnd
                         shot.sensorWidthMM = sh.sensorWidthMM
                         shot.extraInfo = sh.extraInfo
-                        shot.camera = sh.camera
-                        shot.format = sh.format
+                        // Camera + format are now one combined value; fold any
+                        // legacy split format from older archives into it.
+                        shot.camera = Shot.combinedCamera(sh.camera, sh.format)
                         shot.framelines = sh.framelines
                         shot.lensPreset = sh.lensPreset
                         shot.scriptCoverageSelections = sh.scriptCoverageSelections
