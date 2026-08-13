@@ -1133,6 +1133,26 @@ struct ShotDetailView: View {
         return Array(formats).sorted()
     }
     
+    /// When this shot's camera+format matches one already imported from CineStager
+    /// (which carries a real sensor width), reuse that sensor for this shot. So a
+    /// manually-added shot set to a previously-imported camera/format gets the
+    /// correct scene-map FOV, without a CineStager import of its own. Only ever
+    /// copies a value in — never clears one — so it can't wipe an imported shot's
+    /// own sensor. Runs when the camera or format changes.
+    private func inheritCineStagerSensorWidth() {
+        guard !shot.camera.isEmpty, !shot.format.isEmpty,
+              let project = shot.scene?.project else { return }
+        for scene in project.scenes {
+            for other in scene.shots where other.id != shot.id {
+                if let sensor = other.sensorWidthMM, sensor > 0,
+                   other.camera == shot.camera, other.format == shot.format {
+                    if shot.sensorWidthMM != sensor { shot.sensorWidthMM = sensor }
+                    return
+                }
+            }
+        }
+    }
+
     private var previousLensValues: [String] {
         guard let project = shot.scene?.project else { return [] }
 
@@ -1626,6 +1646,7 @@ struct ShotDetailView: View {
                 TextField("Camera name", text: $shot.camera)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
+                    .onChange(of: shot.camera) { inheritCineStagerSensorWidth() }
 
                 // Show suggestions menu if there are previous values
                 if !previousCameraValues.isEmpty {
@@ -1651,6 +1672,7 @@ struct ShotDetailView: View {
                 TextField("Format", text: $shot.format)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
+                    .onChange(of: shot.format) { inheritCineStagerSensorWidth() }
 
                 // Show suggestions menu if there are previous values
                 if !previousFormatValues.isEmpty {

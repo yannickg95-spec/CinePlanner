@@ -39,9 +39,13 @@ struct MapElement: Identifiable, Codable, Equatable {
     // Camera-only: drives the FOV cone.
     var focalLengthMM: Double = 35
     var sensorWidthMM: Double = 24.89   // Super 35 width by default
+    /// Camera-only: which sensor this camera's FOV wedge is sized from. nil =
+    /// auto — the shot's own CineStager sensor when it has one, else Super-35.
+    /// An explicit value (S16/S35/LF or the CineStager camera) overrides that.
+    var fovBasis: FOVBasis? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, x, y, rotation, label, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM
+        case id, kind, x, y, rotation, label, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM, fovBasis
     }
 
     init(kind: Kind, x: Double, y: Double) {
@@ -62,6 +66,7 @@ struct MapElement: Identifiable, Codable, Equatable {
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#4C8DFF"
         focalLengthMM = try c.decodeIfPresent(Double.self, forKey: .focalLengthMM) ?? 35
         sensorWidthMM = try c.decodeIfPresent(Double.self, forKey: .sensorWidthMM) ?? 24.89
+        fovBasis = try c.decodeIfPresent(FOVBasis.self, forKey: .fovBasis)
     }
 
     /// Horizontal field of view in degrees, from focal length + sensor width.

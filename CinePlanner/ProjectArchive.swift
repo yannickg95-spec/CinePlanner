@@ -75,7 +75,6 @@ enum ProjectArchive {
         var sceneMapMetersWide: Double?
         var sceneMapCameraSizeMeters: Double?
         var sceneMapShowCameraFOV: Bool?
-        var sceneMapFOVBasis: String?
         var sceneFloorPlanJSON: String?
         var sceneCharactersJSON: String?
         var sunSettingsJSON: String?
@@ -226,7 +225,6 @@ enum ProjectArchive {
             sceneMapMetersWide: scene.sceneMapMetersWide,
             sceneMapCameraSizeMeters: scene.sceneMapCameraSizeMeters,
             sceneMapShowCameraFOV: scene.sceneMapShowCameraFOV,
-            sceneMapFOVBasis: scene.sceneMapFOVBasis.rawValue,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             sceneCharactersJSON: scene.sceneCharactersJSON,
             sunSettingsJSON: scene.sunSettingsJSON,
@@ -348,7 +346,6 @@ enum ProjectArchive {
                     scene.sceneMapMetersWide = s.sceneMapMetersWide
                     scene.sceneMapCameraSizeMeters = s.sceneMapCameraSizeMeters
                     scene.sceneMapShowCameraFOV = s.sceneMapShowCameraFOV ?? false
-                    scene.sceneMapFOVBasis = s.sceneMapFOVBasis.flatMap(FOVBasis.init) ?? .cineStager
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
                     scene.sceneCharactersJSON = s.sceneCharactersJSON
                     scene.sunSettingsJSON = s.sunSettingsJSON

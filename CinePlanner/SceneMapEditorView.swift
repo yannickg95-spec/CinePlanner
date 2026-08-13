@@ -519,9 +519,11 @@ struct SceneMapEditorView: View {
                         onRemoveLabel: { setMarkerLabel(element.id, "") },
                         showsFOV: scene.sceneMapShowCameraFOV,
                         onToggleFOV: { toggleCameraFOV() },
-                        fovBasis: scene.sceneMapFOVBasis,
-                        cineStagerCameraName: cineStagerCameraName(for: element),
-                        onSetFOVBasis: { setFOVBasis($0) },
+                        fovBasis: effectiveBasis(for: element),
+                        onSetFOVBasis: { setFOVBasis($0, for: element) },
+                        fovProfiles: fovProfileRows,
+                        selectedFOVProfileID: selectedFOVProfileID(for: element),
+                        onSelectFOVProfile: { selectFOVProfile($0, for: element) },
                         scale: sceneMarkerScale(kind: element.kind,
                                                 metersWide: mapMetersWide,
                                                 cameraMeters: mapCameraMeters,
@@ -1833,10 +1835,8 @@ struct SceneMapEditorView: View {
     private func drawCameraFOV(_ ctx: GraphicsContext, in rect: CGRect) {
         // The horizontal angle of view from the shot's focal length + sensor width:
         //   halfAngle = atan((sensorWidth / 2) / focal).
-        // The sensor width is chosen by the scene's FOV basis: a fixed format
-        // (S16/S35/LF), or each shot's own CineStager sensor (Super-35 fallback).
-        let defaultSensorWidthMM = 24.89
-        let basis = scene.sceneMapFOVBasis
+        // Each camera's sensor width comes from its own FOV basis: a fixed format
+        // (S16/S35/LF), or its shot's CineStager sensor (Super-35 fallback).
         // Long enough to cross the map from any interior point; clipped to `rect`.
         let reach = hypot(rect.width, rect.height) * 2
         var ctx = ctx
@@ -1845,13 +1845,7 @@ struct SceneMapEditorView: View {
             guard let uid = element.shotUID,
                   let shot = scene.shots.first(where: { $0.uid == uid }),
                   shot.lensfocal > 0 else { continue }
-            let sensorWidthMM: Double
-            if let fixed = basis.fixedSensorWidthMM {
-                sensorWidthMM = fixed
-            } else {
-                sensorWidthMM = (shot.sensorWidthMM ?? 0) > 0 ? shot.sensorWidthMM! : defaultSensorWidthMM
-            }
-            let halfAngle = atan((sensorWidthMM / 2) / Double(shot.lensfocal))
+            let halfAngle = atan((sensorWidthMM(for: element, shot: shot) / 2) / Double(shot.lensfocal))
             let cx = rect.minX + element.x * rect.width
             let cy = rect.minY + element.y * rect.height
             // Facing unit vector matches the marker's rotation handle: (sin, -cos).
@@ -1877,22 +1871,92 @@ struct SceneMapEditorView: View {
         saveContext()
     }
 
-    /// Sets the scene-wide FOV sensor basis (S16 / S35 / LF / the CineStager
-    /// camera). Applies to every camera's wedge in the scene.
-    private func setFOVBasis(_ basis: FOVBasis) {
-        scene.sceneMapFOVBasis = basis
-        saveContext()
+    /// Sets one camera marker's FOV sensor basis (S16 / S35 / LF / its CineStager
+    /// camera). Per-camera — only the given marker changes.
+    private func setFOVBasis(_ basis: FOVBasis, for element: MapElement) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == element.id }) else { return }
+        doc.elements[index].fovBasis = basis
+        persist()
     }
 
-    /// The CineStager camera name to show for a camera marker's "CineStager
-    /// Camera" FOV option, or nil when that shot has no imported sensor (so the
-    /// option is greyed out).
+    /// A camera marker's effective FOV basis: its explicit choice, or the auto
+    /// default — the CineStager camera when the shot has an imported sensor, else
+    /// Super-35. Drives the checkmark in the "FOV Settings" menu.
+    private func effectiveBasis(for element: MapElement) -> FOVBasis {
+        if let basis = element.fovBasis { return basis }
+        return cineStagerCameraName(for: element) != nil ? .cineStager : .super35
+    }
+
+    /// The sensor width (mm) a camera's FOV wedge is drawn from, resolving its
+    /// basis: a fixed format, or the shot's CineStager sensor with a Super-35
+    /// fallback.
+    private func sensorWidthMM(for element: MapElement, shot: Shot) -> Double {
+        if let fixed = effectiveBasis(for: element).fixedSensorWidthMM { return fixed }
+        return (shot.sensorWidthMM ?? 0) > 0 ? shot.sensorWidthMM! : 24.89
+    }
+
+    /// The CineStager camera name for a camera marker (used to resolve the auto
+    /// basis), or nil when that shot has no imported sensor.
     private func cineStagerCameraName(for element: MapElement) -> String? {
         guard let uid = element.shotUID,
               let shot = scene.shots.first(where: { $0.uid == uid }),
               (shot.sensorWidthMM ?? 0) > 0 else { return nil }
         let name = shot.camera.trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? "CineStager Camera" : name
+    }
+
+    /// Every distinct CineStager camera profile imported anywhere in the project
+    /// — a (camera, format, sensor width) any camera marker's FOV can be based on.
+    private var cineStagerProfiles: [CineStagerProfile] {
+        guard let project = scene.project else { return [] }
+        var seen = Set<String>()
+        var result: [CineStagerProfile] = []
+        for scn in project.scenes {
+            for s in scn.shots {
+                guard let sensor = s.sensorWidthMM, sensor > 0, !s.camera.isEmpty else { continue }
+                let profile = CineStagerProfile(camera: s.camera, format: s.format, sensorWidthMM: sensor)
+                if seen.insert(profile.id).inserted { result.append(profile) }
+            }
+        }
+        return result
+    }
+
+    /// The profile rows for the FOV menu: (id, display label). A camera name is
+    /// shown alone unless the project has more than one format for it, in which
+    /// case the format disambiguates.
+    private var fovProfileRows: [(id: String, label: String)] {
+        let profiles = cineStagerProfiles
+        return profiles
+            .map { p -> (id: String, label: String) in
+                let sameCamera = profiles.filter { $0.camera == p.camera }.count
+                let label = (sameCamera > 1 && !p.format.isEmpty) ? "\(p.camera) · \(p.format)" : p.camera
+                return (id: p.id, label: label)
+            }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    /// Which profile row is checked for a camera marker: the one matching its
+    /// shot's camera+format, when the marker is on the CineStager basis.
+    private func selectedFOVProfileID(for element: MapElement) -> String? {
+        guard effectiveBasis(for: element) == .cineStager,
+              let uid = element.shotUID,
+              let shot = scene.shots.first(where: { $0.uid == uid }) else { return nil }
+        return CineStagerProfile(camera: shot.camera, format: shot.format, sensorWidthMM: 0).id
+    }
+
+    /// Picks a project CineStager profile as a camera marker's FOV basis, and
+    /// fills the linked shot's camera / format / sensor to match — so the shot
+    /// editor shows the same camera the FOV is drawn from.
+    private func selectFOVProfile(_ id: String, for element: MapElement) {
+        guard let profile = cineStagerProfiles.first(where: { $0.id == id }),
+              let index = doc.elements.firstIndex(where: { $0.id == element.id }) else { return }
+        doc.elements[index].fovBasis = .cineStager   // draw from the shot's own sensor…
+        if let uid = element.shotUID, let shot = scene.shots.first(where: { $0.uid == uid }) {
+            shot.camera = profile.camera              // …which we set to match the profile.
+            shot.format = profile.format
+            shot.sensorWidthMM = profile.sensorWidthMM
+        }
+        persist()
     }
 
     /// The label to show for an element: a shot-linked camera follows the shot's
@@ -1950,6 +2014,16 @@ struct SceneMapEditorView: View {
 /// One draggable token on the map. Owns its drag offset locally so that
 /// dragging re-renders only this view — the grid and the other markers stay
 /// put — and commits the final position to the document on release.
+/// A distinct camera profile imported from CineStager: the camera name, its
+/// recording format, and the sensor width that pair frames on. Identified by
+/// camera+format so different recording modes of one camera stay distinct.
+private struct CineStagerProfile: Identifiable, Hashable {
+    let camera: String
+    let format: String
+    let sensorWidthMM: Double
+    var id: String { "\(camera)|\(format)" }
+}
+
 private struct MapMarkerView: View {
     let element: MapElement
     /// Display label (resolved by the parent — a shot-linked camera follows its
@@ -1985,14 +2059,19 @@ private struct MapMarkerView: View {
     var showsFOV: Bool = false
     /// Toggles the scene-wide camera FOV overlay.
     var onToggleFOV: () -> Void = {}
-    /// The scene-wide sensor basis the FOV wedges use (drives the checkmark in
-    /// the "FOV Settings" submenu).
+    /// This camera's effective sensor basis (drives the checkmark on the
+    /// S16/S35/LF rows in the "FOV Settings" submenu).
     var fovBasis: FOVBasis = .cineStager
-    /// This camera's CineStager camera name, or nil when it has no imported
-    /// sensor (greys out the "CineStager Camera" basis option).
-    var cineStagerCameraName: String? = nil
-    /// Sets the scene-wide FOV sensor basis.
+    /// Sets this camera's FOV basis to a fixed format (S16/S35/LF).
     var onSetFOVBasis: (FOVBasis) -> Void = { _ in }
+    /// Every CineStager camera profile imported anywhere in the project — each
+    /// selectable as this camera's FOV basis: (stable id, display label).
+    var fovProfiles: [(id: String, label: String)] = []
+    /// The profile id currently driving this camera's FOV (checkmarked), or nil.
+    var selectedFOVProfileID: String? = nil
+    /// Selects a CineStager profile (by id) as this camera's FOV basis, and
+    /// fills the linked shot's camera info to match.
+    var onSelectFOVProfile: (String) -> Void = { _ in }
     /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
     var scale: CGFloat = 1
 
@@ -2115,15 +2194,18 @@ private struct MapMarkerView: View {
                 fovBasisButton(.super16)
                 fovBasisButton(.super35)
                 fovBasisButton(.largeFormat)
-                Button { onSetFOVBasis(.cineStager) } label: {
-                    let name = cineStagerCameraName ?? FOVBasis.cineStager.menuLabel
-                    if fovBasis == .cineStager {
-                        Label(name, systemImage: "checkmark")
-                    } else {
-                        Text(name)
+                if !fovProfiles.isEmpty {
+                    Divider()
+                    ForEach(fovProfiles, id: \.id) { profile in
+                        Button { onSelectFOVProfile(profile.id) } label: {
+                            if selectedFOVProfileID == profile.id {
+                                Label(profile.label, systemImage: "checkmark")
+                            } else {
+                                Text(profile.label)
+                            }
+                        }
                     }
                 }
-                .disabled(cineStagerCameraName == nil)
             }
             Divider()
         }

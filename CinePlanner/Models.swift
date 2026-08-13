@@ -325,15 +325,6 @@ final class Scene {
     /// future. Cameras with no focal length draw nothing. Default off.
     var sceneMapShowCameraFOV: Bool = false
 
-    /// Which sensor the FOV wedges are sized from (scene-wide). Stored as a raw
-    /// string; read through `sceneMapFOVBasis`. Defaults to the CineStager camera
-    /// (real imported sensor, Super-35 fallback).
-    private var sceneMapFOVBasisRaw: String = FOVBasis.cineStager.rawValue
-    var sceneMapFOVBasis: FOVBasis {
-        get { FOVBasis(rawValue: sceneMapFOVBasisRaw) ?? .cineStager }
-        set { sceneMapFOVBasisRaw = newValue.rawValue }
-    }
-
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
