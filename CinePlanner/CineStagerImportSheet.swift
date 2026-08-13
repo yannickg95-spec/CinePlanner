@@ -458,6 +458,9 @@ struct CineStagerImportSheet: View {
                 shot.lensfocal = focal
                 shot.lensIsPrime = true
             }
+            if let sensor = cs.sensorWidthMM, sensor > 0, shot.sensorWidthMM == nil {
+                shot.sensorWidthMM = sensor
+            }
         }
     }
 

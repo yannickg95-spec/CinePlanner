@@ -71,6 +71,36 @@ struct MapElement: Identifiable, Codable, Equatable {
     }
 }
 
+/// What the scene-map camera FOV wedges are sized from. The three fixed formats
+/// use a standard horizontal sensor width; `.cineStager` uses each shot's own
+/// sensor width imported from CineStager (falling back to Super-35 for shots
+/// without it).
+enum FOVBasis: String, Codable, CaseIterable {
+    case super16, super35, largeFormat, cineStager
+
+    /// Fixed horizontal sensor width (mm), or nil for `.cineStager` (per-shot).
+    /// Super-16 ≈ 12.52 mm, Super-35 ≈ 24.89 mm, Large Format ≈ 36.70 mm.
+    var fixedSensorWidthMM: Double? {
+        switch self {
+        case .super16: return 12.52
+        case .super35: return 24.89
+        case .largeFormat: return 36.70
+        case .cineStager: return nil
+        }
+    }
+
+    /// Short menu label for the fixed formats (the CineStager option shows the
+    /// camera's name instead).
+    var menuLabel: String {
+        switch self {
+        case .super16: return "S16"
+        case .super35: return "S35"
+        case .largeFormat: return "LF"
+        case .cineStager: return "CineStager Camera"
+        }
+    }
+}
+
 /// A movement arrow between two markers (e.g. an actor or camera moving from
 /// one position to another during the shot).
 struct MapArrow: Identifiable, Codable, Equatable {

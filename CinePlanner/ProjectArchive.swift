@@ -74,6 +74,8 @@ enum ProjectArchive {
         var sceneMapSatelliteMeters: Double?
         var sceneMapMetersWide: Double?
         var sceneMapCameraSizeMeters: Double?
+        var sceneMapShowCameraFOV: Bool?
+        var sceneMapFOVBasis: String?
         var sceneFloorPlanJSON: String?
         var sceneCharactersJSON: String?
         var sunSettingsJSON: String?
@@ -95,6 +97,7 @@ enum ProjectArchive {
         var lensIsPrime: Bool
         var lensfocal: Int
         var lensfocalEnd: Int
+        var sensorWidthMM: Double?
         var extraInfo: String
         var camera: String
         var format: String
@@ -222,6 +225,8 @@ enum ProjectArchive {
             sceneMapSatelliteMeters: scene.sceneMapSatelliteMeters,
             sceneMapMetersWide: scene.sceneMapMetersWide,
             sceneMapCameraSizeMeters: scene.sceneMapCameraSizeMeters,
+            sceneMapShowCameraFOV: scene.sceneMapShowCameraFOV,
+            sceneMapFOVBasis: scene.sceneMapFOVBasis.rawValue,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             sceneCharactersJSON: scene.sceneCharactersJSON,
             sunSettingsJSON: scene.sunSettingsJSON,
@@ -246,6 +251,7 @@ enum ProjectArchive {
             lensIsPrime: shot.lensIsPrime,
             lensfocal: shot.lensfocal,
             lensfocalEnd: shot.lensfocalEnd,
+            sensorWidthMM: shot.sensorWidthMM,
             extraInfo: shot.extraInfo,
             camera: shot.camera,
             format: shot.format,
@@ -341,6 +347,8 @@ enum ProjectArchive {
                     scene.sceneMapSatelliteMeters = s.sceneMapSatelliteMeters
                     scene.sceneMapMetersWide = s.sceneMapMetersWide
                     scene.sceneMapCameraSizeMeters = s.sceneMapCameraSizeMeters
+                    scene.sceneMapShowCameraFOV = s.sceneMapShowCameraFOV ?? false
+                    scene.sceneMapFOVBasis = s.sceneMapFOVBasis.flatMap(FOVBasis.init) ?? .cineStager
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
                     scene.sceneCharactersJSON = s.sceneCharactersJSON
                     scene.sunSettingsJSON = s.sunSettingsJSON
@@ -360,6 +368,7 @@ enum ProjectArchive {
                         shot.lensIsPrime = sh.lensIsPrime
                         shot.lensfocal = sh.lensfocal
                         shot.lensfocalEnd = sh.lensfocalEnd
+                        shot.sensorWidthMM = sh.sensorWidthMM
                         shot.extraInfo = sh.extraInfo
                         shot.camera = sh.camera
                         shot.format = sh.format

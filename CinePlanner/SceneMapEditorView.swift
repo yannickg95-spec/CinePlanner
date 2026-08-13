@@ -476,6 +476,12 @@ struct SceneMapEditorView: View {
                         .allowsHitTesting(pendingMove == nil)
                     }
                 }
+                // Camera field-of-view wedges, under the arrows and markers.
+                // Reads the scene flag directly so toggling it re-renders here.
+                if scene.sceneMapShowCameraFOV {
+                    Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
+                        .allowsHitTesting(false)
+                }
                 // Movement arrows between markers, drawn under the markers.
                 if !doc.arrows.isEmpty {
                     Canvas { ctx, _ in drawArrows(ctx, in: rect) }
@@ -511,6 +517,11 @@ struct SceneMapEditorView: View {
                         onSetCharacter: { character in setCharacter(element.id, character) },
                         onRequestLabel: { markerToLabel = element.id; markerLabelText = element.label },
                         onRemoveLabel: { setMarkerLabel(element.id, "") },
+                        showsFOV: scene.sceneMapShowCameraFOV,
+                        onToggleFOV: { toggleCameraFOV() },
+                        fovBasis: scene.sceneMapFOVBasis,
+                        cineStagerCameraName: cineStagerCameraName(for: element),
+                        onSetFOVBasis: { setFOVBasis($0) },
                         scale: sceneMarkerScale(kind: element.kind,
                                                 metersWide: mapMetersWide,
                                                 cameraMeters: mapCameraMeters,
@@ -1816,6 +1827,74 @@ struct SceneMapEditorView: View {
         }
     }
 
+    /// Draws a field-of-view wedge — two rays — from every shot-linked camera
+    /// whose shot has a focal length. Purely visual; toggled per-scene from a
+    /// camera's right-click menu. Cameras without a focal length draw nothing.
+    private func drawCameraFOV(_ ctx: GraphicsContext, in rect: CGRect) {
+        // The horizontal angle of view from the shot's focal length + sensor width:
+        //   halfAngle = atan((sensorWidth / 2) / focal).
+        // The sensor width is chosen by the scene's FOV basis: a fixed format
+        // (S16/S35/LF), or each shot's own CineStager sensor (Super-35 fallback).
+        let defaultSensorWidthMM = 24.89
+        let basis = scene.sceneMapFOVBasis
+        // Long enough to cross the map from any interior point; clipped to `rect`.
+        let reach = hypot(rect.width, rect.height) * 2
+        var ctx = ctx
+        ctx.clip(to: Path(rect))
+        for element in doc.elements where element.kind == .camera {
+            guard let uid = element.shotUID,
+                  let shot = scene.shots.first(where: { $0.uid == uid }),
+                  shot.lensfocal > 0 else { continue }
+            let sensorWidthMM: Double
+            if let fixed = basis.fixedSensorWidthMM {
+                sensorWidthMM = fixed
+            } else {
+                sensorWidthMM = (shot.sensorWidthMM ?? 0) > 0 ? shot.sensorWidthMM! : defaultSensorWidthMM
+            }
+            let halfAngle = atan((sensorWidthMM / 2) / Double(shot.lensfocal))
+            let cx = rect.minX + element.x * rect.width
+            let cy = rect.minY + element.y * rect.height
+            // Facing unit vector matches the marker's rotation handle: (sin, -cos).
+            let r = element.rotation * .pi / 180
+            let facing = atan2(-cos(r), sin(r))
+            let shading = GraphicsContext.Shading.color(Color(hex: element.colorHex).opacity(0.85))
+            let style = StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [6, 4])
+            for side in [-halfAngle, halfAngle] {
+                let a = facing + side
+                var path = Path()
+                path.move(to: CGPoint(x: cx, y: cy))
+                path.addLine(to: CGPoint(x: cx + reach * cos(a), y: cy + reach * sin(a)))
+                ctx.stroke(path, with: shading, style: style)
+            }
+        }
+    }
+
+    /// Flips the per-scene camera FOV overlay. Scene-wide by design: it applies to
+    /// every camera marker in the scene, and to any added later (and hides them
+    /// all the same way).
+    private func toggleCameraFOV() {
+        scene.sceneMapShowCameraFOV.toggle()
+        saveContext()
+    }
+
+    /// Sets the scene-wide FOV sensor basis (S16 / S35 / LF / the CineStager
+    /// camera). Applies to every camera's wedge in the scene.
+    private func setFOVBasis(_ basis: FOVBasis) {
+        scene.sceneMapFOVBasis = basis
+        saveContext()
+    }
+
+    /// The CineStager camera name to show for a camera marker's "CineStager
+    /// Camera" FOV option, or nil when that shot has no imported sensor (so the
+    /// option is greyed out).
+    private func cineStagerCameraName(for element: MapElement) -> String? {
+        guard let uid = element.shotUID,
+              let shot = scene.shots.first(where: { $0.uid == uid }),
+              (shot.sensorWidthMM ?? 0) > 0 else { return nil }
+        let name = shot.camera.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "CineStager Camera" : name
+    }
+
     /// The label to show for an element: a shot-linked camera follows the shot's
     /// current number; everything else uses its own stored label.
     private func resolvedLabel(for element: MapElement) -> String {
@@ -1901,6 +1980,19 @@ private struct MapMarkerView: View {
     /// Character-marker name label: request a text prompt to add one, or remove it.
     var onRequestLabel: () -> Void = {}
     var onRemoveLabel: () -> Void = {}
+    /// Whether the scene's camera FOV overlay is currently on (drives the camera
+    /// marker's Show/Hide menu label). Scene-wide, so every camera shows it.
+    var showsFOV: Bool = false
+    /// Toggles the scene-wide camera FOV overlay.
+    var onToggleFOV: () -> Void = {}
+    /// The scene-wide sensor basis the FOV wedges use (drives the checkmark in
+    /// the "FOV Settings" submenu).
+    var fovBasis: FOVBasis = .cineStager
+    /// This camera's CineStager camera name, or nil when it has no imported
+    /// sensor (greys out the "CineStager Camera" basis option).
+    var cineStagerCameraName: String? = nil
+    /// Sets the scene-wide FOV sensor basis.
+    var onSetFOVBasis: (FOVBasis) -> Void = { _ in }
     /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
     var scale: CGFloat = 1
 
@@ -2014,6 +2106,27 @@ private struct MapMarkerView: View {
             }
             Divider()
         }
+        if element.kind == .camera {
+            Button { onToggleFOV() } label: {
+                Label(showsFOV ? "Hide Camera FOV" : "Show Camera FOV",
+                      systemImage: showsFOV ? "eye.slash" : "eye")
+            }
+            Menu("FOV Settings") {
+                fovBasisButton(.super16)
+                fovBasisButton(.super35)
+                fovBasisButton(.largeFormat)
+                Button { onSetFOVBasis(.cineStager) } label: {
+                    let name = cineStagerCameraName ?? FOVBasis.cineStager.menuLabel
+                    if fovBasis == .cineStager {
+                        Label(name, systemImage: "checkmark")
+                    } else {
+                        Text(name)
+                    }
+                }
+                .disabled(cineStagerCameraName == nil)
+            }
+            Divider()
+        }
         Button { onMoveTo() } label: { Label("Move To…", systemImage: "arrow.forward") }
         Button { onMoveFrom() } label: { Label("Move From…", systemImage: "arrow.backward") }
         Divider()
@@ -2034,6 +2147,19 @@ private struct MapMarkerView: View {
             onDelete()
         } label: {
             Label("Delete", systemImage: "trash")
+        }
+    }
+
+    /// One selectable FOV sensor-basis row (S16 / S35 / LF), checkmarked when it's
+    /// the scene's current basis.
+    @ViewBuilder
+    private func fovBasisButton(_ basis: FOVBasis) -> some View {
+        Button { onSetFOVBasis(basis) } label: {
+            if fovBasis == basis {
+                Label(basis.menuLabel, systemImage: "checkmark")
+            } else {
+                Text(basis.menuLabel)
+            }
         }
     }
 

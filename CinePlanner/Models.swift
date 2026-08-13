@@ -319,6 +319,21 @@ final class Scene {
     /// Real camera-marker diameter (metres) from CineStager; nil → default 0.6 m.
     var sceneMapCameraSizeMeters: Double?
 
+    /// Draw a field-of-view wedge (two rays) from every camera marker, from the
+    /// linked shot's focal length. A per-scene toggle set from a camera's
+    /// right-click menu — it applies to every camera in the scene, present and
+    /// future. Cameras with no focal length draw nothing. Default off.
+    var sceneMapShowCameraFOV: Bool = false
+
+    /// Which sensor the FOV wedges are sized from (scene-wide). Stored as a raw
+    /// string; read through `sceneMapFOVBasis`. Defaults to the CineStager camera
+    /// (real imported sensor, Super-35 fallback).
+    private var sceneMapFOVBasisRaw: String = FOVBasis.cineStager.rawValue
+    var sceneMapFOVBasis: FOVBasis {
+        get { FOVBasis(rawValue: sceneMapFOVBasisRaw) ?? .cineStager }
+        set { sceneMapFOVBasisRaw = newValue.rawValue }
+    }
+
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
@@ -933,6 +948,10 @@ final class Shot {
     var lensIsPrime: Bool = true
     var lensfocal: Int = 0
     var lensfocalEnd: Int = 0
+    /// Active sensor width (mm) of the format the shot was framed on, when known —
+    /// imported from CineStager, which exports it per capture. Drives the exact
+    /// scene-map FOV wedge; nil → the Super-35 default is used.
+    var sensorWidthMM: Double?
     var extraInfo: String = ""
     
     // Auto-filled from metadata
@@ -1246,6 +1265,7 @@ extension Shot {
         copy.lensIsPrime = lensIsPrime
         copy.lensfocal = lensfocal
         copy.lensfocalEnd = lensfocalEnd
+        copy.sensorWidthMM = sensorWidthMM
         copy.extraInfo = extraInfo
         copy.camera = camera
         copy.format = format
