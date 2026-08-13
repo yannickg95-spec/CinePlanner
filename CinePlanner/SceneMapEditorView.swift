@@ -36,6 +36,9 @@ struct SceneMapEditorView: View {
     /// so markers re-scale immediately when the measured background swaps.
     @State private var mapMetersWide: Double?
     @State private var mapCameraMeters: Double?
+    /// The map content rect's current width (points), mirrored from the canvas so
+    /// the toolbar can tell whether markers would render smaller than default.
+    @State private var mapContentWidth: CGFloat = 0
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons.
     private let toolbarCellWidth: CGFloat = 40
@@ -329,30 +332,47 @@ struct SceneMapEditorView: View {
             .help("Clear Map — remove everything from the scene map")
         }
         .overlay(alignment: .trailing) {
-            // Matching pill: toggle the sun overlay, and open its settings.
-            HStack(spacing: 0) {
-                Button {
-                    sun.enabled.toggle()
-                    saveSun()
-                    if sun.enabled && !sun.hasLocation { showSunSettings = true }
-                } label: {
-                    Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(sun.enabled ? .orange : .secondary)
-                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+            // Two separate pills: the marker-size toggle stands on its own (only on
+            // measured maps where a marker would render smaller than default), then
+            // the sun overlay + its settings.
+            HStack(spacing: 10) {
+                if viewableSizeToggleRelevant {
+                    Button { toggleViewableMarkerSize() } label: {
+                        Image(systemName: scene.sceneMapViewableMarkerSize ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(scene.sceneMapViewableMarkerSize ? Color.accentColor : .secondary)
+                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .modifier(SegmentedGroup())
+                    .help(scene.sceneMapViewableMarkerSize
+                          ? "Markers: easy-to-see size — tap for real-world scale"
+                          : "Markers: real-world scale — tap for an easy-to-see size")
                 }
-                .buttonStyle(.borderless)
-                .help("Toggle the sun-direction overlay")
-                segmentDivider
-                Button { showSunSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                HStack(spacing: 0) {
+                    Button {
+                        sun.enabled.toggle()
+                        saveSun()
+                        if sun.enabled && !sun.hasLocation { showSunSettings = true }
+                    } label: {
+                        Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(sun.enabled ? .orange : .secondary)
+                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Toggle the sun-direction overlay")
+                    segmentDivider
+                    Button { showSunSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .medium))
+                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Sun overlay settings")
                 }
-                .buttonStyle(.borderless)
-                .help("Sun overlay settings")
+                .modifier(SegmentedGroup())
             }
-            .modifier(SegmentedGroup())
             .padding(.trailing, 16)
         }
         .padding(.horizontal, 16)
@@ -527,7 +547,8 @@ struct SceneMapEditorView: View {
                         scale: sceneMarkerScale(kind: element.kind,
                                                 metersWide: mapMetersWide,
                                                 cameraMeters: mapCameraMeters,
-                                                mapWidthPoints: rect.width)
+                                                mapWidthPoints: rect.width,
+                                                viewable: scene.sceneMapViewableMarkerSize)
                     )
                     .allowsHitTesting(!isDrawing && pendingMove == nil)
                 }
@@ -577,6 +598,8 @@ struct SceneMapEditorView: View {
             .background(Color.platformTextBackground)
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
+            .onAppear { mapContentWidth = rect.width }
+            .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
             .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
@@ -1871,6 +1894,26 @@ struct SceneMapEditorView: View {
         saveContext()
     }
 
+    /// Switches camera + mannequin markers between real-world scale and a fixed,
+    /// easy-to-see size (see `sceneMarkerScale`).
+    private func toggleViewableMarkerSize() {
+        scene.sceneMapViewableMarkerSize.toggle()
+        saveContext()
+    }
+
+    /// Whether the viewable-size toggle is worth showing: only when a marker would
+    /// actually render smaller than default. If both the camera and mannequin are
+    /// already ≥ default size at the current scale, the toggle would do nothing, so
+    /// it's hidden.
+    private var viewableSizeToggleRelevant: Bool {
+        guard let metersWide = mapMetersWide, metersWide > 0, mapContentWidth > 0 else { return false }
+        let camera = realisticMarkerScale(kind: .camera, metersWide: metersWide,
+                                          cameraMeters: mapCameraMeters, mapWidthPoints: mapContentWidth)
+        let mannequin = realisticMarkerScale(kind: .character, metersWide: metersWide,
+                                             cameraMeters: mapCameraMeters, mapWidthPoints: mapContentWidth)
+        return camera < 1 || mannequin < 1
+    }
+
     /// Sets one camera marker's FOV sensor basis (S16 / S35 / LF / its CineStager
     /// camera). Per-camera — only the given marker changes.
     private func setFOVBasis(_ basis: FOVBasis, for element: MapElement) {
@@ -2426,7 +2469,19 @@ let sceneMapHandleSlop: CGFloat = 0
 #endif
 
 func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
-                      mapWidthPoints: CGFloat) -> CGFloat {
+                      mapWidthPoints: CGFloat, viewable: Bool = false) -> CGFloat {
+    let realistic = realisticMarkerScale(kind: kind, metersWide: metersWide,
+                                         cameraMeters: cameraMeters, mapWidthPoints: mapWidthPoints)
+    // Viewable mode floors the size at the default (1) so tiny markers become
+    // easy to see, but keeps a marker that's already bigger than default at its
+    // real-world size — there's no visibility problem to fix there.
+    return viewable ? max(realistic, 1) : realistic
+}
+
+/// The real-world scale factor for a marker (1 = default icon size), before the
+/// viewable-size floor is applied. Returns 1 when the map has no measured scale.
+func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
+                          mapWidthPoints: CGFloat) -> CGFloat {
     guard let metersWide, metersWide > 0, mapWidthPoints > 0 else { return 1 }
     // Cameras use their measured width (from a CineStager map) when available;
     // otherwise (e.g. a satellite background) fall back to 0.35 m — a real camera
@@ -2992,6 +3047,8 @@ struct SceneMapExportView: View {
     /// Real-world scale data (see `sceneMarkerScale`); nil = default marker sizes.
     var metersWide: Double? = nil
     var cameraMeters: Double? = nil
+    /// When true, markers use the fixed viewable size instead of real-world scale.
+    var viewableMarkers: Bool = false
 
     var body: some View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
@@ -3023,7 +3080,8 @@ struct SceneMapExportView: View {
                               onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
                               onMoveLabel: { _ in },
                               scale: sceneMarkerScale(kind: element.kind, metersWide: metersWide,
-                                                      cameraMeters: cameraMeters, mapWidthPoints: rect.width))
+                                                      cameraMeters: cameraMeters, mapWidthPoints: rect.width,
+                                                      viewable: viewableMarkers))
             }
         }
         .frame(width: size.width, height: size.height)

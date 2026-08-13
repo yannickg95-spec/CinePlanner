@@ -421,7 +421,8 @@ struct ProjectExporter {
         let view = SceneMapExportView(doc: doc, plan: plan, background: background,
                                       labels: labels, size: outSize,
                                       metersWide: scene.sceneMapMetersWide,
-                                      cameraMeters: scene.sceneMapCameraSizeMeters)
+                                      cameraMeters: scene.sceneMapCameraSizeMeters,
+                                      viewableMarkers: scene.sceneMapViewableMarkerSize)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let cg = renderer.cgImage else { return nil }

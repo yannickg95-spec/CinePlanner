@@ -325,6 +325,12 @@ final class Scene {
     /// future. Cameras with no focal length draw nothing. Default off.
     var sceneMapShowCameraFOV: Bool = false
 
+    /// On a measured background (a CineStager or satellite map), camera and
+    /// mannequin markers render at their real-world size — which can be tiny on a
+    /// large location. When true, they use a fixed, easily-visible size instead.
+    /// A per-scene toggle; only meaningful when the map has a real-world scale.
+    var sceneMapViewableMarkerSize: Bool = false
+
     /// The CineStager location model the current scene-map background came from,
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
