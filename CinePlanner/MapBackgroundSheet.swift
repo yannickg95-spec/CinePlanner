@@ -191,12 +191,33 @@ struct MapBackgroundSheet: View {
         errorMessage = nil
         CLGeocoder().geocodeAddressString(query) { placemarks, error in
             geocoding = false
-            guard let loc = placemarks?.first?.location else {
-                errorMessage = error?.localizedDescription ?? "Address not found."
+            if let loc = placemarks?.first?.location {
+                recenter = loc.coordinate
                 return
             }
-            recenter = loc.coordinate
+            errorMessage = Self.geocodeMessage(for: error, query: query)
         }
+    }
+
+    /// Turns a `CLGeocoder` failure into plain language. The common one is
+    /// `kCLErrorGeocodeFoundNoResult` (CLError code 8) — Apple surfaces it as the
+    /// opaque "The operation couldn't be completed. (kCLErrorDomain error 8.)",
+    /// which reads like a crash to the user. Returns `nil` when there's nothing
+    /// worth showing (a search superseded by a newer one).
+    private static func geocodeMessage(for error: Error?, query: String) -> String? {
+        if let clError = error as? CLError {
+            switch clError.code {
+            case .geocodeFoundNoResult, .geocodeFoundPartialResult:
+                return "No place found for “\(query)”. Try a more specific address, a city, or coordinates."
+            case .network:
+                return "Couldn't reach the map service. Check your connection and try again."
+            case .geocodeCanceled:
+                return nil
+            default:
+                break
+            }
+        }
+        return error?.localizedDescription ?? "No place found for “\(query)”."
     }
 
     private func render() {

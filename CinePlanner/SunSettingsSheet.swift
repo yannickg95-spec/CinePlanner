@@ -100,7 +100,7 @@ struct SunSettingsSheet: View {
         CLGeocoder().geocodeAddressString(query) { placemarks, error in
             geocoding = false
             guard let placemark = placemarks?.first, let loc = placemark.location else {
-                geocodeError = error?.localizedDescription ?? "Address not found."
+                geocodeError = Self.geocodeMessage(for: error, query: query)
                 return
             }
             settings.latitude = loc.coordinate.latitude
@@ -108,6 +108,25 @@ struct SunSettingsSheet: View {
             settings.timeZoneID = placemark.timeZone?.identifier
             onChange()
         }
+    }
+
+    /// Turns a `CLGeocoder` failure into plain language. The common one is
+    /// `kCLErrorGeocodeFoundNoResult` (CLError code 8), which Apple otherwise
+    /// surfaces as "The operation couldn't be completed. (kCLErrorDomain error 8.)".
+    private static func geocodeMessage(for error: Error?, query: String) -> String? {
+        if let clError = error as? CLError {
+            switch clError.code {
+            case .geocodeFoundNoResult, .geocodeFoundPartialResult:
+                return "No place found for “\(query)”. Try a more specific address, a city, or coordinates."
+            case .network:
+                return "Couldn't reach the map service. Check your connection and try again."
+            case .geocodeCanceled:
+                return nil
+            default:
+                break
+            }
+        }
+        return error?.localizedDescription ?? "No place found for “\(query)”."
     }
 }
 
