@@ -26,7 +26,16 @@ struct SceneMapEditorView: View {
     enum MoveDirection { case to, from }
 
     @State private var doc: SceneMapDoc
-    @State private var selectedID: UUID?
+    /// Selected camera/mannequin markers. Usually one, but a marquee drag over the
+    /// canvas can select several to move or delete together.
+    @State private var selectedIDs: Set<UUID> = []
+    /// Marquee (rubber-band) selection box corners in canvas points while dragging
+    /// over empty canvas; nil when not marqueeing.
+    @State private var marqueeStart: CGPoint?
+    @State private var marqueeCurrent: CGPoint?
+    /// Live translation (canvas points) while dragging a multi-selection as a
+    /// group; nil when no group drag is in progress.
+    @State private var groupDragTranslation: CGSize?
     /// Camera marker whose shot-info popover is open (left-click a camera).
     @State private var cameraInfoElementID: UUID?
     @State private var showManageCharacters = false
@@ -120,15 +129,13 @@ struct SceneMapEditorView: View {
             // reset. Otherwise never let a stale/empty external value wipe a map we
             // already have; our own edits go through `doc` directly, not this path.
             if newValue == nil {
-                if !doc.isEmpty { doc = SceneMapDoc(); selectedID = nil }
+                if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = [] }
                 return
             }
             let incoming = SceneMapDoc.load(from: newValue)
             guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty) else { return }
             doc = incoming
-            if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
-                selectedID = nil
-            }
+            selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(PlatformImage.init(data:))
@@ -517,13 +524,13 @@ struct SceneMapEditorView: View {
                     MapMarkerView(
                         element: element,
                         label: resolvedLabel(for: element),
-                        isSelected: selectedID == element.id,
+                        isSelected: selectedIDs.contains(element.id),
                         contentRect: rect,
-                        onSelect: { selectedID = element.id; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil },
+                        onSelect: { selectMarker(element.id) },
                         onMove: { normalized in moveElement(element.id, to: normalized) },
                         onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                         onSetColor: { hex in setColor(element.id, hex) },
-                        onDelete: { deleteElement(element.id) },
+                        onDelete: { deleteMarkerOrSelection(element.id) },
                         onMoveTo: { startMove(element.id, .to) },
                         onMoveFrom: { startMove(element.id, .from) },
                         onMoveLabel: { offset in moveLabel(element.id, to: offset) },
@@ -544,6 +551,13 @@ struct SceneMapEditorView: View {
                         fovProfiles: fovProfileRows,
                         selectedFOVProfileID: selectedFOVProfileID(for: element),
                         onSelectFOVProfile: { selectFOVProfile($0, for: element) },
+                        showsRotationHandle: selectedIDs.count == 1,
+                        selectedCount: (selectedIDs.count > 1 && selectedIDs.contains(element.id)) ? selectedIDs.count : 1,
+                        isGroupMember: selectedIDs.count > 1 && selectedIDs.contains(element.id),
+                        groupDragOffset: (selectedIDs.count > 1 && selectedIDs.contains(element.id))
+                            ? (groupDragTranslation ?? .zero) : .zero,
+                        onGroupDragChanged: { groupDragTranslation = $0 },
+                        onGroupDragEnded: { commitGroupDrag($0, in: rect) },
                         scale: sceneMarkerScale(kind: element.kind,
                                                 metersWide: mapMetersWide,
                                                 cameraMeters: mapCameraMeters,
@@ -588,6 +602,17 @@ struct SceneMapEditorView: View {
                         .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                             .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
                 }
+                // Marquee (rubber-band) selection box, above the markers.
+                if let start = marqueeStart, let current = marqueeCurrent {
+                    let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
+                                     width: abs(current.x - start.x), height: abs(current.y - start.y))
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
+                        .frame(width: box.width, height: box.height)
+                        .position(x: box.midX, y: box.midY)
+                        .allowsHitTesting(false)
+                }
                 // Sun-direction overlay (non-interactive), above the map content.
                 sunOverlay(in: rect)
                 // Camera shot-info card — a plain overlay (not a system popover),
@@ -600,7 +625,12 @@ struct SceneMapEditorView: View {
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-            .onTapGesture { if !isDrawing { selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
+            // Drag from empty canvas to rubber-band select markers.
+            .gesture(marqueeGesture(in: rect))
+            .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
+            #if os(macOS)
+            .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
+            #endif
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
@@ -812,8 +842,83 @@ struct SceneMapEditorView: View {
     private func deleteElement(_ id: UUID) {
         doc.elements.removeAll { $0.id == id }
         doc.arrows.removeAll { $0.fromID == id || $0.toID == id }
-        if selectedID == id { selectedID = nil }
+        selectedIDs.remove(id)
         persist()
+    }
+
+    /// Deletes a marker, or — when it's part of a multi-selection — every selected
+    /// marker (used by the marker's Delete menu item and the delete key).
+    private func deleteMarkerOrSelection(_ id: UUID) {
+        if selectedIDs.count > 1 && selectedIDs.contains(id) {
+            deleteSelectedMarkers()
+        } else {
+            deleteElement(id)
+        }
+    }
+
+    /// Deletes every selected marker (and any arrows touching them) in one go.
+    private func deleteSelectedMarkers() {
+        guard !selectedIDs.isEmpty else { return }
+        let ids = selectedIDs
+        doc.elements.removeAll { ids.contains($0.id) }
+        doc.arrows.removeAll { ids.contains($0.fromID) || ids.contains($0.toID) }
+        selectedIDs = []
+        persist()
+    }
+
+    /// Selects a single marker (a plain tap), clearing every other kind of
+    /// selection.
+    private func selectMarker(_ id: UUID) {
+        selectedIDs = [id]
+        openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
+    }
+
+    /// Commits a group drag: shifts every selected marker by the drag translation
+    /// (canvas points), clamped to the map.
+    private func commitGroupDrag(_ translation: CGSize, in rect: CGRect) {
+        defer { groupDragTranslation = nil }
+        guard rect.width > 0, rect.height > 0 else { return }
+        for i in doc.elements.indices where selectedIDs.contains(doc.elements[i].id) {
+            let cx = rect.minX + doc.elements[i].x * rect.width + translation.width
+            let cy = rect.minY + doc.elements[i].y * rect.height + translation.height
+            doc.elements[i].x = min(max((cx - rect.minX) / rect.width, 0), 1)
+            doc.elements[i].y = min(max((cy - rect.minY) / rect.height, 0), 1)
+        }
+        persist()
+    }
+
+    /// Selects every camera/mannequin marker whose center falls inside the marquee
+    /// rectangle (canvas points).
+    private func selectMarkersInMarquee(_ box: CGRect, in rect: CGRect) {
+        var hits: Set<UUID> = []
+        for element in doc.elements {
+            let c = CGPoint(x: rect.minX + element.x * rect.width,
+                            y: rect.minY + element.y * rect.height)
+            if box.contains(c) { hits.insert(element.id) }
+        }
+        selectedIDs = hits
+        openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
+    }
+
+    /// Rubber-band selection: a drag starting on empty canvas (markers capture
+    /// their own drags) sweeps a box; markers inside it become the selection.
+    private func marqueeGesture(in rect: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+            .onChanged { value in
+                guard !isDrawing, pendingMove == nil else { return }
+                if marqueeStart == nil {
+                    marqueeStart = value.startLocation
+                    cameraInfoElementID = nil
+                }
+                marqueeCurrent = value.location
+            }
+            .onEnded { value in
+                defer { marqueeStart = nil; marqueeCurrent = nil }
+                guard !isDrawing, pendingMove == nil, let start = marqueeStart else { return }
+                let box = CGRect(x: min(start.x, value.location.x), y: min(start.y, value.location.y),
+                                 width: abs(value.location.x - start.x), height: abs(value.location.y - start.y))
+                selectMarkersInMarquee(box, in: rect)
+            }
     }
 
     // MARK: - Furniture
@@ -830,7 +935,7 @@ struct SceneMapEditorView: View {
 
     private func selectFurniture(_ id: UUID) {
         furnitureSelectedID = id
-        selectedID = nil; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
     }
 
     private func moveFurniture(_ id: UUID, to n: CGPoint) {
@@ -910,7 +1015,7 @@ struct SceneMapEditorView: View {
     /// Begins a move: the next canvas click places the second marker.
     private func startMove(_ id: UUID, _ direction: MoveDirection) {
         pendingMove = (origin: id, direction: direction)
-        selectedID = nil
+        selectedIDs = []
     }
 
     /// Completes a move. If the click lands on an existing marker of the same
@@ -939,7 +1044,7 @@ struct SceneMapEditorView: View {
         if !doc.arrows.contains(where: { $0.fromID == fromID && $0.toID == toID }) {
             doc.arrows.append(MapArrow(fromID: fromID, toID: toID))
         }
-        selectedID = endID
+        selectedIDs = [endID]
         persist()
     }
 
@@ -961,7 +1066,7 @@ struct SceneMapEditorView: View {
 
     private func selectArrow(_ id: UUID) {
         arrowSelectedID = id
-        selectedID = nil
+        selectedIDs = []
         openingSelectedID = nil
         wallSelectedID = nil
         furnitureSelectedID = nil
@@ -1125,7 +1230,7 @@ struct SceneMapEditorView: View {
     private func selectWall(_ id: UUID) {
         wallSelectedID = id
         openingSelectedID = nil
-        selectedID = nil
+        selectedIDs = []
         arrowSelectedID = nil
         furnitureSelectedID = nil
     }
@@ -1268,7 +1373,7 @@ struct SceneMapEditorView: View {
 
     private func selectOpening(_ id: UUID) {
         openingSelectedID = id
-        selectedID = nil
+        selectedIDs = []
         wallSelectedID = nil
         arrowSelectedID = nil
         furnitureSelectedID = nil
@@ -1331,7 +1436,7 @@ struct SceneMapEditorView: View {
         element.label = name
         element.colorHex = colorHex
         doc.elements.append(element)
-        selectedID = element.id
+        selectedIDs = [element.id]
         persist()
     }
 
@@ -1353,7 +1458,7 @@ struct SceneMapEditorView: View {
         element.shotUID = shot.uid
         element.colorHex = "#FF9500"
         doc.elements.append(element)
-        selectedID = element.id
+        selectedIDs = [element.id]
         persist()
     }
 
@@ -1530,7 +1635,7 @@ struct SceneMapEditorView: View {
         isDrawing = false
         chainLastVertex = nil
         pendingMove = nil
-        selectedID = nil; furnitureSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
         wallSelectedID = nil; openingSelectedID = nil
         doc = SceneMapDoc()
         floorPlan = FloorPlan()
@@ -2011,7 +2116,7 @@ struct SceneMapEditorView: View {
         // If the whole map was just cleared from under us (e.g. "Clear Scene"),
         // don't resurrect the stale in-memory doc — reset it to match.
         if scene.sceneMapJSON == nil {
-            if !doc.isEmpty { doc = SceneMapDoc(); selectedID = nil }
+            if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = [] }
             return
         }
         let shotUIDs = Set(scene.shots.map(\.uid))
@@ -2023,9 +2128,7 @@ struct SceneMapEditorView: View {
         guard doc.elements.count != before else { return }
         let ids = Set(doc.elements.map(\.id))
         doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
-        if let id = selectedID, !doc.elements.contains(where: { $0.id == id }) {
-            selectedID = nil
-        }
+        selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
         persist()
     }
 
@@ -2107,6 +2210,21 @@ private struct MapMarkerView: View {
     /// Selects a CineStager profile (by id) as this camera's FOV basis, and
     /// fills the linked shot's camera info to match.
     var onSelectFOVProfile: (String) -> Void = { _ in }
+    /// Show the rotation handle only when this is the sole selected marker (not
+    /// during a multi-selection).
+    var showsRotationHandle: Bool = true
+    /// How many markers are selected — drives the Delete menu label.
+    var selectedCount: Int = 1
+    /// True when this marker is part of a multi-selection, so dragging it moves the
+    /// whole group instead of just this one.
+    var isGroupMember: Bool = false
+    /// Live group-drag offset (canvas points) applied while the selection is being
+    /// dragged as a group.
+    var groupDragOffset: CGSize = .zero
+    /// Reports the live translation while group-dragging.
+    var onGroupDragChanged: (CGSize) -> Void = { _ in }
+    /// Commits the group drag with its final translation.
+    var onGroupDragEnded: (CGSize) -> Void = { _ in }
     /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
     var scale: CGFloat = 1
 
@@ -2186,11 +2304,13 @@ private struct MapMarkerView: View {
                     .help("Drag to move the label")
             }
 
-            if isSelected {
+            if isSelected && showsRotationHandle {
                 rotationHandle.offset(handleOffset)
             }
         }
         .position(livePosition ?? center)
+        // Live group-drag shift (applied to every selected marker at once).
+        .offset(groupDragOffset)
     }
 
     // MARK: Context menu
@@ -2263,7 +2383,7 @@ private struct MapMarkerView: View {
         Button(role: .destructive) {
             onDelete()
         } label: {
-            Label("Delete", systemImage: "trash")
+            Label(selectedCount > 1 ? "Delete \(selectedCount) Markers" : "Delete", systemImage: "trash")
         }
     }
 
@@ -2331,6 +2451,13 @@ private struct MapMarkerView: View {
         // shift its own reference frame (which is what caused the jumping).
         DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
             .onChanged { value in
+                // Part of a multi-selection → drag the whole group (the parent
+                // offsets every selected marker), leaving the selection intact.
+                if isGroupMember {
+                    onDragStart()
+                    onGroupDragChanged(value.translation)
+                    return
+                }
                 if livePosition == nil {
                     onSelect()
                     onDragStart()
@@ -2341,6 +2468,10 @@ private struct MapMarkerView: View {
                                        y: value.location.y + grabOffset.height)
             }
             .onEnded { value in
+                if isGroupMember {
+                    onGroupDragEnded(value.translation)
+                    return
+                }
                 let final = CGPoint(x: value.location.x + grabOffset.width,
                                     y: value.location.y + grabOffset.height)
                 livePosition = nil
