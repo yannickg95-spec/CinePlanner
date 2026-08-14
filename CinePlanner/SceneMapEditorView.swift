@@ -2654,6 +2654,9 @@ private struct MapMarkerView: View {
                         .frame(width: iconSide, height: iconSide)
                         .foregroundStyle(color)
                 }
+                // Slim the body across its facing axis (compressed before the turn,
+                // so it thins perpendicular to the lens, not along it) to 85% width.
+                .scaleEffect(x: 1, y: 0.85)
                 .rotationEffect(.degrees(-90))
                 .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
             }
@@ -2713,7 +2716,11 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
     // otherwise (e.g. a satellite background) fall back to 0.35 m — a real camera
     // footprint, a touch smaller than the 0.4 m mannequin shoulders.
     let realMeters = kind == .camera ? (cameraMeters ?? 0.35) : 0.4
-    let baseDiameter: CGFloat = kind == .camera ? 26 : 30   // the icons' widths at scale 1
+    // The icons' *drawn* widths at scale 1. The mannequin's ellipse fills its box
+    // (30), but `video.fill` leaves internal padding, so its visible glyph is
+    // narrower than its 26-pt frame — use 20 here so the camera renders at its true
+    // measured width and matches the CineStager map's camera marker.
+    let baseDiameter: CGFloat = kind == .camera ? 20 : 30
     let target = CGFloat(realMeters / metersWide) * mapWidthPoints
     // Floor low enough that a person/camera can render at its true (tiny)
     // footprint on a wide satellite capture — a 0.5 floor there drew them several
