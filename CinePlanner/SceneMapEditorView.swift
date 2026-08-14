@@ -305,11 +305,18 @@ struct SceneMapEditorView: View {
                 segmentDivider
                 Menu {
                     Button { showingImagePicker = true } label: { Label("Image…", systemImage: "photo") }
-                    Button { mapBackgroundMode = .new } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
                     if scene.sceneMapBackgroundIsSatellite {
-                        Button { mapBackgroundMode = .rescale } label: {
-                            Label("Rescale Satellite Map…", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                        // With a satellite map already set, offer New vs Rescale.
+                        Menu {
+                            Button { mapBackgroundMode = .new } label: { Label("New…", systemImage: "globe.europe.africa.fill") }
+                            Button { mapBackgroundMode = .rescale } label: {
+                                Label("Rescale…", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                            }
+                        } label: {
+                            Label("Satellite Map", systemImage: "globe.europe.africa.fill")
                         }
+                    } else {
+                        Button { mapBackgroundMode = .new } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
                     }
                     Button { showingModelPicker = true } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
