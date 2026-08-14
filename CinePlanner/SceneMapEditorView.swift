@@ -2708,7 +2708,11 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
     let realMeters = kind == .camera ? (cameraMeters ?? 0.35) : 0.4
     let baseDiameter: CGFloat = kind == .camera ? 26 : 30   // the icons' widths at scale 1
     let target = CGFloat(realMeters / metersWide) * mapWidthPoints
-    return min(max(target / baseDiameter, 0.5), 3.5)
+    // Floor low enough that a person/camera can render at its true (tiny)
+    // footprint on a wide satellite capture — a 0.5 floor there drew them several
+    // times too big. Room-scale maps sit well above this, so they're unaffected;
+    // the "viewable size" toggle is there when the true size is too small to see.
+    return min(max(target / baseDiameter, 0.12), 3.5)
 }
 
 /// Wraps a row of borderless controls in one bordered, tinted capsule so a group
