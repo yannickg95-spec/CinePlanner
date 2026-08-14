@@ -106,6 +106,20 @@ extension PlatformImage {
     }
 }
 
+// MARK: - Keyboard / focus
+
+enum PlatformKeyboard {
+    /// Resigns the current text-field focus, committing the edit and dismissing the
+    /// keyboard — used when the user taps/clicks outside a field.
+    static func dismiss() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #else
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        #endif
+    }
+}
+
 // MARK: - Pasteboard
 
 enum PlatformPasteboard {

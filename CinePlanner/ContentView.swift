@@ -1732,8 +1732,13 @@ struct ShotDetailView: View {
                 Spacer()
             }
             .padding(.vertical)
+            // Tapping/clicking empty space in the editor confirms and dismisses the
+            // active text field.
+            .contentShape(Rectangle())
+            .onTapGesture { PlatformKeyboard.dismiss() }
         }
-                        .onAppear {
+        .scrollDismissesKeyboard(.interactively)
+        .onAppear {
             // Show second type dropdown if a second type is already set
             showSecondType = shot.hasSecondType
             // Show third type dropdown if a third type is already set
