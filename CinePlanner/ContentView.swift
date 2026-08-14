@@ -1016,8 +1016,7 @@ private struct FilmStockRow: View {
                 }
                 .labelsHidden().fixedSize()
                 HStack(spacing: 4) {
-                    TextField("fps", value: $item.filmFPS, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 52).multilineTextAlignment(.trailing)
+                    DecimalField(value: $item.filmFPS, width: 52, alignment: .trailing, placeholder: "fps")
                     Text("fps").foregroundStyle(.secondary)
                 }
             }
@@ -1032,15 +1031,12 @@ private struct FilmStockRow: View {
             // Input → result.
             HStack(spacing: 8) {
                 if item.filmMode == "meters" {
-                    TextField("0", value: $item.filmAmount, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 64).multilineTextAlignment(.trailing)
+                    DecimalField(value: $item.filmAmount, width: 64, alignment: .trailing, placeholder: "0")
                     Text("m").foregroundStyle(.secondary)
                 } else {
-                    TextField("0", value: minutesField, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 44).multilineTextAlignment(.trailing)
+                    NumericField(value: minutesField, width: 44, alignment: .trailing, placeholder: "0")
                     Text("min").foregroundStyle(.secondary)
-                    TextField("0", value: secondsField, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 44).multilineTextAlignment(.trailing)
+                    NumericField(value: secondsField, width: 44, alignment: .trailing, placeholder: "0")
                     Text("sec").foregroundStyle(.secondary)
                 }
                 Image(systemName: "equal")
@@ -1414,11 +1410,8 @@ struct ShotDetailView: View {
         HStack(spacing: 8) {
             // First focal length field
             HStack(spacing: 4) {
-                TextField("", value: $shot.lensfocal, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: focalFieldWidth)
-                    .multilineTextAlignment(.leading)
-                
+                NumericField(value: $shot.lensfocal, width: focalFieldWidth)
+
                 Text("mm")
                     .foregroundStyle(.secondary)
                     .fixedSize()
@@ -1431,10 +1424,7 @@ struct ShotDetailView: View {
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 4) {
-                    TextField("", value: $shot.lensfocalEnd, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: focalFieldWidth)
-                        .multilineTextAlignment(.leading)
+                    NumericField(value: $shot.lensfocalEnd, width: focalFieldWidth)
 
                     Text("mm")
                         .foregroundStyle(.secondary)
@@ -2319,6 +2309,93 @@ struct FilmNameEditor: View {
 }
 
 // MARK: - Metadata View
+
+/// A whole-number text field that clears when you click/tap into it (so you type
+/// fresh instead of editing the old value) and commits every keystroke straight to
+/// the binding — so there's no separate "confirm" step (which the iPad number pad,
+/// with no Return key, otherwise lacks). Leaving it empty keeps the current value.
+private struct NumericField: View {
+    @Binding var value: Int
+    var width: CGFloat = 60
+    var alignment: TextAlignment = .leading
+    var placeholder: String = ""
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+            .multilineTextAlignment(alignment)
+            #if os(iOS)
+            .keyboardType(.numberPad)
+            #endif
+            .focused($focused)
+            .onAppear { text = display(value) }
+            // Keep the field in sync if the value changes elsewhere (e.g. a CineStager
+            // import), but never yank text out from under an active edit.
+            .onChange(of: value) { _, newValue in if !focused { text = display(newValue) } }
+            .onChange(of: focused) { _, isFocused in
+                if isFocused { text = "" }          // clear on focus — type fresh
+                else { text = display(value) }      // resync display when leaving
+            }
+            .onChange(of: text) { _, newText in
+                let digits = newText.filter(\.isNumber)
+                if digits != newText { text = digits; return }
+                if let n = Int(digits) { value = n } // live commit; empty keeps current value
+            }
+    }
+
+    private func display(_ v: Int) -> String { v == 0 ? "" : String(v) }
+}
+
+/// Decimal sibling of `NumericField` (clears on focus, commits live) for `Double`
+/// values — allows digits and a single decimal point.
+private struct DecimalField: View {
+    @Binding var value: Double
+    var width: CGFloat = 60
+    var alignment: TextAlignment = .leading
+    var placeholder: String = ""
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+            .multilineTextAlignment(alignment)
+            #if os(iOS)
+            .keyboardType(.decimalPad)
+            #endif
+            .focused($focused)
+            .onAppear { text = display(value) }
+            .onChange(of: value) { _, newValue in if !focused { text = display(newValue) } }
+            .onChange(of: focused) { _, isFocused in
+                if isFocused { text = "" } else { text = display(value) }
+            }
+            .onChange(of: text) { _, newText in
+                let filtered = sanitize(newText)
+                if filtered != newText { text = filtered; return }
+                if let n = Double(filtered) { value = n } // live commit; empty/"." keeps current
+            }
+    }
+
+    private func display(_ v: Double) -> String {
+        if v == 0 { return "" }
+        return v == v.rounded() ? String(Int(v)) : String(v)
+    }
+    /// Digits plus at most one decimal point.
+    private func sanitize(_ s: String) -> String {
+        var seenDot = false
+        return String(s.filter { c in
+            if c.isNumber { return true }
+            if c == ".", !seenDot { seenDot = true; return true }
+            return false
+        })
+    }
+}
 
 struct MetadataView: View {
     let metadata: PhotoMetadata
