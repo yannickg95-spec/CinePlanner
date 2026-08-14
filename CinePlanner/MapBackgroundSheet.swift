@@ -17,6 +17,10 @@ struct MapBackgroundSheet: View {
     /// Called with the rendered PNG, the captured centre coordinate + size, and an
     /// optional location label (the address).
     var onBackground: (Data, CLLocationCoordinate2D, Double, String?) -> Void
+    /// When true, the map is pinned to `initialCoordinate` and can't be panned —
+    /// used for "Rescale", where only the capture size changes and the location
+    /// stays put (so markers only re-scale, never translate).
+    var lockToCenter: Bool = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
@@ -31,8 +35,10 @@ struct MapBackgroundSheet: View {
     /// `initialCoordinate`/`initialMeters` reopen the picker where it was last set.
     init(initialCoordinate: CLLocationCoordinate2D? = nil,
          initialMeters: Double? = nil,
+         lockToCenter: Bool = false,
          onBackground: @escaping (Data, CLLocationCoordinate2D, Double, String?) -> Void) {
         self.onBackground = onBackground
+        self.lockToCenter = lockToCenter
         _recenter = State(initialValue: initialCoordinate)
         _meters = State(initialValue: initialMeters ?? 60)
         _layoutMeters = State(initialValue: initialMeters ?? 60)
@@ -77,7 +83,8 @@ struct MapBackgroundSheet: View {
 
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
-                    MapPreview(recenter: recenter, visibleRect: $visibleRect)
+                    MapPreview(recenter: recenter, visibleRect: $visibleRect,
+                               spanMeters: max(meters * 2.5, 80), scrollEnabled: !lockToCenter)
                     captureFrame(in: CGSize(width: panelSide, height: panelSide))
                 }
                 .frame(width: panelSide, height: panelSide)
@@ -106,7 +113,9 @@ struct MapBackgroundSheet: View {
 
             Divider()
             HStack {
-                Text("Drag the map to position; the white square is captured.")
+                Text(lockToCenter
+                     ? "Adjust the capture size; the location stays fixed so markers keep their place."
+                     : "Drag the map to position; the white square is captured.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button { render() } label: {
@@ -249,18 +258,25 @@ struct MapBackgroundSheet: View {
 private struct MapPreview {
     var recenter: CLLocationCoordinate2D?
     @Binding var visibleRect: MKMapRect
+    /// Metres across to frame the map on open — roughly the capture size plus
+    /// context, so the white capture square is prominent and panning the map moves
+    /// the capture proportionally (not amplified as it was at a fixed wide zoom).
+    var spanMeters: Double = 300
+    /// When false the map can't be panned (Rescale keeps the location fixed).
+    var scrollEnabled: Bool = true
 
     /// Shared setup for both the AppKit and UIKit representable conformances.
     func makeMap(_ coordinator: Coordinator) -> MKMapView {
         let map = MKMapView()
         map.mapType = .satellite
         map.delegate = coordinator
+        map.isScrollEnabled = scrollEnabled
         #if os(macOS)
         map.showsZoomControls = true
         #endif
         map.showsCompass = true
         let start = recenter ?? CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952)
-        map.setRegion(MKCoordinateRegion(center: start, latitudinalMeters: 300, longitudinalMeters: 300), animated: false)
+        map.setRegion(MKCoordinateRegion(center: start, latitudinalMeters: spanMeters, longitudinalMeters: spanMeters), animated: false)
         // Treat the starting centre as already applied so it isn't re-animated.
         coordinator.lastRecenter = recenter
         return map

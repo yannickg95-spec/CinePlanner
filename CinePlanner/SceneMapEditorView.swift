@@ -11,6 +11,7 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 import CoreLocation
+import MapKit
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
@@ -24,6 +25,8 @@ struct SceneMapEditorView: View {
 
     enum DrawTool: String, CaseIterable { case wall = "Wall"; case door = "Door"; case window = "Window" }
     enum MoveDirection { case to, from }
+    /// How the satellite map-background sheet was opened.
+    enum MapBackgroundMode: Int, Identifiable { case new, rescale; var id: Int { rawValue } }
 
     @State private var doc: SceneMapDoc
     /// Selected camera/mannequin markers. Usually one, but a marquee drag over the
@@ -58,7 +61,11 @@ struct SceneMapEditorView: View {
     @State private var backgroundImage: PlatformImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
-    @State private var showingMapBackground = false
+    /// Non-nil when the satellite map-background sheet is open. `.new` sets a fresh
+    /// location; `.rescale` re-captures the current one, preserving marker
+    /// positions. Driving the sheet with the mode (not a shared flag) guarantees
+    /// the callback always knows which path to take.
+    @State private var mapBackgroundMode: MapBackgroundMode?
     @State private var isRenderingModel = false
     @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
@@ -180,10 +187,14 @@ struct SceneMapEditorView: View {
         .sheet(isPresented: $showSunSettings) {
             SunSettingsSheet(settings: $sun, onChange: saveSun)
         }
-        .sheet(isPresented: $showingMapBackground) {
+        .sheet(item: $mapBackgroundMode) { mode in
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
-                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil) { data, coordinate, meters, label in
-                setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil,
+                               lockToCenter: mode == .rescale) { data, coordinate, meters, label in
+                switch mode {
+                case .rescale: rescaleSatelliteBackground(data, coordinate: coordinate, meters: meters, label: label)
+                case .new:     setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+                }
             }
         }
         .alert("Furniture Label", isPresented: Binding(
@@ -294,7 +305,12 @@ struct SceneMapEditorView: View {
                 segmentDivider
                 Menu {
                     Button { showingImagePicker = true } label: { Label("Image…", systemImage: "photo") }
-                    Button { showingMapBackground = true } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
+                    Button { mapBackgroundMode = .new } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
+                    if scene.sceneMapBackgroundIsSatellite {
+                        Button { mapBackgroundMode = .rescale } label: {
+                            Label("Rescale Satellite Map…", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
+                        }
+                    }
                     Button { showingModelPicker = true } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
                         let others = scenesWithBackground
@@ -1506,6 +1522,78 @@ struct SceneMapEditorView: View {
         guard scene.sceneMapBackgroundIsSatellite,
               let lat = scene.sceneMapSatelliteLat, let lon = scene.sceneMapSatelliteLon else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    /// Re-maps a normalized (0…1) point from one satellite capture (centre +
+    /// metres-across) to another, so it keeps the same real-world spot. Works in
+    /// MapKit's projected `MKMapPoint` space — the exact space the capture image is
+    /// built in (`MapSnapshot`: a square `meters × pointsPerMeterAtLatitude(centre)`
+    /// centred on the coordinate) — so markers stick precisely under both zoom and
+    /// pan, with no projection drift.
+    private func remapNormalized(_ p: CGPoint,
+                                 oldCenter: CLLocationCoordinate2D, oldMeters: Double,
+                                 newCenter: CLLocationCoordinate2D, newMeters: Double) -> CGPoint {
+        let oldSide = oldMeters * MKMapPointsPerMeterAtLatitude(oldCenter.latitude)
+        let newSide = newMeters * MKMapPointsPerMeterAtLatitude(newCenter.latitude)
+        guard newSide > 0 else { return p }
+        let oldC = MKMapPoint(oldCenter)
+        let newC = MKMapPoint(newCenter)
+        // The marker's absolute world point, from where it sat in the old capture…
+        let worldX = oldC.x + (Double(p.x) - 0.5) * oldSide
+        let worldY = oldC.y + (Double(p.y) - 0.5) * oldSide
+        // …projected into the new capture's square.
+        return CGPoint(x: 0.5 + (worldX - newC.x) / newSide,
+                       y: 0.5 + (worldY - newC.y) / newSide)
+    }
+
+    /// Replaces the satellite background with a new capture (a different zoom
+    /// and/or centre) while keeping every marker, arrow, furniture piece and
+    /// floor-plan vertex at the same real-world location. Falls back to a plain
+    /// set when the old capture's geo-anchor is missing.
+    private func rescaleSatelliteBackground(_ data: Data, coordinate: CLLocationCoordinate2D, meters: Double, label: String?) {
+        guard let oldLat = scene.sceneMapSatelliteLat,
+              let oldLon = scene.sceneMapSatelliteLon,
+              let oldMeters = scene.sceneMapSatelliteMeters, oldMeters > 0, meters > 0 else {
+            setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+            return
+        }
+        let oldCenter = CLLocationCoordinate2D(latitude: oldLat, longitude: oldLon)
+        let ratio = oldMeters / meters   // normalized sizes scale by this to keep real size
+        func remap(_ x: Double, _ y: Double) -> (Double, Double) {
+            let p = remapNormalized(CGPoint(x: x, y: y), oldCenter: oldCenter, oldMeters: oldMeters,
+                                    newCenter: coordinate, newMeters: meters)
+            return (Double(p.x), Double(p.y))
+        }
+
+        for i in doc.elements.indices { (doc.elements[i].x, doc.elements[i].y) = remap(doc.elements[i].x, doc.elements[i].y) }
+        for i in doc.furniture.indices {
+            (doc.furniture[i].x, doc.furniture[i].y) = remap(doc.furniture[i].x, doc.furniture[i].y)
+            doc.furniture[i].width *= ratio
+            doc.furniture[i].height *= ratio
+        }
+        for i in doc.arrows.indices {
+            doc.arrows[i].pivots = doc.arrows[i].pivots.map {
+                let (x, y) = remap(Double($0.x), Double($0.y)); return CGPoint(x: x, y: y)
+            }
+        }
+        for i in floorPlan.vertices.indices { (floorPlan.vertices[i].x, floorPlan.vertices[i].y) = remap(floorPlan.vertices[i].x, floorPlan.vertices[i].y) }
+
+        // Swap in the new capture, keeping the (remapped) markers + floor plan.
+        scene.sceneMapBackgroundData = data
+        scene.sceneMapBackgroundIsSatellite = true
+        if let label { scene.sceneMapLocation = label }
+        scene.sceneMapSatelliteLat = coordinate.latitude
+        scene.sceneMapSatelliteLon = coordinate.longitude
+        scene.sceneMapSatelliteMeters = meters
+        scene.sceneMapMetersWide = meters
+        backgroundImage = PlatformImage(data: data)
+        scene.sceneMapJSON = doc.jsonString
+        scene.sceneFloorPlanJSON = floorPlan.jsonString
+        // Keep the sun anchored to the (possibly re-centred) location.
+        sun.latitude = coordinate.latitude
+        sun.longitude = coordinate.longitude
+        saveSun()
+        saveContext()
     }
 
     private func setMapBackground(_ data: Data, coordinate: CLLocationCoordinate2D, meters: Double, label: String?) {
