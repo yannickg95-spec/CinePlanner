@@ -61,6 +61,26 @@ struct MapBackgroundSheet: View {
     }
     private var visibleMeters: Double { visibleRect.isNull ? 0 : MapSnapshot.metersWide(visibleRect) }
 
+    /// Capture-size range (metres).
+    private static let captureMin = 10.0
+    private static let captureMax = 400.0
+    /// Maps `meters` geometrically onto the slider's 0…1, so small sizes take up
+    /// more of the track (finer control) and large sizes grow faster.
+    private var captureSizeBinding: Binding<Double> {
+        Binding(
+            get: {
+                let t = log(meters / Self.captureMin) / log(Self.captureMax / Self.captureMin)
+                return min(max(t, 0), 1)
+            },
+            set: { t in
+                let raw = Self.captureMin * pow(Self.captureMax / Self.captureMin, t)
+                // Snap to a tidy step that scales with magnitude.
+                let step: Double = raw < 30 ? 1 : (raw < 100 ? 5 : 10)
+                meters = min(max((raw / step).rounded() * step, Self.captureMin), Self.captureMax)
+            }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -98,7 +118,9 @@ struct MapBackgroundSheet: View {
 
             HStack(spacing: 12) {
                 Text("Capture size")
-                Slider(value: $meters, in: 10...400, step: 5) { editing in
+                // Exponential (geometric) slider: fine control at small distances,
+                // faster growth toward the wide end.
+                Slider(value: captureSizeBinding, in: 0...1) { editing in
                     if !editing { layoutMeters = meters }
                 }
                 Text("\(Int(meters)) m").monospacedDigit().frame(width: 52, alignment: .trailing)
