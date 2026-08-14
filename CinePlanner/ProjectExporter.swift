@@ -389,11 +389,9 @@ struct ProjectExporter {
     private func renderSceneMap(scene: Scene) -> CoverageImage? {
         let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
         let plan = FloorPlan.load(from: scene.sceneFloorPlanJSON)
-        // Satellite backgrounds are excluded from exports (Apple Maps map-data
-        // redistribution); the markers still render on a plain canvas.
-        let background = scene.sceneMapBackgroundIsSatellite
-            ? nil
-            : scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
+        // Include the background — satellite (Apple Maps) captures included — so the
+        // exported scene map matches the editor.
+        let background = scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
         guard !doc.elements.isEmpty || !doc.furniture.isEmpty || !plan.isEmpty || background != nil else { return nil }
 
         // Output aspect follows the background image; otherwise a square (which is
