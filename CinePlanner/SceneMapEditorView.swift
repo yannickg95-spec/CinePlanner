@@ -566,7 +566,7 @@ struct SceneMapEditorView: View {
                         characters: scene.project?.scriptCharacters ?? [],
                         onSetCharacter: { character in setCharacter(element.id, character) },
                         onRequestLabel: { markerToLabel = element.id; markerLabelText = element.label },
-                        onRemoveLabel: { setMarkerLabel(element.id, "") },
+                        onToggleLabelHidden: { toggleLabelHidden(element.id) },
                         showsFOV: scene.sceneMapShowCameraFOV,
                         onToggleFOV: { toggleCameraFOV() },
                         fovBasis: effectiveBasis(for: element),
@@ -859,6 +859,14 @@ struct SceneMapEditorView: View {
     private func setMarkerLabel(_ id: UUID, _ label: String) {
         guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
         doc.elements[index].label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        persist()
+    }
+
+    /// Toggles one marker's name-label visibility (per marker, so a character's two
+    /// walk markers are independent).
+    private func toggleLabelHidden(_ id: UUID) {
+        guard let index = doc.elements.firstIndex(where: { $0.id == id }) else { return }
+        doc.elements[index].labelHidden.toggle()
         persist()
     }
 
@@ -2286,7 +2294,8 @@ private struct MapMarkerView: View {
     var onSetCharacter: (ScriptCharacter) -> Void = { _ in }
     /// Character-marker name label: request a text prompt to add one, or remove it.
     var onRequestLabel: () -> Void = {}
-    var onRemoveLabel: () -> Void = {}
+    /// Toggles this marker's name-label visibility (keeps the name).
+    var onToggleLabelHidden: () -> Void = {}
     /// Whether the scene's camera FOV overlay is currently on (drives the camera
     /// marker's Show/Hide menu label). Scene-wide, so every camera shows it.
     var showsFOV: Bool = false
@@ -2390,7 +2399,7 @@ private struct MapMarkerView: View {
             // Label floats below the center without shifting it (an upright
             // caption, never rotated). Draggable, so it can be nudged clear of an
             // arrow; the nudge is stored on the element.
-            if !label.isEmpty {
+            if !label.isEmpty && !element.labelHidden {
                 let nudge = liveLabelOffset ?? element.labelOffset
                 labelView
                     .contentShape(Rectangle())
@@ -2431,7 +2440,10 @@ private struct MapMarkerView: View {
             if element.label.isEmpty {
                 Button { onRequestLabel() } label: { Label("Add Name Label…", systemImage: "textformat") }
             } else {
-                Button { onRemoveLabel() } label: { Label("Remove Name Label", systemImage: "textformat.slash") }
+                Button { onToggleLabelHidden() } label: {
+                    Label(element.labelHidden ? "Show Label" : "Hide Label",
+                          systemImage: element.labelHidden ? "eye" : "eye.slash")
+                }
             }
             Divider()
         }

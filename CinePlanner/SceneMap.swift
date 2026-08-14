@@ -28,6 +28,9 @@ struct MapElement: Identifiable, Codable, Equatable {
     var y: Double
     var rotation: Double = 0        // degrees, 0 = facing up, clockwise positive
     var label: String = ""
+    /// Hide this marker's name label without clearing the name — per marker, so one
+    /// of a character's two walk markers can show the name while the other doesn't.
+    var labelHidden: Bool = false
     /// User nudge (in canvas points) applied to the label on top of its default
     /// position below the marker, so a label can be moved clear of an arrow.
     var labelOffset: CGSize = .zero
@@ -45,7 +48,7 @@ struct MapElement: Identifiable, Codable, Equatable {
     var fovBasis: FOVBasis? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, x, y, rotation, label, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM, fovBasis
+        case id, kind, x, y, rotation, label, labelHidden, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM, fovBasis
     }
 
     init(kind: Kind, x: Double, y: Double) {
@@ -61,6 +64,7 @@ struct MapElement: Identifiable, Codable, Equatable {
         y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
         rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        labelHidden = try c.decodeIfPresent(Bool.self, forKey: .labelHidden) ?? false
         labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
         shotUID = try c.decodeIfPresent(String.self, forKey: .shotUID)
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#4C8DFF"
