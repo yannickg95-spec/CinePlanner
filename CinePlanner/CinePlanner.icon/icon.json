@@ -4,8 +4,11 @@
     {
       "layers" : [
         {
-          "image-name" : "CinePlanner.svg",
-          "name" : "CinePlanner"
+          "fill" : "automatic",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "CinePlannerLogo.svg",
+          "name" : "CinePlannerLogo"
         }
       ],
       "shadow" : {

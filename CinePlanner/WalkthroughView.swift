@@ -231,11 +231,17 @@ private struct WelcomeIllo: View {
                 .fill(Color.accentColor.opacity(0.28))
                 .frame(width: 190, height: 190)
                 .blur(radius: 40)
-            Image("CinePlannerLogo")
-                .resizable().scaledToFit()
+            // The logo art is the bars on their own; sit them on a white app-icon
+            // tile so the Welcome card reads like the app's icon.
+            RoundedRectangle(cornerRadius: 33, style: .continuous)
+                .fill(.white)
                 .frame(width: 148, height: 148)
-                .clipShape(RoundedRectangle(cornerRadius: 33, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 18, y: 12)
+                .overlay(
+                    Image("CinePlannerLogo")
+                        .resizable().scaledToFit()
+                        .padding(26)
+                )
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 12)
                 .appear()
         }
     }
