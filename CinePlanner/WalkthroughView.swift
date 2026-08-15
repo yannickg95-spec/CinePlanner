@@ -237,9 +237,11 @@ private struct WelcomeIllo: View {
                 .fill(.white)
                 .frame(width: 148, height: 148)
                 .overlay(
+                    // The SVG already carries the icon's internal margins, so it
+                    // fills the tile like the real app icon (no extra padding).
                     Image("CinePlannerLogo")
                         .resizable().scaledToFit()
-                        .padding(26)
+                        .padding(6)
                 )
                 .shadow(color: .black.opacity(0.22), radius: 18, y: 12)
                 .appear()
