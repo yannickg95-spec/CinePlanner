@@ -648,8 +648,11 @@ struct SceneMapEditorView: View {
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-            // Drag from empty canvas to rubber-band select markers.
+            // Drag from empty canvas to rubber-band select markers (macOS only —
+            // on iPad the drag box conflicts with touch tapping/dragging markers).
+            #if os(macOS)
             .gesture(marqueeGesture(in: rect))
+            #endif
             .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             #if os(macOS)
             .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
