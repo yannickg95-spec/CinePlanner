@@ -199,7 +199,9 @@ struct ProjectListView: View {
 
                 Spacer()
 
-                CloudSyncBadge(monitor: syncMonitor)
+                CloudSyncBadge(monitor: syncMonitor) {
+                    syncMonitor.requestSync(context: modelContext)
+                }
 
                 Button {
                     showingManageRepos = true

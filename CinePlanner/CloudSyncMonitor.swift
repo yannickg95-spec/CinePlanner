@@ -13,6 +13,7 @@ import Foundation
 import CoreData
 import Combine
 import SwiftUI
+import SwiftData
 
 @MainActor
 final class CloudSyncMonitor: ObservableObject {
@@ -47,6 +48,22 @@ final class CloudSyncMonitor: ObservableObject {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
+    /// Best-effort manual sync, triggered by tapping the badge. Re-checks the
+    /// iCloud account, clears a stale error so the status re-evaluates, and
+    /// flushes any pending local changes so CloudKit exports them. SwiftData
+    /// exposes no public API to force a fetch, so incoming changes still arrive
+    /// on CloudKit's own schedule — this mainly retries after an error and
+    /// pushes unsaved work.
+    func requestSync(context: ModelContext) {
+        refreshAccount()
+        guard status != .signedOut else { return }
+        lastErrorMessage = nil
+        if status == .error {
+            status = active.isEmpty ? (lastSynced == nil ? .connected : .synced) : .syncing
+        }
+        if context.hasChanges { try? context.save() }
+    }
+
     private func refreshAccount() {
         if FileManager.default.ubiquityIdentityToken == nil {
             status = .signedOut
@@ -77,11 +94,28 @@ final class CloudSyncMonitor: ObservableObject {
     }
 }
 
-/// Small pill showing the current iCloud sync state.
+/// Small pill showing the current iCloud sync state. Tapping it opens a detail
+/// popover that can force a sync and, on error, shows the full CloudKit message
+/// (on iPad the `.help` tooltip never appears, so the popover is the only way to
+/// read it).
 struct CloudSyncBadge: View {
     @ObservedObject var monitor: CloudSyncMonitor
+    /// Called when the user taps "Sync Now" / "Retry" — the host passes its
+    /// ModelContext through so the monitor can flush pending changes.
+    var onSync: () -> Void
+    @State private var showingDetail = false
 
     var body: some View {
+        Button { showingDetail = true } label: { pill }
+            .buttonStyle(.plain)
+            .help(helpText)
+            .popover(isPresented: $showingDetail, arrowEdge: .bottom) {
+                detail
+                    .presentationCompactAdaptation(.popover)
+            }
+    }
+
+    private var pill: some View {
         HStack(spacing: 5) {
             if monitor.status == .syncing {
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 12, height: 12)
@@ -96,7 +130,52 @@ struct CloudSyncBadge: View {
         .padding(.vertical, 7)
         .background(Color.secondary.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .help(helpText)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder private var detail: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).foregroundStyle(tint)
+                Text(label).font(.headline)
+            }
+
+            if monitor.status == .error, let message = monitor.lastErrorMessage {
+                Text("iCloud reported an error:")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                ScrollView {
+                    Text(message)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 140)
+            } else if monitor.status == .signedOut {
+                Text("Sign in to iCloud in Settings to sync your projects across devices.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else if let date = monitor.lastSynced {
+                Text("Last synced \(date.formatted(date: .abbreviated, time: .shortened)).")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                Text("Connected to iCloud. Your projects sync across your devices.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+
+            if monitor.status != .signedOut {
+                Button {
+                    onSync()
+                    showingDetail = false
+                } label: {
+                    Label(monitor.status == .error ? "Retry Sync" : "Sync Now",
+                          systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
     }
 
     private var symbol: String {
