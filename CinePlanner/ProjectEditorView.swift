@@ -906,6 +906,7 @@ struct ProjectEditorView: View {
                     compactScriptView(for: scene)
                 }
             }
+            .padding(.top, 10)   // a bit of breathing room under the tabs
         }
         .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix)")
         #if os(iOS)
@@ -1130,17 +1131,17 @@ struct ProjectEditorView: View {
             .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
             Spacer(minLength: 0)
         }
-        .frame(height: Self.paneHeaderHeight)
+        .frame(height: isPhoneLayout ? 38 : Self.paneHeaderHeight)
     }
 
     private func tabButton(_ title: String, _ tab: DetailTab) -> some View {
         let isSelected = detailTab == tab
         return Button { detailTab = tab } label: {
             Text(title)
-                .font(.title3.bold())
+                .font(isPhoneLayout ? .subheadline.bold() : .title3.bold())
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 6)
+                .padding(.horizontal, isPhoneLayout ? 12 : 18)
+                .padding(.vertical, isPhoneLayout ? 4 : 6)
                 .background(isSelected ? Color.platformControlBackground : Color.clear,
                             in: RoundedRectangle(cornerRadius: 7))
                 .contentShape(RoundedRectangle(cornerRadius: 7))
