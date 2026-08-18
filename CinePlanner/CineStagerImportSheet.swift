@@ -68,7 +68,7 @@ struct CineStagerImportSheet: View {
             footer
         }
         #if os(macOS)
-        .frame(width: 720, height: 620)
+        .adaptiveSheetFrame(width: 720, height: 620)
         #endif
         .task { await library.refresh() }
         .alert("Replace scene map?", isPresented: Binding(

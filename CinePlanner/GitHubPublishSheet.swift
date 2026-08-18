@@ -66,7 +66,7 @@ struct GitHubPublishSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 460)
+        .adaptiveSheetFrame(width: 500, height: 460)
     }
 
     // MARK: - Token entry

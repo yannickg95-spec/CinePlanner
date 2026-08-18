@@ -1251,7 +1251,7 @@ struct ScriptImportOptionsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 520, height: 400)
+        .adaptiveSheetFrame(width: 520, height: 400)
     }
 }
 

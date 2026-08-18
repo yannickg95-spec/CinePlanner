@@ -153,7 +153,7 @@ struct ExportOptionsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 600, height: 720)
+        .adaptiveSheetFrame(width: 600, height: 720)
         .sheet(isPresented: $showingPublish) {
             GitHubPublishSheet(project: project, version: version)
         }

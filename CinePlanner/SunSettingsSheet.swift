@@ -68,7 +68,7 @@ struct SunSettingsSheet: View {
             }
             .formStyle(.grouped)
         }
-        .frame(width: 380, height: 500)
+        .adaptiveSheetFrame(width: 380, height: 500)
     }
 
     // MARK: - Bindings

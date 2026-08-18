@@ -149,7 +149,7 @@ struct MapBackgroundSheet: View {
             .padding(16)
         }
         #if os(macOS)
-        .frame(width: sheetWidth, height: 640)
+        .adaptiveSheetFrame(width: sheetWidth, height: 640)
         #endif
     }
 

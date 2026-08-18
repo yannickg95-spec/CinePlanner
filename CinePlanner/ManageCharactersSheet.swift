@@ -22,7 +22,7 @@ struct ManageCharactersSheet: View {
             Divider()
             footer
         }
-        .frame(width: 400, height: 460)
+        .adaptiveSheetFrame(width: 400, height: 460)
         .onAppear { characters = project.scriptCharacters }
         .onDisappear { commit() }
     }

@@ -40,6 +40,32 @@ extension View {
     func applyIf<T: View>(_ condition: Bool, _ transform: (Self) -> T) -> some View {
         if condition { transform(self) } else { self }
     }
+
+    /// Sizes sheet content to a fixed card on iPad/Mac (regular width). On iPhone
+    /// (compact width) a sheet is full-screen, so the content fills it instead of
+    /// overflowing a fixed width. Use on the root of a sheet's content.
+    func adaptiveSheetFrame(width: CGFloat, height: CGFloat) -> some View {
+        modifier(AdaptiveSheetFrame(width: width, height: height))
+    }
+}
+
+private struct AdaptiveSheetFrame: ViewModifier {
+    let width: CGFloat
+    let height: CGFloat
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if hSizeClass == .compact {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            content.frame(width: width, height: height)
+        }
+        #else
+        content.frame(width: width, height: height)
+        #endif
+    }
 }
 
 // MARK: - SwiftUI Image

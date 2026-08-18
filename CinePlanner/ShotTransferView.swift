@@ -221,7 +221,7 @@ struct ShotTransferView: View {
             .padding(16)
         }
         #if os(macOS)
-        .frame(width: 980, height: 640)
+        .adaptiveSheetFrame(width: 980, height: 640)
         #else
         // iPad: grow the sheet to fit a roomy layout instead of the narrow default
         // page-sheet width, so both scene columns are clearly readable.
@@ -503,7 +503,7 @@ struct SingleSceneShotImportSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 560, height: 520)
+        .adaptiveSheetFrame(width: 560, height: 520)
         .onAppear {
             let resolved = sourceVersion ?? sourceCandidates.last
             sourceVersion = resolved

@@ -1197,7 +1197,7 @@ struct ProjectEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 480, height: 620)
+        .adaptiveSheetFrame(width: 480, height: 620)
     }
 
     /// A titled card matching the Edit Shot sheet — a caps label above a rounded,
@@ -1291,7 +1291,7 @@ struct ProjectEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 480, height: 440)
+        .adaptiveSheetFrame(width: 480, height: 440)
     }
 
     /// One selectable numbering-style card: a radio dot, its name and description,

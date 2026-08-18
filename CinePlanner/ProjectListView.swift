@@ -658,7 +658,7 @@ struct EditProjectNameSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 250)
+        .adaptiveSheetFrame(width: 460, height: 250)
         .onAppear {
             editedName = project.filmName
             isTextFieldFocused = true
@@ -698,7 +698,7 @@ struct NewProjectSheet: View {
                 scriptStep
             }
         }
-        .frame(width: 520, height: 400)
+        .adaptiveSheetFrame(width: 520, height: 400)
     }
 
     private var nameStep: some View {
@@ -886,7 +886,7 @@ struct RestoreBackupSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 440)
+        .adaptiveSheetFrame(width: 460, height: 440)
         .onAppear { backups = StoreBackup.listBackups() }
         .alert("Restore this backup?", isPresented: Binding(
             get: { confirmBackup != nil },

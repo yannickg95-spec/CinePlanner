@@ -36,7 +36,7 @@ struct ManageRepositoriesSheet: View {
             Divider()
             content
         }
-        .frame(width: 580, height: 540)
+        .adaptiveSheetFrame(width: 580, height: 540)
         .task { await load() }
         .alert("Delete Repository?", isPresented: Binding(
             get: { repoPendingDeletion != nil },
