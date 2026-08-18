@@ -28,6 +28,12 @@ struct ProjectEditorView: View {
     }
     /// iPhone: presents the script PDF full-screen (no room for a side-by-side pane).
     @State private var showScriptSheet = false
+    /// iPhone: the shot whose script lines are being marked in the full-screen
+    /// script cover (set when its "Mark Text" opens the script), else nil.
+    @State private var coverageMarkingShot: Shot?
+    /// iPhone: true while the script cover is in text-selection mode, so it shows
+    /// Done/Cancel instead of a plain close button.
+    @State private var isCoverageMarkingInSheet = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -234,12 +240,32 @@ struct ProjectEditorView: View {
             }
         }
         #if os(iOS)
-        // iPhone script pane, presented full-screen. Also opens automatically when a
-        // new scene needs its script page placed.
+        // iPhone script pane, presented full-screen. Opens automatically when a new
+        // scene needs its script page placed, or when a shot's "Mark Text" fires —
+        // the PDF isn't otherwise on screen to select text in.
         .onChange(of: sceneBeingMarked) { _, marking in
             if isPhoneLayout, marking != nil { showScriptSheet = true }
         }
-        .fullScreenCover(isPresented: $showScriptSheet) {
+        .onReceive(NotificationCenter.default.publisher(for: .startScriptTextSelection)) { note in
+            // Intercept only when the script isn't open yet; once it is, the mounted
+            // PDF view handles the (re-posted) notification itself.
+            guard isPhoneLayout, !showScriptSheet else { return }
+            coverageMarkingShot = note.userInfo?["shot"] as? Shot
+            showScriptSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scriptSelectionModeChanged)) { note in
+            guard isPhoneLayout else { return }
+            let active = note.userInfo?["active"] as? Bool ?? false
+            isCoverageMarkingInSheet = active
+            // The coverage session ended (Done captured a selection, or Cancel) —
+            // close the script and return to the shot.
+            if !active, coverageMarkingShot != nil {
+                coverageMarkingShot = nil
+                showScriptSheet = false
+            }
+        }
+        .fullScreenCover(isPresented: $showScriptSheet,
+                         onDismiss: { coverageMarkingShot = nil; isCoverageMarkingInSheet = false }) {
             NavigationStack {
                 ScriptPDFViewer(
                     project: project,
@@ -259,13 +285,36 @@ struct ProjectEditorView: View {
                     },
                     onCancelMarking: { sceneBeingMarked = nil }
                 )
-                .navigationTitle(sceneBeingMarked != nil ? "Place Scene Page" : "Script")
+                .navigationTitle(coverageMarkingShot != nil ? "Mark the Shot's Lines"
+                                 : (sceneBeingMarked != nil ? "Place Scene Page" : "Script"))
                 .navigationBarTitleDisplayMode(.inline)
+                .onAppear {
+                    // Begin selection once the PDF is mounted and scrolled to the page.
+                    if let shot = coverageMarkingShot {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            NotificationCenter.default.post(name: .startScriptTextSelection,
+                                                            object: nil, userInfo: ["shot": shot])
+                        }
+                    }
+                }
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") {
-                            showScriptSheet = false
-                            sceneBeingMarked = nil
+                    if isCoverageMarkingInSheet {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                NotificationCenter.default.post(name: .cancelScriptSelection, object: nil)
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
+                            }
+                        }
+                    } else {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") {
+                                showScriptSheet = false
+                                sceneBeingMarked = nil
+                            }
                         }
                     }
                 }
@@ -823,6 +872,7 @@ struct ProjectEditorView: View {
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
+                .onAppear { selectedShots = [shot.uid] }
         }
     }
 
@@ -850,6 +900,9 @@ struct ProjectEditorView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // Keep the selection in step with the drill-down, so the script page and
+        // shot detail resolve to this scene.
+        .onAppear { selectedScenes = [scene.uid] }
     }
 
     private func editorColumnStack(available: CGFloat, showScript: Bool) -> some View {
