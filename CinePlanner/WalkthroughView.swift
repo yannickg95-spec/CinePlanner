@@ -14,6 +14,18 @@ import SwiftUI
 
 struct WalkthroughView: View {
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    /// iPhone (compact width): the walkthrough fills its full-screen sheet instead
+    /// of using the fixed iPad/Mac card size.
+    private var isCompact: Bool {
+        #if os(iOS)
+        return hSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
     @State private var index = 0
 
     enum StepKind {
@@ -103,7 +115,9 @@ struct WalkthroughView: View {
                 footer
             }
         }
-        .frame(width: 560, height: 660)
+        // iPhone (compact) fills its full-screen sheet; iPad/Mac keep the fixed card.
+        .frame(maxWidth: isCompact ? .infinity : nil, maxHeight: isCompact ? .infinity : nil)
+        .frame(width: isCompact ? nil : 560, height: isCompact ? nil : 660)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 24)

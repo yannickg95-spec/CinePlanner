@@ -13,6 +13,21 @@ import PDFKit
 struct ProjectEditorView: View {
     @Bindable var project: Project
     @Environment(\.modelContext) private var modelContext
+    #if os(iOS)
+    // iPhone (compact width) collapses the multi-column editor into a single-column
+    // drill-down. iPad and Mac are regular width and keep the columns unchanged.
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    /// True only on a compact-width screen (iPhone, or an iPad in narrow multitasking).
+    private var isPhoneLayout: Bool {
+        #if os(iOS)
+        return hSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
+    /// iPhone: presents the script PDF full-screen (no room for a side-by-side pane).
+    @State private var showScriptSheet = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -134,6 +149,17 @@ struct ProjectEditorView: View {
             }
             #endif
 
+            #if os(iOS)
+            // iPhone: the script pane is gone, so offer it full-screen from the bar.
+            if isPhoneLayout {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showScriptSheet = true } label: {
+                        Label("Script", systemImage: "doc.text.magnifyingglass")
+                    }
+                }
+            }
+            #endif
+
             ToolbarItem(placement: .primaryAction) {
                 actionButtons
             }
@@ -207,6 +233,45 @@ struct ProjectEditorView: View {
                 selectedShots = []
             }
         }
+        #if os(iOS)
+        // iPhone script pane, presented full-screen. Also opens automatically when a
+        // new scene needs its script page placed.
+        .onChange(of: sceneBeingMarked) { _, marking in
+            if isPhoneLayout, marking != nil { showScriptSheet = true }
+        }
+        .fullScreenCover(isPresented: $showScriptSheet) {
+            NavigationStack {
+                ScriptPDFViewer(
+                    project: project,
+                    version: selectedVersion,
+                    selectedScenePage: selectedScene?.absolutePDFPage,
+                    selectedScene: selectedScene,
+                    selectedShot: selectedShot,
+                    onScenesImported: { _ in
+                        if !otherVersionsWithShots.isEmpty { showCopyShotsPrompt = true }
+                    },
+                    requestImport: $requestScriptImport,
+                    isMarkingScenePage: sceneBeingMarked != nil,
+                    markingSceneLabel: sceneBeingMarked.map { "\($0.sceneNumber)\($0.suffix)" } ?? "",
+                    onFinishMarking: {
+                        finishMarkingScenePage(atPageIndex: $0)
+                        showScriptSheet = false
+                    },
+                    onCancelMarking: { sceneBeingMarked = nil }
+                )
+                .navigationTitle(sceneBeingMarked != nil ? "Place Scene Page" : "Script")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            showScriptSheet = false
+                            sceneBeingMarked = nil
+                        }
+                    }
+                }
+            }
+        }
+        #endif
     }
 
     private func editorSheets<Content: View>(_ content: Content) -> some View {
@@ -689,7 +754,17 @@ struct ProjectEditorView: View {
         scriptWidth = min(max(combined * scriptFraction, bounds.min), bounds.max)
     }
 
+    @ViewBuilder
     private var editorColumns: some View {
+        if isPhoneLayout {
+            compactColumns
+        } else {
+            regularColumns
+        }
+    }
+
+    /// iPad + Mac: the resizable multi-column layout (unchanged).
+    private var regularColumns: some View {
         GeometryReader { geo in
             // On iPad in portrait there isn't room for three columns, so the script
             // pane is hidden — leaving Scenes and Shots/Scene Map. macOS always
@@ -717,6 +792,63 @@ struct ProjectEditorView: View {
         // the editor sizes to the screen instead (forcing this width would overflow
         // a portrait iPad and leave the divider no room to move).
         .frame(minWidth: minimumEditorWidth, minHeight: 700)
+        #endif
+    }
+
+    // MARK: - iPhone (compact) single-column drill-down
+
+    /// iPhone: the scenes list is the root; tapping a scene pushes its shots/map,
+    /// tapping a shot pushes the shot detail. The scene/shot rows are already
+    /// `NavigationLink(value:)`, so these destinations (added only in compact
+    /// width) turn them into pushes — leaving iPad/Mac, which never attach them,
+    /// on the existing selection-driven columns.
+    @ViewBuilder
+    private var compactColumns: some View {
+        SceneListView(
+            project: project,
+            version: selectedVersion,
+            selectedScenes: $selectedScenes,
+            canImportShots: !otherVersionsWithShots.isEmpty,
+            onEditScene: { sceneToEdit = $0 },
+            onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
+            onDeleteScenes: { pendingSceneDeletion = $0 },
+            onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } }
+        )
+        .navigationDestination(for: Scene.self) { scene in
+            compactSceneScreen(scene)
+        }
+        .navigationDestination(for: Shot.self) { shot in
+            ShotDetailView(shot: shot)
+                .navigationTitle("Shot \(shot.displayNumber)")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+        }
+    }
+
+    /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
+    /// same tab control the wide layout uses. Shot rows push the shot detail.
+    private func compactSceneScreen(_ scene: Scene) -> some View {
+        VStack(spacing: 0) {
+            detailTabBar
+            Divider()
+            Group {
+                if detailTab == .shot {
+                    ShotListView(
+                        scene: scene,
+                        selectedShots: $selectedShots,
+                        onEditShot: { shotToEdit = $0 },
+                        onDeleteShots: { pendingShotDeletion = $0 }
+                    )
+                } else {
+                    SceneMapEditorView(scene: scene, embedded: true)
+                        .id(scene.uid)
+                }
+            }
+        }
+        .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix)")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
     }
 

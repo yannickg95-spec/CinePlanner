@@ -494,6 +494,7 @@ struct ShotListView: View {
     // iPad lets the user pick the source: Files or the Photos library.
     @State private var isPresentingShotPhotos = false
     @State private var selectedShotPhotos: [PhotosPickerItem] = []
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     #endif
 
     var sortedShots: [Shot] {
@@ -655,7 +656,9 @@ struct ShotListView: View {
         // Plain style + tight insets let the shot cards span the full column width
         // on iPad (the default grouped style insets them with side margins).
         .listStyle(.plain)
-        .navigationTitle(scene.project?.filmName ?? "")
+        // iPad/Mac: the shots column carries the film-name title. On iPhone the
+        // pushed scene screen owns the title ("Scene X"), so don't override it.
+        .applyIf(hSizeClass != .compact) { $0.navigationTitle(scene.project?.filmName ?? "") }
         #endif
         .sheet(isPresented: $showCineStagerImport) {
             CineStagerImportSheet(provideReference: { makeImportedShotReference() })

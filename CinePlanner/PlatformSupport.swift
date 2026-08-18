@@ -31,6 +31,17 @@ typealias SCNScalar = CGFloat
 typealias PlatformViewBase = NSView
 #endif
 
+// MARK: - Conditional modifier
+
+extension View {
+    /// Applies `transform` only when `condition` is true, leaving the view
+    /// untouched otherwise. Handy for gating a modifier by size class.
+    @ViewBuilder
+    func applyIf<T: View>(_ condition: Bool, _ transform: (Self) -> T) -> some View {
+        if condition { transform(self) } else { self }
+    }
+}
+
 // MARK: - SwiftUI Image
 
 extension Image {
