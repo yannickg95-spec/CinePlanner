@@ -947,6 +947,22 @@ enum ScriptImportError: LocalizedError {
 
 // MARK: - PDF Viewer View
 
+#if os(macOS)
+/// A menu-as-button styled like the scene-map toolbar's gear pill (SegmentedGroup):
+/// a 40×34 cell with a subtle fill and rounded border.
+private struct SegmentedGearButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 40, height: 34)
+            .contentShape(Rectangle())
+            .background(Color.secondary.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+#endif
+
 struct ScriptPDFViewer: View {
     let project: Project
     let version: ScriptVersion?
@@ -1001,24 +1017,17 @@ struct ScriptPDFViewer: View {
             }
         } label: {
             #if os(macOS)
-            // Match the scene-map toolbar's gear pill (SegmentedGroup styling).
-            Image(systemName: "gearshape")
-                .font(.system(size: 16, weight: .medium))
-                .frame(width: 40, height: 34)
-                .contentShape(Rectangle())
+            Image(systemName: "gearshape").font(.system(size: 16, weight: .medium))
             #else
-            Image(systemName: "gearshape")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Image(systemName: "gearshape").font(.callout).foregroundStyle(.secondary)
             #endif
         }
         .menuIndicator(.hidden)
         #if os(macOS)
-        .menuStyle(.borderlessButton)
+        // Present the menu as a button and give it the scene-map gear's pill.
+        .menuStyle(.button)
+        .buttonStyle(SegmentedGearButtonStyle())
         .fixedSize()
-        .background(Color.secondary.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
         #endif
         .help("Script settings — replace, delete, or set the coverage margin")
     }
