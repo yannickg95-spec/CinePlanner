@@ -80,15 +80,19 @@ struct SceneListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            Text("Scenes")
-                .font(.title3.bold())
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .frame(height: ProjectEditorView.paneHeaderHeight)
-                .background(Color.platformControlBackground)
+            // iPad/Mac: a "Scenes" header labels the column. iPhone shows the scene
+            // list directly under its own screen header, so it's omitted there.
+            if !DeviceLayout.isPhone {
+                Text("Scenes")
+                    .font(.title3.bold())
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                    .frame(height: ProjectEditorView.paneHeaderHeight)
+                    .background(Color.platformControlBackground)
 
-            Divider()
+                Divider()
+            }
 
             sceneList
         }
