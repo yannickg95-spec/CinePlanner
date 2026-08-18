@@ -700,7 +700,7 @@ struct SceneMapEditorView: View {
             // Attached with `.gesture`, so markers still capture their own drags.
             .gesture(
                 SimultaneousGesture(
-                    magnifyGesture,
+                    magnifyGesture(size: geo.size),
                     canvasPanOrMarquee(in: rect, size: geo.size,
                                        canvasOrigin: geo.frame(in: .global).origin)
                 )
@@ -986,14 +986,33 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
-    /// Pinch-to-zoom the whole map. Clamped to 1…4×; pinching back to 1 recenters.
-    private var magnifyGesture: some Gesture {
+    /// Pinch-to-zoom the whole map, clamped 1…4×. Zooms about the pinch/cursor
+    /// point (not the map centre): the scale stays anchored at `.center`, but `pan`
+    /// is adjusted each step so the content under the pinch stays put. Pinching back
+    /// to 1× recenters.
+    private func magnifyGesture(size: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
-                zoom = min(max(lastZoom * value.magnification, 1), 4)
+                let z0 = zoom
+                let z1 = min(max(lastZoom * value.magnification, 1), 4)
+                guard z1 != z0 else { return }
+                // Offset of the pinch point from the map centre.
+                let dx = value.startAnchor.x * size.width - size.width / 2
+                let dy = value.startAnchor.y * size.height - size.height / 2
+                let ratio = z1 / z0
+                var newPan = CGSize(width: dx - ratio * (dx - pan.width),
+                                    height: dy - ratio * (dy - pan.height))
+                // Keep the map within the frame.
+                let maxX = size.width * (z1 - 1) / 2
+                let maxY = size.height * (z1 - 1) / 2
+                newPan.width = min(max(newPan.width, -maxX), maxX)
+                newPan.height = min(max(newPan.height, -maxY), maxY)
+                zoom = z1
+                pan = newPan
             }
             .onEnded { _ in
                 lastZoom = zoom
+                lastPan = pan
                 if zoom <= 1.02 {
                     zoom = 1; lastZoom = 1
                     withAnimation(.easeOut(duration: 0.15)) { pan = .zero }
