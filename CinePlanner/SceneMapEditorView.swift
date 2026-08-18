@@ -54,6 +54,18 @@ struct SceneMapEditorView: View {
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons.
     private let toolbarCellWidth: CGFloat = 40
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    /// iPhone (compact): the toolbar scrolls horizontally instead of centering with
+    /// edge overlays, which would overlap on a narrow screen.
+    private var isPhone: Bool {
+        #if os(iOS)
+        return hSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var markerToLabel: UUID?
@@ -255,9 +267,40 @@ struct SceneMapEditorView: View {
         return text
     }
 
+    @ViewBuilder
     private var toolbar: some View {
+        if isPhone { compactToolbar } else { regularToolbar }
+    }
+
+    /// iPad + Mac: the add menus centered, with the trash and sun/size pills
+    /// floating at the edges (unchanged from the original layout).
+    private var regularToolbar: some View {
         HStack(spacing: 10) {
             Spacer()
+            addSegmentedGroup
+            Spacer()
+        }
+        .overlay(alignment: .leading) { trashButton.padding(.leading, 16) }
+        .overlay(alignment: .trailing) { sizeSunGroup.padding(.trailing, 16) }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    /// iPhone: every group in one horizontally scrollable row so nothing overlaps.
+    private var compactToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                trashButton
+                addSegmentedGroup
+                sizeSunGroup
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+    }
+
+    /// The four "add to the map" menus as one segmented control.
+    private var addSegmentedGroup: some View {
             // One segmented bar for the four "add to the map" menus, so they read
             // as a single control.
             HStack(spacing: 0) {
@@ -349,64 +392,62 @@ struct SceneMapEditorView: View {
                 .help("Add Furniture")
             }
             .modifier(SegmentedGroup())
-            Spacer()
+    }
+
+    /// Clear-map (trash) pill.
+    private var trashButton: some View {
+        Button(role: .destructive) { showingClearAllConfirm = true } label: {
+            Image(systemName: "trash").font(.system(size: 16, weight: .medium)).frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
         }
-        .overlay(alignment: .leading) {
-            Button(role: .destructive) { showingClearAllConfirm = true } label: {
-                Image(systemName: "trash").font(.system(size: 16, weight: .medium)).frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .modifier(SegmentedGroup())
-            .padding(.leading, 16)
-            .disabled(mapIsEmpty)
-            .help("Clear Map — remove everything from the scene map")
-        }
-        .overlay(alignment: .trailing) {
-            // Two separate pills: the marker-size toggle stands on its own (only on
-            // measured maps where a marker would render smaller than default), then
-            // the sun overlay + its settings.
-            HStack(spacing: 10) {
-                if viewableSizeToggleRelevant {
-                    Button { toggleViewableMarkerSize() } label: {
-                        Image(systemName: scene.sceneMapViewableMarkerSize ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(scene.sceneMapViewableMarkerSize ? Color.accentColor : .secondary)
-                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .modifier(SegmentedGroup())
-                    .help(scene.sceneMapViewableMarkerSize
-                          ? "Markers: easy-to-see size — tap for real-world scale"
-                          : "Markers: real-world scale — tap for an easy-to-see size")
+        .buttonStyle(.borderless)
+        .modifier(SegmentedGroup())
+        .disabled(mapIsEmpty)
+        .help("Clear Map — remove everything from the scene map")
+    }
+
+    /// The marker-size toggle (when relevant) plus the sun overlay and its settings.
+    private var sizeSunGroup: some View {
+        // Two separate pills: the marker-size toggle stands on its own (only on
+        // measured maps where a marker would render smaller than default), then
+        // the sun overlay + its settings.
+        HStack(spacing: 10) {
+            if viewableSizeToggleRelevant {
+                Button { toggleViewableMarkerSize() } label: {
+                    Image(systemName: scene.sceneMapViewableMarkerSize ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(scene.sceneMapViewableMarkerSize ? Color.accentColor : .secondary)
+                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
-                HStack(spacing: 0) {
-                    Button {
-                        sun.enabled.toggle()
-                        saveSun()
-                        if sun.enabled && !sun.hasLocation { showSunSettings = true }
-                    } label: {
-                        Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(sun.enabled ? .orange : .secondary)
-                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Toggle the sun-direction overlay")
-                    segmentDivider
-                    Button { showSunSettings = true } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 16, weight: .medium))
-                            .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Sun overlay settings")
-                }
+                .buttonStyle(.borderless)
                 .modifier(SegmentedGroup())
+                .help(scene.sceneMapViewableMarkerSize
+                      ? "Markers: easy-to-see size — tap for real-world scale"
+                      : "Markers: real-world scale — tap for an easy-to-see size")
             }
-            .padding(.trailing, 16)
+            HStack(spacing: 0) {
+                Button {
+                    sun.enabled.toggle()
+                    saveSun()
+                    if sun.enabled && !sun.hasLocation { showSunSettings = true }
+                } label: {
+                    Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(sun.enabled ? .orange : .secondary)
+                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Toggle the sun-direction overlay")
+                segmentDivider
+                Button { showSunSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Sun overlay settings")
+            }
+            .modifier(SegmentedGroup())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     /// One segment's label. Matches the trash and sun pills exactly — a single

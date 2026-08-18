@@ -33,6 +33,9 @@ struct ProjectArchiveDocument: FileDocument {
 
 struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
     @Query(sort: \Project.createdDate, order: .reverse) private var projects: [Project]
     @State private var showingNewProjectSheet = false
     @State private var navigationPath = NavigationPath()
@@ -76,7 +79,25 @@ struct ProjectListView: View {
 
     // Cards are square, so the width range doubles as the height range — kept
     // tighter than a wide card would need so the tiles don't become huge.
-    private let columns = [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)]
+    /// True on iPhone (compact width); false on iPad/Mac.
+    private var isCompact: Bool {
+        #if os(iOS)
+        return hSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
+
+    /// iPhone (compact) fits two smaller cards per row; iPad/Mac keep the larger
+    /// adaptive cards.
+    private var columns: [GridItem] {
+        #if os(iOS)
+        if hSizeClass == .compact {
+            return [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 12)]
+        }
+        #endif
+        return [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)]
+    }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -210,7 +231,7 @@ struct ProjectListView: View {
                         Image("GitHubLogo")
                             .resizable().scaledToFit()
                             .frame(width: 15, height: 15)
-                        Text("Repositories")
+                        if !isCompact { Text("Repositories") }
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -228,7 +249,7 @@ struct ProjectListView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "clock.arrow.circlepath")
-                        Text("Restore")
+                        if !isCompact { Text("Restore") }
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

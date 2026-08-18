@@ -104,6 +104,17 @@ struct CloudSyncBadge: View {
     /// ModelContext through so the monitor can flush pending changes.
     var onSync: () -> Void
     @State private var showingDetail = false
+    #if os(iOS)
+    // iPhone (compact): show just the status icon to fit the header row.
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    private var isCompact: Bool {
+        #if os(iOS)
+        return hSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         Button { showingDetail = true } label: { pill }
@@ -122,7 +133,7 @@ struct CloudSyncBadge: View {
             } else {
                 Image(systemName: symbol)
             }
-            Text(label)
+            if !isCompact { Text(label) }
         }
         .font(.caption)
         .foregroundStyle(tint)
