@@ -698,7 +698,8 @@ struct SceneMapEditorView: View {
             // When zoomed in, a drag on empty canvas pans; otherwise (macOS) it's a
             // rubber-band marquee. Markers capture their own drags, so this only
             // fires on empty canvas.
-            .gesture(canvasPanOrMarquee(in: rect, size: geo.size))
+            .gesture(canvasPanOrMarquee(in: rect, size: geo.size,
+                                        canvasOrigin: geo.frame(in: .global).origin))
             .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             #if os(macOS)
             .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
@@ -997,24 +998,29 @@ struct SceneMapEditorView: View {
     }
 
     /// One empty-canvas drag: pans the zoomed map when zoomed in, else (macOS) draws
-    /// a rubber-band selection box.
-    private func canvasPanOrMarquee(in rect: CGRect, size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+    /// a rubber-band selection box. Measured in the global (screen) space so the pan
+    /// tracks the finger 1:1 and updates live — reading the canvas space here would
+    /// feed the moving `pan` offset back into the measurement.
+    private func canvasPanOrMarquee(in rect: CGRect, size: CGSize, canvasOrigin: CGPoint) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .onChanged { value in
                 if zoom > 1 {
-                    // Translation is in logical points; scale it to screen points to
-                    // track the finger, then clamp so the map can't leave the frame.
                     let maxX = size.width * (zoom - 1) / 2
                     let maxY = size.height * (zoom - 1) / 2
                     pan = CGSize(
-                        width: min(max(lastPan.width + value.translation.width * zoom, -maxX), maxX),
-                        height: min(max(lastPan.height + value.translation.height * zoom, -maxY), maxY))
+                        width: min(max(lastPan.width + value.translation.width, -maxX), maxX),
+                        height: min(max(lastPan.height + value.translation.height, -maxY), maxY))
                     return
                 }
                 #if os(macOS)
                 guard !isDrawing, pendingMove == nil else { return }
-                if marqueeStart == nil { marqueeStart = value.startLocation; cameraInfoElementID = nil }
-                marqueeCurrent = value.location
+                if marqueeStart == nil {
+                    marqueeStart = CGPoint(x: value.startLocation.x - canvasOrigin.x,
+                                           y: value.startLocation.y - canvasOrigin.y)
+                    cameraInfoElementID = nil
+                }
+                marqueeCurrent = CGPoint(x: value.location.x - canvasOrigin.x,
+                                         y: value.location.y - canvasOrigin.y)
                 #endif
             }
             .onEnded { value in
@@ -1022,8 +1028,9 @@ struct SceneMapEditorView: View {
                 #if os(macOS)
                 defer { marqueeStart = nil; marqueeCurrent = nil }
                 guard !isDrawing, pendingMove == nil, let start = marqueeStart else { return }
-                let box = CGRect(x: min(start.x, value.location.x), y: min(start.y, value.location.y),
-                                 width: abs(value.location.x - start.x), height: abs(value.location.y - start.y))
+                let loc = CGPoint(x: value.location.x - canvasOrigin.x, y: value.location.y - canvasOrigin.y)
+                let box = CGRect(x: min(start.x, loc.x), y: min(start.y, loc.y),
+                                 width: abs(loc.x - start.x), height: abs(loc.y - start.y))
                 selectMarkersInMarquee(box, in: rect)
                 #endif
             }
