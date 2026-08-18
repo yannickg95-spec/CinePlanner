@@ -164,12 +164,12 @@ struct ProjectEditorView: View {
             if isPhoneLayout {
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .topBarLeading) {
-                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
+                        Text(project.filmName).font(.title2.bold()).lineLimit(1).fixedSize()
                     }
                     .sharedBackgroundVisibility(.hidden)
                 } else {
                     ToolbarItem(placement: .topBarLeading) {
-                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
+                        Text(project.filmName).font(.title2.bold()).lineLimit(1).fixedSize()
                     }
                 }
             }
@@ -923,6 +923,19 @@ struct ProjectEditorView: View {
         .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix)")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        // A larger centered title than the default inline size.
+        .toolbar {
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .principal) {
+                    Text("Scene \(scene.sceneNumber)\(scene.suffix)").font(.title2.bold())
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) {
+                    Text("Scene \(scene.sceneNumber)\(scene.suffix)").font(.title2.bold())
+                }
+            }
+        }
         #endif
         // Keep the selection in step with the drill-down, so the script page and
         // shot detail resolve to this scene.
