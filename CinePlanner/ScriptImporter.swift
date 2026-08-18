@@ -1053,25 +1053,29 @@ struct ScriptPDFViewer: View {
                 // PDF Viewer
                 VStack(spacing: 0) {
                     // Toolbar — title centered, remove button on the trailing edge.
-                    Text("Script")
-                        .font(.title3.bold())
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .trailing) {
-                            Button(role: .destructive) {
-                                showRemoveConfirmation = true
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.caption)
+                    // iPhone omits it: the Script tab already labels this view, and
+                    // the full-screen cover has its own bar.
+                    if !DeviceLayout.isPhone {
+                        Text("Script")
+                            .font(.title3.bold())
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity)
+                            .overlay(alignment: .trailing) {
+                                Button(role: .destructive) {
+                                    showRemoveConfirmation = true
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: ProjectEditorView.paneHeaderHeight)
-                        .background(Color.platformControlBackground)
+                            .padding(.horizontal, 12)
+                            .frame(height: ProjectEditorView.paneHeaderHeight)
+                            .background(Color.platformControlBackground)
 
-                    Divider()
+                        Divider()
+                    }
 
                     if isMarkingScenePage {
                         markingBanner
