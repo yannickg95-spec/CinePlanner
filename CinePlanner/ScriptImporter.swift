@@ -1006,9 +1006,6 @@ struct ScriptPDFViewer: View {
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 40, height: 34)
                 .contentShape(Rectangle())
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
             #else
             Image(systemName: "gearshape")
                 .font(.callout)
@@ -1019,6 +1016,9 @@ struct ScriptPDFViewer: View {
         #if os(macOS)
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .background(Color.secondary.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
         #endif
         .help("Script settings — replace, delete, or set the coverage margin")
     }
