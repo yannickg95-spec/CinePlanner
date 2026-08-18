@@ -36,6 +36,8 @@ struct ProjectEditorView: View {
     /// iPhone: true while the script cover is in text-selection mode, so it shows
     /// Done/Cancel instead of a plain close button.
     @State private var isCoverageMarkingInSheet = false
+    /// iPhone Script tab: confirms removing the version's script PDF.
+    @State private var showRemoveScriptConfirm = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -901,6 +903,23 @@ struct ProjectEditorView: View {
     private func compactSceneScreen(_ scene: Scene) -> some View {
         VStack(spacing: 0) {
             detailTabBar
+                // On the Script tab, a remove-script button sits beside the tabs.
+                .overlay(alignment: .trailing) {
+                    if detailTab == .script && hasScriptPDF {
+                        Button(role: .destructive) {
+                            showRemoveScriptConfirm = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .padding(8)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 12)
+                        .help("Remove the script PDF from this version")
+                    }
+                }
             Divider()
             Group {
                 switch detailTab {
@@ -940,6 +959,16 @@ struct ProjectEditorView: View {
         // Keep the selection in step with the drill-down, so the script page and
         // shot detail resolve to this scene.
         .onAppear { selectedScenes = [scene.uid] }
+        .alert("Remove Script?", isPresented: $showRemoveScriptConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) {
+                selectedVersion?.pdfData = nil
+                project.scriptPDFData = nil
+                try? modelContext.save()
+            }
+        } message: {
+            Text("The PDF will be deleted from this script version.")
+        }
     }
 
     /// iPhone Script tab: the script PDF, opened at this scene's page (view only —

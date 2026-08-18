@@ -1094,24 +1094,6 @@ struct ScriptPDFViewer: View {
                         currentPageIndex: $currentPageIndex
                     )
                     .clipped()
-                    // iPhone dropped the header (and its remove button), so float a
-                    // small remove control over the PDF instead.
-                    .overlay(alignment: .topTrailing) {
-                        if DeviceLayout.isPhone && !isMarkingScenePage {
-                            Button(role: .destructive) {
-                                showRemoveConfirmation = true
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.red)
-                                    .padding(9)
-                                    .background(.ultraThinMaterial, in: Circle())
-                                    .overlay(Circle().strokeBorder(.secondary.opacity(0.2)))
-                            }
-                            .buttonStyle(.plain)
-                            .padding(12)
-                        }
-                    }
                 }
             }
         }
