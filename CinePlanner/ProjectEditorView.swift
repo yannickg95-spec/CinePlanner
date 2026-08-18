@@ -67,6 +67,12 @@ struct ProjectEditorView: View {
     @State private var showCopyShotsPrompt = false
     @State private var showTransferSheet = false
     @State private var requestScriptImport = false
+    // iPhone: the script settings gear lives beside the tabs, so the editor owns the
+    // coverage-margin state (passed down for a live preview) and forces a PDF reload
+    // when the script is deleted from here.
+    @State private var scriptCoverageMargin: Double = 0.15
+    @State private var showScriptMarginSheet = false
+    @State private var scriptReloadToken = 0
     @State private var showExportSheet = false
     @State private var showPublishSheet = false
     @State private var showingDeletePageConfirm = false
@@ -205,6 +211,7 @@ struct ProjectEditorView: View {
             if selectedVersion == nil {
                 selectedVersion = selectedEpisode?.orderedVersions.last
             }
+            scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
 
             // Select first scene and shot automatically
             if selectedScenes.isEmpty, let firstScene = orderedScenes.first {
@@ -220,6 +227,7 @@ struct ProjectEditorView: View {
         }
         .onChange(of: selectedVersion) {
             // Switching script versions invalidates the scene/shot selection
+            scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
             selectedShots = []
             if let firstScene = orderedScenes.first {
                 selectedScenes = [firstScene.uid]
@@ -356,6 +364,12 @@ struct ProjectEditorView: View {
         }
         .sheet(isPresented: $showPublishSheet) {
             GitHubPublishSheet(project: project, version: selectedVersion)
+        }
+        .sheet(isPresented: $showScriptMarginSheet) {
+            scriptMarginSheet
+                #if os(iOS)
+                .presentationDetents([.height(300)])
+                #endif
         }
         .alert("Delete the published page?", isPresented: $showingDeletePageConfirm) {
             Button("Delete", role: .destructive) { deletePublishedPage() }
@@ -958,8 +972,10 @@ struct ProjectEditorView: View {
             isMarkingScenePage: false,
             markingSceneLabel: "",
             onFinishMarking: { _ in },
-            onCancelMarking: { }
+            onCancelMarking: { },
+            coverageMarginOverride: scriptCoverageMargin
         )
+        .id(scriptReloadToken)
     }
 
     /// iPhone header for the scenes screen: a Script/GitHub/Export button row plus
@@ -1171,9 +1187,98 @@ struct ProjectEditorView: View {
             }
             .padding(3)
             .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+            // iPhone: the script settings gear sits right beside the Script tab.
+            if isPhoneLayout && detailTab == .script && hasScriptPDF {
+                scriptTabGear
+            }
             Spacer(minLength: 0)
         }
         .frame(height: isPhoneLayout ? 38 : Self.paneHeaderHeight)
+    }
+
+    /// iPhone: the script settings menu shown next to the Script tab — replace the
+    /// script, delete it, or set the coverage margin. Mirrors the gear the wide
+    /// layouts show in the script pane header.
+    private var scriptTabGear: some View {
+        Menu {
+            Button {
+                requestScriptImport = true
+            } label: {
+                Label("Replace Script…", systemImage: "arrow.triangle.2.circlepath")
+            }
+            Button {
+                scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
+                showScriptMarginSheet = true
+            } label: {
+                Label("Set Coverage Margin…", systemImage: "arrow.left.and.right")
+            }
+            Divider()
+            Button(role: .destructive) {
+                deleteScriptFromEditor()
+            } label: {
+                Label("Delete Script", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 32)
+                .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+        }
+        .menuIndicator(.hidden)
+    }
+
+    /// iPhone: clear the current version's script PDF and force the viewer to reset
+    /// to its empty state (the viewer caches its document, so bump its reload id).
+    private func deleteScriptFromEditor() {
+        selectedVersion?.pdfData = nil
+        project.scriptPDFData = nil
+        try? modelContext.save()
+        scriptReloadToken += 1
+    }
+
+    /// iPhone: adjust how far the coverage lines sit from the script text. The value
+    /// feeds the live PDF preview via `scriptCoverageMargin` and is saved to the version.
+    private var scriptMarginSheet: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Text("Coverage Margin")
+                    .font(.title3).fontWeight(.semibold)
+                Text("Move the coverage lines closer to or further from the script text, to match this script's left margin.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 12) {
+                Image(systemName: "text.alignleft").foregroundStyle(.secondary)
+                Slider(value: $scriptCoverageMargin, in: 0.05...0.35)
+                    .onChange(of: scriptCoverageMargin) { _, new in
+                        selectedVersion?.coverageLineMargin = new
+                    }
+                Image(systemName: "text.alignright").foregroundStyle(.secondary)
+            }
+
+            Text("\(Int((scriptCoverageMargin * 100).rounded()))% of page width")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("Reset") {
+                    scriptCoverageMargin = 0.15
+                    selectedVersion?.coverageLineMargin = 0.15
+                }
+                Spacer()
+                Button("Done") {
+                    try? modelContext.save()
+                    showScriptMarginSheet = false
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 420)
     }
 
     private func tabButton(_ title: String, _ tab: DetailTab) -> some View {

@@ -975,6 +975,9 @@ struct ScriptPDFViewer: View {
     var markingSceneLabel: String = ""
     var onFinishMarking: ((Int) -> Void)? = nil
     var onCancelMarking: (() -> Void)? = nil
+    /// iPhone: the coverage margin is owned by the editor (its gear lives beside the
+    /// tabs), so it's passed in and the in-view gear/margin sheet aren't used here.
+    var coverageMarginOverride: Double? = nil
 
     @State private var isImporting = false
     @State private var showError = false
@@ -1178,21 +1181,12 @@ struct ScriptPDFViewer: View {
                         selectedShot: selectedShot,
                         project: project,
                         version: version,
-                        coverageMargin: CGFloat(coverageMargin),
+                        coverageMargin: CGFloat(coverageMarginOverride ?? coverageMargin),
                         cachedDocument: $cachedPDFDocument,
                         currentPageIndex: $currentPageIndex
                     )
                     .clipped()
-                    // iPhone dropped the header, so float the settings gear over the PDF.
-                    .overlay(alignment: .topTrailing) {
-                        if DeviceLayout.isPhone && !isMarkingScenePage {
-                            scriptGearMenu
-                                .padding(9)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay(Circle().strokeBorder(.secondary.opacity(0.2)))
-                                .padding(12)
-                        }
-                    }
+                    // iPhone's settings gear lives beside the tabs (see ProjectEditorView).
                 }
             }
         }
