@@ -145,6 +145,23 @@ struct ProjectEditorView: View {
             }
             #endif
 
+            #if os(iOS)
+            // iPhone: the project name sits next to the back chevron. Hide the OS 26
+            // "Liquid Glass" toolbar pill so it reads as plain text, not a chip.
+            if isPhoneLayout {
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
+                    }
+                }
+            }
+            #endif
+
             ToolbarItem(placement: .primaryAction) {
                 actionButtons
             }
@@ -899,11 +916,6 @@ struct ProjectEditorView: View {
     /// button row, then the script-version row (its label pinned, versions scroll).
     private var compactEditorHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(project.filmName)
-                .font(.largeTitle.bold())
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-
             HStack(spacing: 10) {
                 Button { showScriptSheet = true } label: {
                     Label("Script", systemImage: "doc.text.magnifyingglass")
