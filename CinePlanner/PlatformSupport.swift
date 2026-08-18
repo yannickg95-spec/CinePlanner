@@ -31,6 +31,22 @@ typealias SCNScalar = CGFloat
 typealias PlatformViewBase = NSView
 #endif
 
+// MARK: - Device idiom
+
+enum DeviceLayout {
+    /// True only on iPhone. iPad — in any multitasking size, including Split View
+    /// and Slide Over — and Mac are false, so iPhone-only adaptations never change
+    /// the iPad/Mac layouts. (Idiom is fixed for the app's lifetime, unlike size
+    /// class, so this is a plain static.)
+    static var isPhone: Bool {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        return false
+        #endif
+    }
+}
+
 // MARK: - Conditional modifier
 
 extension View {
@@ -52,19 +68,12 @@ extension View {
 private struct AdaptiveSheetFrame: ViewModifier {
     let width: CGFloat
     let height: CGFloat
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
     func body(content: Content) -> some View {
-        #if os(iOS)
-        if hSizeClass == .compact {
+        if DeviceLayout.isPhone {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             content.frame(width: width, height: height)
         }
-        #else
-        content.frame(width: width, height: height)
-        #endif
     }
 }
 

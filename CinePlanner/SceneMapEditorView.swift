@@ -54,18 +54,9 @@ struct SceneMapEditorView: View {
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons.
     private let toolbarCellWidth: CGFloat = 40
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
-    /// iPhone (compact): the toolbar scrolls horizontally instead of centering with
-    /// edge overlays, which would overlap on a narrow screen.
-    private var isPhone: Bool {
-        #if os(iOS)
-        return hSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
+    /// iPhone: the toolbar scrolls horizontally instead of centering with edge
+    /// overlays, which would overlap on a narrow screen.
+    private var isPhone: Bool { DeviceLayout.isPhone }
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var markerToLabel: UUID?

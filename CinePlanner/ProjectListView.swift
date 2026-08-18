@@ -33,9 +33,6 @@ struct ProjectArchiveDocument: FileDocument {
 
 struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
     @Query(sort: \Project.createdDate, order: .reverse) private var projects: [Project]
     @State private var showingNewProjectSheet = false
     @State private var navigationPath = NavigationPath()
@@ -79,23 +76,14 @@ struct ProjectListView: View {
 
     // Cards are square, so the width range doubles as the height range — kept
     // tighter than a wide card would need so the tiles don't become huge.
-    /// True on iPhone (compact width); false on iPad/Mac.
-    private var isCompact: Bool {
-        #if os(iOS)
-        return hSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
+    /// True on iPhone; false on iPad/Mac.
+    private var isCompact: Bool { DeviceLayout.isPhone }
 
-    /// iPhone (compact) fits two smaller cards per row; iPad/Mac keep the larger
-    /// adaptive cards.
+    /// iPhone fits two smaller cards per row; iPad/Mac keep the larger adaptive cards.
     private var columns: [GridItem] {
-        #if os(iOS)
-        if hSizeClass == .compact {
+        if DeviceLayout.isPhone {
             return [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 12)]
         }
-        #endif
         return [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)]
     }
 

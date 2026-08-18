@@ -52,9 +52,6 @@ struct SceneListView: View {
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
     @State private var sceneToClear: Scene?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
 
     var orderedScenes: [Scene] {
         (version?.scenes ?? project.scenes).sorted { $0.sortOrder < $1.sortOrder }
@@ -171,7 +168,7 @@ struct SceneListView: View {
         .listStyle(.plain)
         // iPad: the scenes column carries the film-name title. iPhone shows the name
         // in the editor's content header, so don't set a bar title here.
-        .applyIf(hSizeClass != .compact) { $0.navigationTitle(project.filmName) }
+        .applyIf(!DeviceLayout.isPhone) { $0.navigationTitle(project.filmName) }
         #endif
         #if os(macOS)
         .onDeleteCommand {
@@ -499,7 +496,6 @@ struct ShotListView: View {
     // iPad lets the user pick the source: Files or the Photos library.
     @State private var isPresentingShotPhotos = false
     @State private var selectedShotPhotos: [PhotosPickerItem] = []
-    @Environment(\.horizontalSizeClass) private var hSizeClass
     #endif
 
     var sortedShots: [Shot] {
@@ -663,7 +659,7 @@ struct ShotListView: View {
         .listStyle(.plain)
         // iPad/Mac: the shots column carries the film-name title. On iPhone the
         // pushed scene screen owns the title ("Scene X"), so don't override it.
-        .applyIf(hSizeClass != .compact) { $0.navigationTitle(scene.project?.filmName ?? "") }
+        .applyIf(!DeviceLayout.isPhone) { $0.navigationTitle(scene.project?.filmName ?? "") }
         #endif
         .sheet(isPresented: $showCineStagerImport) {
             CineStagerImportSheet(provideReference: { makeImportedShotReference() })

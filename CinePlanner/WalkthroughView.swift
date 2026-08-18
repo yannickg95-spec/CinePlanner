@@ -14,18 +14,9 @@ import SwiftUI
 
 struct WalkthroughView: View {
     @Environment(\.dismiss) private var dismiss
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
-    /// iPhone (compact width): the walkthrough fills its full-screen sheet instead
-    /// of using the fixed iPad/Mac card size.
-    private var isCompact: Bool {
-        #if os(iOS)
-        return hSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
+    /// iPhone: the walkthrough fills its full-screen sheet instead of the fixed
+    /// iPad/Mac card size.
+    private var isCompact: Bool { DeviceLayout.isPhone }
     @State private var index = 0
 
     enum StepKind {

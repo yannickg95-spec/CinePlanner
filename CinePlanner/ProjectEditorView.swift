@@ -13,19 +13,9 @@ import PDFKit
 struct ProjectEditorView: View {
     @Bindable var project: Project
     @Environment(\.modelContext) private var modelContext
-    #if os(iOS)
-    // iPhone (compact width) collapses the multi-column editor into a single-column
-    // drill-down. iPad and Mac are regular width and keep the columns unchanged.
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
-    /// True only on a compact-width screen (iPhone, or an iPad in narrow multitasking).
-    private var isPhoneLayout: Bool {
-        #if os(iOS)
-        return hSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
+    /// iPhone collapses the multi-column editor into a single-column drill-down.
+    /// iPad (any size) and Mac keep the columns unchanged.
+    private var isPhoneLayout: Bool { DeviceLayout.isPhone }
     /// iPhone: presents the script PDF full-screen (no room for a side-by-side pane).
     @State private var showScriptSheet = false
     /// iPhone: the shot whose script lines are being marked in the full-screen
