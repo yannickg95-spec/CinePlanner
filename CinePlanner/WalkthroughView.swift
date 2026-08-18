@@ -405,7 +405,7 @@ private struct CineStagerIllo: View {
                 .overlay(
                     Image("CineStagerLogo")
                         .resizable().scaledToFit()
-                        .padding(24)
+                        .padding(6)
                 )
                 .shadow(color: blue.opacity(0.40), radius: 22, y: 12)
                 .appear()
