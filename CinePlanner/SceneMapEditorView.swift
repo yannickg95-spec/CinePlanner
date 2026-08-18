@@ -51,6 +51,14 @@ struct SceneMapEditorView: View {
     /// The map content rect's current width (points), mirrored from the canvas so
     /// the toolbar can tell whether markers would render smaller than default.
     @State private var mapContentWidth: CGFloat = 0
+    /// Pinch-to-zoom of the map canvas. `zoom` is the live scale (1 = fit), `lastZoom`
+    /// holds it between pinches; `pan` offsets the zoomed content, `lastPan` its
+    /// committed value. The coordinate space stays logical (unscaled) so every marker
+    /// gesture keeps working — only the rendering is scaled.
+    @State private var zoom: CGFloat = 1
+    @State private var lastZoom: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var lastPan: CGSize = .zero
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons.
     private let toolbarCellWidth: CGFloat = 40
@@ -678,13 +686,19 @@ struct SceneMapEditorView: View {
             .background(Color.platformTextBackground)
             .contentShape(Rectangle())
             .coordinateSpace(name: SceneMapEditorView.canvasSpace)
+            // Pinch-to-zoom (all platforms). Applied after the coordinate space so
+            // the canvasSpace stays in logical points — marker/selection gestures,
+            // which read `.named(canvasSpace)`, are unaffected by the zoom.
+            .scaleEffect(zoom, anchor: .center)
+            .offset(pan)
+            .clipped()
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-            // Drag from empty canvas to rubber-band select markers (macOS only —
-            // on iPad the drag box conflicts with touch tapping/dragging markers).
-            #if os(macOS)
-            .gesture(marqueeGesture(in: rect))
-            #endif
+            .simultaneousGesture(magnifyGesture)
+            // When zoomed in, a drag on empty canvas pans; otherwise (macOS) it's a
+            // rubber-band marquee. Markers capture their own drags, so this only
+            // fires on empty canvas.
+            .gesture(canvasPanOrMarquee(in: rect, size: geo.size))
             .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             #if os(macOS)
             .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
@@ -966,24 +980,52 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
-    /// Rubber-band selection: a drag starting on empty canvas (markers capture
-    /// their own drags) sweeps a box; markers inside it become the selection.
-    private func marqueeGesture(in rect: CGRect) -> some Gesture {
+    /// Pinch-to-zoom the whole map. Clamped to 1…4×; pinching back to 1 recenters.
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                zoom = min(max(lastZoom * value.magnification, 1), 4)
+            }
+            .onEnded { _ in
+                lastZoom = zoom
+                if zoom <= 1.02 {
+                    zoom = 1; lastZoom = 1
+                    withAnimation(.easeOut(duration: 0.15)) { pan = .zero }
+                    lastPan = .zero
+                }
+            }
+    }
+
+    /// One empty-canvas drag: pans the zoomed map when zoomed in, else (macOS) draws
+    /// a rubber-band selection box.
+    private func canvasPanOrMarquee(in rect: CGRect, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .named(SceneMapEditorView.canvasSpace))
             .onChanged { value in
-                guard !isDrawing, pendingMove == nil else { return }
-                if marqueeStart == nil {
-                    marqueeStart = value.startLocation
-                    cameraInfoElementID = nil
+                if zoom > 1 {
+                    // Translation is in logical points; scale it to screen points to
+                    // track the finger, then clamp so the map can't leave the frame.
+                    let maxX = size.width * (zoom - 1) / 2
+                    let maxY = size.height * (zoom - 1) / 2
+                    pan = CGSize(
+                        width: min(max(lastPan.width + value.translation.width * zoom, -maxX), maxX),
+                        height: min(max(lastPan.height + value.translation.height * zoom, -maxY), maxY))
+                    return
                 }
+                #if os(macOS)
+                guard !isDrawing, pendingMove == nil else { return }
+                if marqueeStart == nil { marqueeStart = value.startLocation; cameraInfoElementID = nil }
                 marqueeCurrent = value.location
+                #endif
             }
             .onEnded { value in
+                if zoom > 1 { lastPan = pan; return }
+                #if os(macOS)
                 defer { marqueeStart = nil; marqueeCurrent = nil }
                 guard !isDrawing, pendingMove == nil, let start = marqueeStart else { return }
                 let box = CGRect(x: min(start.x, value.location.x), y: min(start.y, value.location.y),
                                  width: abs(value.location.x - start.x), height: abs(value.location.y - start.y))
                 selectMarkersInMarquee(box, in: rect)
+                #endif
             }
     }
 
