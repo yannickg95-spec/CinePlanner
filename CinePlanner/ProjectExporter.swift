@@ -2061,7 +2061,8 @@ struct ProjectExporter {
     private func exportLineRange(for pageRect: CGRect) -> ClosedRange<CGFloat> {
         let minimumPageX = pageRect.minX
         let maximumPageX = pageRect.maxX - 6
-        let marginLimitX = pageRect.minX + (pageRect.width * 0.15)
+        let marginFraction = CGFloat(version?.coverageLineMargin ?? 0.15)
+        let marginLimitX = pageRect.minX + (pageRect.width * marginFraction)
         let upperBound = min(maximumPageX, marginLimitX)
         let lowerBound = min(minimumPageX, upperBound)
         return lowerBound...upperBound

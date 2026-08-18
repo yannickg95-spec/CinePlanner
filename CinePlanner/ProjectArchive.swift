@@ -49,6 +49,7 @@ enum ProjectArchive {
         var createdDate: Date
         var pdfData: Data?
         var pdfPageOffset: Int
+        var coverageLineMargin: Double?
         var scenes: [SceneDTO]
     }
 
@@ -198,6 +199,7 @@ enum ProjectArchive {
             createdDate: version.createdDate,
             pdfData: version.pdfData,
             pdfPageOffset: version.pdfPageOffset,
+            coverageLineMargin: version.coverageLineMargin,
             scenes: version.orderedScenes.map(sceneDTO)
         )
     }
@@ -320,6 +322,7 @@ enum ProjectArchive {
                 version.episode = episode
                 version.pdfData = v.pdfData
                 version.pdfPageOffset = v.pdfPageOffset
+                version.coverageLineMargin = v.coverageLineMargin ?? 0.15
 
                 for s in v.scenes {
                     let scene = Scene(sceneNumber: s.sceneNumber)

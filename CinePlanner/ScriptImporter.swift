@@ -969,10 +969,87 @@ struct ScriptPDFViewer: View {
     @State private var showImportOptions = false
     @State private var autoLoadScenes = false
     @State private var showRemoveConfirmation = false
+    @State private var showMarginSheet = false
+    /// Live copy of the version's coverage-line margin, so the slider updates the
+    /// PDF overlay immediately (SwiftUI can't observe the model class directly).
+    @State private var coverageMargin: Double = 0.15
     @State private var currentPageIndex = 0
 
     private var currentPDFData: Data? {
         version?.pdfData ?? project.scriptPDFData
+    }
+
+    /// Script settings: replace, delete, or adjust the coverage-line margin.
+    private var scriptGearMenu: some View {
+        Menu {
+            Button {
+                showImportOptions = true
+            } label: {
+                Label("Replace Script…", systemImage: "arrow.triangle.2.circlepath")
+            }
+            Button {
+                coverageMargin = version?.coverageLineMargin ?? 0.15
+                showMarginSheet = true
+            } label: {
+                Label("Set Coverage Margin…", systemImage: "arrow.left.and.right")
+            }
+            Divider()
+            Button(role: .destructive) {
+                showRemoveConfirmation = true
+            } label: {
+                Label("Delete Script", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .menuIndicator(.hidden)
+        .help("Script settings — replace, delete, or set the coverage margin")
+    }
+
+    /// The Set-Coverage-Margin sheet: a slider that moves the coverage lines
+    /// nearer to / further from the script text, live.
+    private var marginSheet: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Text("Coverage Margin")
+                    .font(.title3).fontWeight(.semibold)
+                Text("Move the coverage lines closer to or further from the script text, to match this script's left margin.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 12) {
+                Image(systemName: "text.alignleft").foregroundStyle(.secondary)
+                Slider(value: $coverageMargin, in: 0.05...0.35)
+                    .onChange(of: coverageMargin) { _, new in
+                        version?.coverageLineMargin = new
+                    }
+                Image(systemName: "text.alignright").foregroundStyle(.secondary)
+            }
+
+            Text("\(Int((coverageMargin * 100).rounded()))% of page width")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("Reset") {
+                    coverageMargin = 0.15
+                    version?.coverageLineMargin = 0.15
+                }
+                Spacer()
+                Button("Done") {
+                    try? version?.modelContext?.save()
+                    showMarginSheet = false
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 420)
     }
 
     /// Prompt shown while placing a new scene: scroll to its first page, tap Done.
@@ -1060,16 +1137,7 @@ struct ScriptPDFViewer: View {
                             .font(.title3.bold())
                             .foregroundStyle(.primary)
                             .frame(maxWidth: .infinity)
-                            .overlay(alignment: .trailing) {
-                                Button(role: .destructive) {
-                                    showRemoveConfirmation = true
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.caption)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
+                            .overlay(alignment: .trailing) { scriptGearMenu }
                             .padding(.horizontal, 12)
                             .frame(height: ProjectEditorView.paneHeaderHeight)
                             .background(Color.platformControlBackground)
@@ -1090,19 +1158,38 @@ struct ScriptPDFViewer: View {
                         selectedShot: selectedShot,
                         project: project,
                         version: version,
+                        coverageMargin: CGFloat(coverageMargin),
                         cachedDocument: $cachedPDFDocument,
                         currentPageIndex: $currentPageIndex
                     )
                     .clipped()
+                    // iPhone dropped the header, so float the settings gear over the PDF.
+                    .overlay(alignment: .topTrailing) {
+                        if DeviceLayout.isPhone && !isMarkingScenePage {
+                            scriptGearMenu
+                                .padding(9)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(Circle().strokeBorder(.secondary.opacity(0.2)))
+                                .padding(12)
+                        }
+                    }
                 }
             }
         }
+        .onAppear { coverageMargin = version?.coverageLineMargin ?? 0.15 }
         .onChange(of: version) {
             // Swap the document in place rather than nil-ing it. Nil-ing removed the
             // PDF view and rebuilt it from scratch on every version switch (a new
             // PDFView, document load, coordinator and layout), which froze iPad.
             // Setting a new document keeps the same view and updates it in place.
             cachedPDFDocument = currentPDFData.flatMap { PDFDocument(data: $0) }
+            coverageMargin = version?.coverageLineMargin ?? 0.15
+        }
+        .sheet(isPresented: $showMarginSheet) {
+            marginSheet
+                #if os(iOS)
+                .presentationDetents([.height(300)])
+                #endif
         }
         .onChange(of: requestImport?.wrappedValue ?? false) { _, shouldImport in
             if shouldImport {
@@ -1267,6 +1354,7 @@ private struct PDFContentView: View {
     let selectedShot: Shot?
     let project: Project
     let version: ScriptVersion?
+    var coverageMargin: CGFloat = 0.15
     @Binding var cachedDocument: PDFDocument?
     @Binding var currentPageIndex: Int
 
@@ -1285,6 +1373,7 @@ private struct PDFContentView: View {
                         selectedShot: selectedShot,
                         project: project,
                         version: version,
+                        coverageMargin: coverageMargin,
                         currentPageIndex: $currentPageIndex
                     )
                     #else
@@ -1295,6 +1384,7 @@ private struct PDFContentView: View {
                         selectedShot: selectedShot,
                         project: project,
                         version: version,
+                        coverageMargin: coverageMargin,
                         currentPageIndex: $currentPageIndex
                     )
                     #endif
@@ -1324,6 +1414,7 @@ struct PDFViewerWithCoverageRepresentable {
     let selectedShot: Shot? // Currently selected shot
     let project: Project // Need project to get all shots for vertical lines
     let version: ScriptVersion? // Scope coverage lines to this script version's scenes
+    var coverageMargin: CGFloat = 0.15 // Right edge of the coverage-line band (fraction of page width)
     /// The page the user is currently looking at (0-based). Reported upward so the
     /// editor can capture it when placing a new scene's script page.
     @Binding var currentPageIndex: Int
@@ -1451,6 +1542,7 @@ struct PDFViewerWithCoverageRepresentable {
         // Create overlay view for coverage indicators
         let overlayView = PDFCoverageOverlayView()
         overlayView.pdfView = pdfView
+        overlayView.marginFraction = coverageMargin
         coordinator.overlayView = overlayView
         containerView.addSubview(overlayView)
         overlayView.translatesAutoresizingMaskIntoConstraints = false
@@ -1556,6 +1648,7 @@ struct PDFViewerWithCoverageRepresentable {
         // Update overlay with current shot and all shots from project.
         if let overlayView = coordinator.overlayView {
             overlayView.selectedShot = selectedShot
+            overlayView.marginFraction = coverageMargin
 
             // Collect all shots with coverage from all scenes
             var allShotsWithCoverage: [Shot] = []
@@ -1801,6 +1894,8 @@ class PDFCoverageOverlayView: PlatformViewBase {
     weak var pdfView: PDFView?
     var selectedShot: Shot?
     var allShotsWithCoverage: [Shot] = []
+    /// Right edge of the coverage-line band, as a fraction of page width.
+    var marginFraction: CGFloat = 0.15
 
     // Color palette for different shots within the same scene
     private let shotColors: [PlatformColor] = [
@@ -2072,7 +2167,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
             let minimumPageX = pageMinX.isFinite ? pageMinX + horizontalInset : horizontalInset
             let maximumPageX = pageMaxX.isFinite ? pageMaxX - horizontalInset : bounds.maxX - horizontalInset
             let pageWidth = max(0, pageMaxX - pageMinX)
-            let marginLimitX = pageMinX + (pageWidth * 0.15)
+            let marginLimitX = pageMinX + (pageWidth * marginFraction)
             let lineRangeUpperBound = min(maximumPageX, marginLimitX)
             let lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
             

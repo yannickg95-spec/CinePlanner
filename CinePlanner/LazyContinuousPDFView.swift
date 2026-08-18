@@ -27,6 +27,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
     let selectedShot: Shot?
     let project: Project
     let version: ScriptVersion?
+    var coverageMargin: CGFloat = 0.15
     @Binding var currentPageIndex: Int
 
     struct Bar { let color: UIColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
@@ -105,6 +106,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         c.document = document
         c.project = project
         c.version = version
+        c.coverageMargin = coverageMargin
+        markingOverlay.marginFraction = coverageMargin
         c.selectedShot = selectedShot
         c.refreshPageAspect()
         c.recomputeBars()
@@ -120,6 +123,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         c.selectedShot = selectedShot
         c.onPageChange = { idx in if currentPageIndex != idx { currentPageIndex = idx } }
 
+        let marginChanged = c.coverageMargin != coverageMargin
+        c.coverageMargin = coverageMargin
+        c.markingOverlay?.marginFraction = coverageMargin
+        if marginChanged { c.markingOverlay?.requestRedraw() }
+
         let changedDocument = c.document !== document
         if changedDocument {
             c.document = document
@@ -132,6 +140,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             for cell in cv.visibleCells {
                 guard let pc = cell as? PageCell, let ip = cv.indexPath(for: cell) else { continue }
                 pc.setBars(c.bars[ip.item] ?? [])
+                pc.setMarginFraction(coverageMargin)
             }
         }
 
@@ -195,6 +204,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         var document: PDFDocument?
         weak var project: Project?
         var version: ScriptVersion?
+        var coverageMargin: CGFloat = 0.15
         var selectedShot: Shot?
         var bars: [Int: [Bar]] = [:]
         var onPageChange: ((Int) -> Void)?
@@ -266,6 +276,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PageCell.reuseID, for: indexPath) as! PageCell
             let index = indexPath.item
             cell.setBars(bars[index] ?? [])
+            cell.setMarginFraction(coverageMargin)
             cell.overlayPageBounds = document?.page(at: index)?.bounds(for: .cropBox) ?? .zero
             loadImage(for: cell, at: index, in: collectionView)
             return cell
@@ -616,6 +627,11 @@ private final class PageCell: UICollectionViewCell {
         overlay.bars = bars
         overlay.setNeedsDisplay()
     }
+    func setMarginFraction(_ fraction: CGFloat) {
+        guard overlay.marginFraction != fraction else { return }
+        overlay.marginFraction = fraction
+        overlay.setNeedsDisplay()
+    }
     func setImage(_ image: UIImage?) { imageView.image = image }
 
     override func prepareForReuse() {
@@ -629,6 +645,8 @@ private final class PageCell: UICollectionViewCell {
 private final class CoverageBarsView: UIView {
     var bars: [LazyContinuousPDFView.Bar] = []
     var pageBounds: CGRect = .zero
+    /// Right edge of the coverage-line band, as a fraction of page width.
+    var marginFraction: CGFloat = 0.15
 
     override func draw(_ rect: CGRect) {
         guard pageBounds.width > 0, pageBounds.height > 0,
@@ -642,7 +660,7 @@ private final class CoverageBarsView: UIView {
         let horizontalInset: CGFloat = 6
         let minimumPageX = horizontalInset
         let maximumPageX = bounds.width - horizontalInset
-        let marginLimitX = bounds.width * 0.15
+        let marginLimitX = bounds.width * marginFraction
         let xUpper = min(maximumPageX, marginLimitX)
         let xLower = min(minimumPageX, xUpper)
 
