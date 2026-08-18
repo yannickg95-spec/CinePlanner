@@ -388,7 +388,7 @@ private struct ReferencesIllo: View {
     }
 }
 
-// MARK: - Illustration: CineStager AR viewfinder
+// MARK: - Illustration: CineStager logo
 
 private struct CineStagerIllo: View {
     private let blue = CineStagerImportSheet.cineStagerBlue
@@ -398,11 +398,16 @@ private struct CineStagerIllo: View {
                 .fill(blue.opacity(0.30))
                 .frame(width: 200, height: 200)
                 .blur(radius: 44)
-            Image("CineStagerAppIcon")
-                .resizable().scaledToFit()
+            // The logo mark on a white app-icon tile, matching the Welcome card.
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(.white)
                 .frame(width: 152, height: 152)
-                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-                .shadow(color: blue.opacity(0.45), radius: 24, y: 10)
+                .overlay(
+                    Image("CineStagerLogo")
+                        .resizable().scaledToFit()
+                        .padding(24)
+                )
+                .shadow(color: blue.opacity(0.40), radius: 22, y: 12)
                 .appear()
         }
     }
