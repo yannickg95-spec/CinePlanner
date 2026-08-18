@@ -16,6 +16,18 @@ struct ProjectEditorView: View {
     /// iPhone collapses the multi-column editor into a single-column drill-down.
     /// iPad (any size) and Mac keep the columns unchanged.
     private var isPhoneLayout: Bool { DeviceLayout.isPhone }
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    #endif
+    /// iPhone in landscape (short height): pack the scenes-screen header into one
+    /// row to save vertical space.
+    private var isPhoneLandscape: Bool {
+        #if os(iOS)
+        return DeviceLayout.isPhone && vSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
     /// iPhone: presents the script PDF full-screen (no room for a side-by-side pane).
     @State private var showScriptSheet = false
     /// iPhone: the shot whose script lines are being marked in the full-screen
@@ -937,52 +949,69 @@ struct ProjectEditorView: View {
         )
     }
 
-    /// iPhone header for the scenes screen: project name, a Script/GitHub/Export
-    /// button row, then the script-version row (its label pinned, versions scroll).
+    /// iPhone header for the scenes screen: a Script/GitHub/Export button row plus
+    /// the script-version row (its label pinned, versions scroll). Portrait stacks
+    /// the two rows; landscape packs them into one to save vertical space.
     private var compactEditorHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Button { showScriptSheet = true } label: {
-                    Label("Script", systemImage: "doc.text.magnifyingglass")
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
-                        .contentShape(Capsule())
+        Group {
+            if isPhoneLandscape {
+                HStack(spacing: 12) {
+                    headerButtons
+                    Divider().frame(height: 24)
+                    headerVersions
                 }
-                .buttonStyle(.plain)
-
-                gitHubHeaderButton
-
-                exportButton
-                Spacer(minLength: 0)
-            }
-
-            // Version row: the episode menu (series) and "Script Version:" label
-            // stay put; only the version chips scroll.
-            HStack(spacing: 8) {
-                if project.isSeries {
-                    episodeMenu
-                    Divider().frame(height: 18)
-                }
-                Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
-                Text("Script Version:")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .fixedSize()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(currentVersions, id: \.uid) { versionTab(for: $0) }
-                        Button { addNewVersion() } label: {
-                            Label("New Version", systemImage: "plus").font(.subheadline)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    headerButtons
+                    headerVersions
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var headerButtons: some View {
+        HStack(spacing: 8) {
+            Button { showScriptSheet = true } label: {
+                Label("Script", systemImage: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            gitHubHeaderButton
+
+            exportButton
+        }
+    }
+
+    /// The episode menu (series) and "Script Version:" label stay put; only the
+    /// version chips scroll.
+    private var headerVersions: some View {
+        HStack(spacing: 8) {
+            if project.isSeries {
+                episodeMenu
+                Divider().frame(height: 18)
+            }
+            Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
+            Text("Script Version:")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .fixedSize()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(currentVersions, id: \.uid) { versionTab(for: $0) }
+                    Button { addNewVersion() } label: {
+                        Label("New Version", systemImage: "plus").font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
     }
 
     /// GitHub control for the iPhone header: the published-page menu when the
@@ -995,9 +1024,9 @@ struct ProjectEditorView: View {
             Button { showPublishSheet = true } label: {
                 Image("GitHubLogo")
                     .resizable().scaledToFit()
-                    .frame(width: 22, height: 22)
+                    .frame(width: 19, height: 19)
                     .foregroundStyle(.secondary)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 32, height: 32)
                     .background(Circle().fill(Color.secondary.opacity(0.12)))
                     .contentShape(Circle())
             }
@@ -1280,10 +1309,11 @@ struct ProjectEditorView: View {
             showExportSheet = true
         } label: {
             Text("Export")
-                .font(.body)
+                .font(isPhoneLayout ? .subheadline : .body)
                 .fontWeight(.semibold)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 10)
+                .lineLimit(1).fixedSize()
+                .padding(.horizontal, isPhoneLayout ? 16 : 22)
+                .padding(.vertical, isPhoneLayout ? 6 : 10)
             .foregroundStyle(Color.accentColor)
             .background(Color.accentColor.opacity(0.14))
             .clipShape(Capsule())
