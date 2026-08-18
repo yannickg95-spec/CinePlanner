@@ -36,8 +36,9 @@ struct ProjectEditorView: View {
     @State private var selectedScenes: Set<String> = []
     @State private var selectedShots: Set<String> = []
 
-    /// Which view fills the flexible detail pane on the right.
-    private enum DetailTab: Hashable { case shot, map }
+    /// Which view fills the flexible detail pane on the right. `.script` is an
+    /// iPhone-only tab (iPad shows the script in its own column).
+    private enum DetailTab: Hashable { case shot, map, script }
     @State private var detailTab: DetailTab = .shot
 
     // Edit / delete targets (driven by right-click context menus on rows)
@@ -890,16 +891,19 @@ struct ProjectEditorView: View {
             detailTabBar
             Divider()
             Group {
-                if detailTab == .shot {
+                switch detailTab {
+                case .shot:
                     ShotListView(
                         scene: scene,
                         selectedShots: $selectedShots,
                         onEditShot: { shotToEdit = $0 },
                         onDeleteShots: { pendingShotDeletion = $0 }
                     )
-                } else {
+                case .map:
                     SceneMapEditorView(scene: scene, embedded: true)
                         .id(scene.uid)
+                case .script:
+                    compactScriptView(for: scene)
                 }
             }
         }
@@ -910,6 +914,26 @@ struct ProjectEditorView: View {
         // Keep the selection in step with the drill-down, so the script page and
         // shot detail resolve to this scene.
         .onAppear { selectedScenes = [scene.uid] }
+    }
+
+    /// iPhone Script tab: the script PDF, opened at this scene's page (view only —
+    /// coverage marking still goes through the full-screen cover from a shot).
+    private func compactScriptView(for scene: Scene) -> some View {
+        ScriptPDFViewer(
+            project: project,
+            version: selectedVersion,
+            selectedScenePage: scene.absolutePDFPage,
+            selectedScene: scene,
+            selectedShot: selectedShot,
+            onScenesImported: { _ in
+                if !otherVersionsWithShots.isEmpty { showCopyShotsPrompt = true }
+            },
+            requestImport: $requestScriptImport,
+            isMarkingScenePage: false,
+            markingSceneLabel: "",
+            onFinishMarking: { _ in },
+            onCancelMarking: { }
+        )
     }
 
     /// iPhone header for the scenes screen: project name, a Script/GitHub/Export
@@ -1099,6 +1123,8 @@ struct ProjectEditorView: View {
             HStack(spacing: 4) {
                 tabButton("Shots", .shot)
                 tabButton("Scene Map", .map)
+                // iPhone: the script lives in a tab here (iPad has its own column).
+                if isPhoneLayout { tabButton("Script", .script) }
             }
             .padding(3)
             .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
@@ -1125,7 +1151,9 @@ struct ProjectEditorView: View {
     @ViewBuilder
     private func detailContent(for scene: Scene) -> some View {
         switch detailTab {
-        case .shot:
+        // `.script` is iPhone-only; the iPad detail pane never selects it, but the
+        // switch must stay exhaustive, so it falls back to the shot detail.
+        case .shot, .script:
             if let shot = selectedShot {
                 ShotDetailView(shot: shot)
             } else {
