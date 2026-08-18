@@ -52,6 +52,9 @@ struct SceneListView: View {
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
     @State private var sceneToClear: Scene?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
 
     var orderedScenes: [Scene] {
         (version?.scenes ?? project.scenes).sorted { $0.sortOrder < $1.sortOrder }
@@ -166,7 +169,9 @@ struct SceneListView: View {
         // Plain style + tight insets let the scene cards span the full column width
         // on iPad (the default grouped style insets them with side margins).
         .listStyle(.plain)
-        .navigationTitle(project.filmName)
+        // iPad: the scenes column carries the film-name title. iPhone shows the name
+        // in the editor's content header, so don't set a bar title here.
+        .applyIf(hSizeClass != .compact) { $0.navigationTitle(project.filmName) }
         #endif
         #if os(macOS)
         .onDeleteCommand {

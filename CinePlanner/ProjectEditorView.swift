@@ -130,9 +130,9 @@ struct ProjectEditorView: View {
     private var coreView: some View {
         editorView
         #if os(iOS)
-        // Inline title sits centered in the toolbar row (next to Export), instead of
-        // iOS's default large title below the bar.
-        .navigationTitle(project.filmName)
+        // iPad: inline title centered in the toolbar row. iPhone shows the project
+        // name in its own content header instead, so the bar title is left empty.
+        .navigationTitle(isPhoneLayout ? "" : project.filmName)
         .navigationBarTitleDisplayMode(.inline)
         #else
         // macOS: no navigationTitle (which would also show at the leading edge next
@@ -155,29 +155,21 @@ struct ProjectEditorView: View {
             }
             #endif
 
-            #if os(iOS)
-            // iPhone: the script pane is gone, so offer it full-screen from the bar.
-            if isPhoneLayout {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showScriptSheet = true } label: {
-                        Label("Script", systemImage: "doc.text.magnifyingglass")
-                    }
-                }
-            }
-            #endif
-
             ToolbarItem(placement: .primaryAction) {
                 actionButtons
             }
 
-            // The GitHub indicator's live-badge and the Export capsule have their own
-            // backgrounds; hide the OS 26 "Liquid Glass" toolbar pill so it doesn't
-            // clip the badge and the button edges.
-            if #available(iOS 26.0, macOS 26.0, *) {
-                ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
+            // iPhone puts Script / GitHub / Export in its content header instead of
+            // the toolbar. iPad/Mac keep the toolbar export group (whose GitHub badge
+            // and Export capsule have their own backgrounds — hide the OS 26 "Liquid
+            // Glass" pill so it doesn't clip them).
+            if !isPhoneLayout {
+                if #available(iOS 26.0, macOS 26.0, *) {
+                    ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
+                }
             }
         }
         .onAppear {
@@ -603,8 +595,12 @@ struct ProjectEditorView: View {
 
     private var editorView: some View {
         VStack(spacing: 0) {
-            contextBar
-            Divider()
+            // iPhone builds its own header (title + buttons + versions) inside
+            // compactColumns; iPad/Mac keep the shared context bar here.
+            if !isPhoneLayout {
+                contextBar
+                Divider()
+            }
             editorColumns
         }
     }
@@ -853,16 +849,20 @@ struct ProjectEditorView: View {
     /// on the existing selection-driven columns.
     @ViewBuilder
     private var compactColumns: some View {
-        SceneListView(
-            project: project,
-            version: selectedVersion,
-            selectedScenes: $selectedScenes,
-            canImportShots: !otherVersionsWithShots.isEmpty,
-            onEditScene: { sceneToEdit = $0 },
-            onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
-            onDeleteScenes: { pendingSceneDeletion = $0 },
-            onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } }
-        )
+        VStack(spacing: 0) {
+            compactEditorHeader
+            Divider()
+            SceneListView(
+                project: project,
+                version: selectedVersion,
+                selectedScenes: $selectedScenes,
+                canImportShots: !otherVersionsWithShots.isEmpty,
+                onEditScene: { sceneToEdit = $0 },
+                onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
+                onDeleteScenes: { pendingSceneDeletion = $0 },
+                onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } }
+            )
+        }
         .navigationDestination(for: Scene.self) { scene in
             compactSceneScreen(scene)
         }
@@ -903,6 +903,80 @@ struct ProjectEditorView: View {
         // Keep the selection in step with the drill-down, so the script page and
         // shot detail resolve to this scene.
         .onAppear { selectedScenes = [scene.uid] }
+    }
+
+    /// iPhone header for the scenes screen: project name, a Script/GitHub/Export
+    /// button row, then the script-version row (its label pinned, versions scroll).
+    private var compactEditorHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(project.filmName)
+                .font(.largeTitle.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+
+            HStack(spacing: 10) {
+                Button { showScriptSheet = true } label: {
+                    Label("Script", systemImage: "doc.text.magnifyingglass")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                gitHubHeaderButton
+
+                exportButton
+                Spacer(minLength: 0)
+            }
+
+            // Version row: the episode menu (series) and "Script Version:" label
+            // stay put; only the version chips scroll.
+            HStack(spacing: 8) {
+                if project.isSeries {
+                    episodeMenu
+                    Divider().frame(height: 18)
+                }
+                Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
+                Text("Script Version:")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(currentVersions, id: \.uid) { versionTab(for: $0) }
+                        Button { addNewVersion() } label: {
+                            Label("New Version", systemImage: "plus").font(.subheadline)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+    }
+
+    /// GitHub control for the iPhone header: the published-page menu when the
+    /// project is live, otherwise a button that starts publishing.
+    @ViewBuilder
+    private var gitHubHeaderButton: some View {
+        if let url = publishedURL {
+            publishedPageMenu(url: url)
+        } else {
+            Button { showPublishSheet = true } label: {
+                Image("GitHubLogo")
+                    .resizable().scaledToFit()
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Color.secondary.opacity(0.12)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Publish this shot list to the web through your GitHub account")
+        }
     }
 
     private func editorColumnStack(available: CGFloat, showScript: Bool) -> some View {
