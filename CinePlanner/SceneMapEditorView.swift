@@ -694,12 +694,17 @@ struct SceneMapEditorView: View {
             .clipped()
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-            .simultaneousGesture(magnifyGesture)
-            // When zoomed in, a drag on empty canvas pans; otherwise (macOS) it's a
-            // rubber-band marquee. Markers capture their own drags, so this only
-            // fires on empty canvas.
-            .gesture(canvasPanOrMarquee(in: rect, size: geo.size,
-                                        canvasOrigin: geo.frame(in: .global).origin))
+            // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
+            // recognizer — a separate `.simultaneousGesture` for the pinch made iOS
+            // defer the drag's continuous updates, so panning only jumped on release.
+            // Attached with `.gesture`, so markers still capture their own drags.
+            .gesture(
+                SimultaneousGesture(
+                    magnifyGesture,
+                    canvasPanOrMarquee(in: rect, size: geo.size,
+                                       canvasOrigin: geo.frame(in: .global).origin)
+                )
+            )
             .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
             #if os(macOS)
             .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
