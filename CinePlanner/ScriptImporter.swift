@@ -947,9 +947,8 @@ enum ScriptImportError: LocalizedError {
 
 // MARK: - PDF Viewer View
 
-#if os(macOS)
 /// A menu-as-button styled like the scene-map toolbar's gear pill (SegmentedGroup):
-/// a 40×34 cell with a subtle fill and rounded border.
+/// a 40×34 cell with a subtle fill and rounded border. Used on iPad and Mac.
 private struct SegmentedGearButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -961,7 +960,6 @@ private struct SegmentedGearButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
 }
-#endif
 
 struct ScriptPDFViewer: View {
     let project: Project
@@ -1016,19 +1014,17 @@ struct ScriptPDFViewer: View {
                 Label("Delete Script", systemImage: "trash")
             }
         } label: {
-            #if os(macOS)
-            Image(systemName: "gearshape").font(.system(size: 16, weight: .medium))
-            #else
-            Image(systemName: "gearshape").font(.callout).foregroundStyle(.secondary)
-            #endif
+            Image(systemName: "gearshape")
+                .font(DeviceLayout.isPhone ? .callout : .system(size: 16, weight: .medium))
+                // iPhone: plain secondary icon (it floats in its own circle). iPad/Mac:
+                // the default label colour inside the pill, matching the scene-map gear.
+                .applyIf(DeviceLayout.isPhone) { $0.foregroundStyle(.secondary) }
         }
         .menuIndicator(.hidden)
-        #if os(macOS)
-        // Present the menu as a button and give it the scene-map gear's pill.
-        .menuStyle(.button)
-        .buttonStyle(SegmentedGearButtonStyle())
-        .fixedSize()
-        #endif
+        // iPad + Mac: present the menu as a button with the scene-map gear's pill.
+        .applyIf(!DeviceLayout.isPhone) {
+            $0.menuStyle(.button).buttonStyle(SegmentedGearButtonStyle()).fixedSize()
+        }
         .help("Script settings — replace, delete, or set the coverage margin")
     }
 
