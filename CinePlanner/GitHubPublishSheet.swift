@@ -67,6 +67,11 @@ struct GitHubPublishSheet: View {
             .padding(16)
         }
         .adaptiveSheetFrame(width: 500, height: 460)
+        #if os(iOS)
+        // iPhone: open as a compact half-height sheet (draggable up) rather than
+        // filling the whole screen for a handful of controls.
+        .applyIf(DeviceLayout.isPhone) { $0.presentationDetents([.medium, .large]) }
+        #endif
     }
 
     // MARK: - Token entry

@@ -52,6 +52,11 @@ struct ChipMenu<Label: View>: View {
                 }
                 .frame(width: width)
                 .frame(maxHeight: 420)
+                #if os(iOS)
+                // Stay an anchored popover on iPhone instead of adapting to a
+                // full-screen sheet for a handful of rows.
+                .presentationCompactAdaptation(.popover)
+                #endif
             }
     }
 
