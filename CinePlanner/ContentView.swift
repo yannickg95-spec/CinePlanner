@@ -1895,12 +1895,13 @@ struct OptionPickerView: View {
             )
         }
         .buttonStyle(.plain)
-        // On iPad, open beside the button (arrow on its trailing edge) rather than
-        // above/below, so the popover has the full screen height and the Size/Type/
-        // Grip lists show without scrolling. iOS flips it if there's no room on that
-        // side. macOS keeps the usual below-the-button placement.
+        // iPhone: a popover is too small for the longer Size/Type/Grip lists, so
+        // present a sheet (detented, scrollable) where every item fits.
+        // iPad: open beside the button (arrow on its trailing edge) so the popover
+        // has the full screen height. macOS keeps the below-the-button placement.
         #if os(iOS)
-        .popover(isPresented: $isPresented, arrowEdge: .trailing) { popover }
+        .applyIf(DeviceLayout.isPhone) { $0.sheet(isPresented: $isPresented) { phoneSheet } }
+        .applyIf(!DeviceLayout.isPhone) { $0.popover(isPresented: $isPresented, arrowEdge: .trailing) { popover } }
         #else
         .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
         #endif
@@ -1954,29 +1955,7 @@ struct OptionPickerView: View {
             #endif
 
             Divider()
-            HStack {
-                Button {
-                    // Close the popover first, then raise the alert — macOS
-                    // doesn't present an alert cleanly over an open popover.
-                    isPresented = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        newName = ""
-                        showAdd = true
-                    }
-                } label: {
-                    Label("Add Custom \(noun.capitalized)…", systemImage: "plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-
-                Spacer()
-
-                if hasValue {
-                    Button("Clear") { select("") }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            pickerFooter
         }
         .padding(12)
         .frame(width: grouped ? 360 : 240)
@@ -1984,6 +1963,49 @@ struct OptionPickerView: View {
         // Keep it a popover (not a full-screen sheet) even in a compact width.
         .presentationCompactAdaptation(.popover)
         #endif
+    }
+
+    /// iPhone: the picker as a detented, scrollable sheet — the whole list fits and
+    /// scrolls, unlike a size-constrained popover.
+    private var phoneSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+                pickerOptions.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Divider()
+            pickerFooter
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// The Add-custom / Clear row shown under the options in both presentations.
+    private var pickerFooter: some View {
+        HStack {
+            Button {
+                // Close the popover first, then raise the alert — macOS
+                // doesn't present an alert cleanly over an open popover.
+                isPresented = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    newName = ""
+                    showAdd = true
+                }
+            } label: {
+                Label("Add Custom \(noun.capitalized)…", systemImage: "plus")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+
+            Spacer()
+
+            if hasValue {
+                Button("Clear") { select("") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// One of the two side-by-side columns: a stack of whole sections.
