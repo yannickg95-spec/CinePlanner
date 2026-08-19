@@ -1187,13 +1187,16 @@ struct ProjectEditorView: View {
             }
             .padding(3)
             .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
-            // iPhone: the script settings gear sits right beside the Script tab.
-            if isPhoneLayout && detailTab == .script && hasScriptPDF {
-                scriptTabGear
-            }
             Spacer(minLength: 0)
         }
         .frame(height: isPhoneLayout ? 38 : Self.paneHeaderHeight)
+        // iPhone: the script settings gear rides the trailing edge, so the tab pill
+        // stays centred on the page.
+        .overlay(alignment: .trailing) {
+            if isPhoneLayout && detailTab == .script && hasScriptPDF {
+                scriptTabGear.padding(.trailing, 8)
+            }
+        }
     }
 
     /// iPhone: the script settings menu shown next to the Script tab — replace the
