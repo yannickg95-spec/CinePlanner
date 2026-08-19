@@ -394,7 +394,7 @@ struct ProjectEditorView: View {
     }
 
     /// Small round GitHub button next to Export — opens/updates/deletes the online page.
-    private func publishedPageMenu(url: String) -> some View {
+    private func publishedPageMenu(url: String, arrowEdge: Edge = .bottom) -> some View {
         ChipMenu(items: [
             ChipMenuItem(title: "Open Published Page", systemImage: "safari") {
                 if let u = URL(string: url) { PlatformURLOpener.open(u) }
@@ -404,7 +404,7 @@ struct ProjectEditorView: View {
             ChipMenuItem(title: "Delete Published Page", systemImage: "trash", role: .destructive) {
                 showingDeletePageConfirm = true
             },
-        ], width: 230) {
+        ], width: 230, arrowEdge: arrowEdge) {
             Group {
                 if isDeletingPage || isUpdatingPage {
                     ProgressView().controlSize(.small)
@@ -1048,7 +1048,9 @@ struct ProjectEditorView: View {
     @ViewBuilder
     private var gitHubHeaderButton: some View {
         if let url = publishedURL {
-            publishedPageMenu(url: url)
+            // iPhone header sits at the top of the screen, so open the menu below
+            // the button (.top arrow) — above it there's no room for all the rows.
+            publishedPageMenu(url: url, arrowEdge: .top)
         } else {
             Button { showPublishSheet = true } label: {
                 Image("GitHubLogo")
