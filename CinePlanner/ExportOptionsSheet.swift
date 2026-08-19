@@ -172,39 +172,26 @@ struct ExportOptionsSheet: View {
     /// the accent lives in the Publish button — the tinted-blue "selected" look
     /// is reserved for the file checkboxes below.
     private var publishFeatureCard: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image("GitHubLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 24, height: 24)
-                .foregroundStyle(Color.accentColor)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text("Publish to Web")
-                        .fontWeight(.semibold)
-                    Text("Best way to share")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.15))
-                        .clipShape(Capsule())
+        // iPhone: stack the button under the text so the copy gets the full card
+        // width. iPad/Mac: keep the button beside the text.
+        Group {
+            if DeviceLayout.isPhone {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        publishIcon
+                        publishText
+                    }
+                    publishButton
+                        .frame(maxWidth: .infinity)
                 }
-                Text("Put your shot list online and get a link to share — searchable and filterable, with reference photos and video, opening on any device. Re-publishing updates the same link.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    publishIcon
+                    publishText
+                    Spacer(minLength: 12)
+                    publishButton
+                }
             }
-
-            Spacer(minLength: 12)
-
-            Button(project.publishedRepoFullName != nil ? "Update" : "Publish") {
-                showingPublish = true
-            }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -214,6 +201,43 @@ struct ExportOptionsSheet: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
         )
+    }
+
+    private var publishIcon: some View {
+        Image("GitHubLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 24, height: 24)
+            .foregroundStyle(Color.accentColor)
+    }
+
+    private var publishText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("Publish to Web")
+                    .fontWeight(.semibold)
+                Text("Best way to share")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.15))
+                    .clipShape(Capsule())
+            }
+            Text("Put your shot list online and get a link to share — searchable and filterable, with reference photos and video, opening on any device. Re-publishing updates the same link.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var publishButton: some View {
+        Button(project.publishedRepoFullName != nil ? "Update" : "Publish") {
+            showingPublish = true
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 
     @ViewBuilder
