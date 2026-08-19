@@ -1422,7 +1422,7 @@ struct ProjectEditorView: View {
                 // iPhone: an icon-only accent circle (matching the GitHub button) to
                 // save room in the toolbar row.
                 Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(Color.accentColor.opacity(0.14)))
