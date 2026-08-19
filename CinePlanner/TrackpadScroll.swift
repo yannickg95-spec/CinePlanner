@@ -108,8 +108,9 @@ struct TrackpadScrollCatcher: NSViewRepresentable {
                 guard let self, self.enabled, let win = self.window, event.window === win else { return event }
                 let local = self.convert(event.locationInWindow, from: nil)
                 guard self.bounds.contains(local) else { return event }
-                // AppKit's y grows upward; SwiftUI's offset grows downward — flip dy.
-                self.onScroll?(CGSize(width: event.scrollingDeltaX, height: -event.scrollingDeltaY))
+                // Match the iPad "grab and move" feel: the map tracks the swipe, so
+                // both deltas are inverted from AppKit's scroll convention.
+                self.onScroll?(CGSize(width: -event.scrollingDeltaX, height: event.scrollingDeltaY))
                 return nil   // consume so the page/list behind doesn't also scroll
             }
         }
