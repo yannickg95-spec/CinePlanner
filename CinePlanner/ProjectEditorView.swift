@@ -16,18 +16,6 @@ struct ProjectEditorView: View {
     /// iPhone collapses the multi-column editor into a single-column drill-down.
     /// iPad (any size) and Mac keep the columns unchanged.
     private var isPhoneLayout: Bool { DeviceLayout.isPhone }
-    #if os(iOS)
-    @Environment(\.verticalSizeClass) private var vSizeClass
-    #endif
-    /// iPhone in landscape (short height): pack the scenes-screen header into one
-    /// row to save vertical space.
-    private var isPhoneLandscape: Bool {
-        #if os(iOS)
-        return DeviceLayout.isPhone && vSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
     /// iPhone: presents the script PDF full-screen (no room for a side-by-side pane).
     @State private var showScriptSheet = false
     /// iPhone: the shot whose script lines are being marked in the full-screen
@@ -170,12 +158,12 @@ struct ProjectEditorView: View {
             if isPhoneLayout {
                 if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .topBarLeading) {
-                        Text(project.filmName).font(.title2.bold()).lineLimit(1).fixedSize()
+                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
                     }
                     .sharedBackgroundVisibility(.hidden)
                 } else {
                     ToolbarItem(placement: .topBarLeading) {
-                        Text(project.filmName).font(.title2.bold()).lineLimit(1).fixedSize()
+                        Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
                     }
                 }
             }
@@ -185,10 +173,21 @@ struct ProjectEditorView: View {
                 actionButtons
             }
 
-            // iPhone puts Script / GitHub / Export in its content header instead of
-            // the toolbar. iPad/Mac keep the toolbar export group (whose GitHub badge
-            // and Export capsule have their own backgrounds — hide the OS 26 "Liquid
-            // Glass" pill so it doesn't clip them).
+            // GitHub + Export share the toolbar row with the project name. iPhone
+            // keeps its always-visible GitHub button (publish when unpublished, the
+            // page menu once live) plus Export; the Script button and version chips
+            // stay in the content header below. iPad/Mac use their export group.
+            // Hide the OS 26 "Liquid Glass" pill so the badges keep their own look.
+            #if os(iOS)
+            if isPhoneLayout {
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .primaryAction) { headerButtons }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .primaryAction) { headerButtons }
+                }
+            }
+            #endif
             if !isPhoneLayout {
                 if #available(iOS 26.0, macOS 26.0, *) {
                     ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
@@ -979,28 +978,15 @@ struct ProjectEditorView: View {
         .id(scriptReloadToken)
     }
 
-    /// iPhone header for the scenes screen: a Script/GitHub/Export button row plus
-    /// the script-version row (its label pinned, versions scroll). Portrait stacks
-    /// the two rows; landscape packs them into one to save vertical space.
+    /// iPhone header for the scenes screen: the Script button + version chips.
+    /// GitHub and Export live in the toolbar row (with the project name).
     private var compactEditorHeader: some View {
-        Group {
-            if isPhoneLandscape {
-                HStack(spacing: 12) {
-                    headerButtons
-                    Divider().frame(height: 24)
-                    headerVersions
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    headerButtons
-                    headerVersions
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        headerVersions
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
     }
 
+    /// GitHub + Export, shown in the iPhone toolbar row.
     private var headerButtons: some View {
         HStack(spacing: 8) {
             gitHubHeaderButton
