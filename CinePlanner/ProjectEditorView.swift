@@ -744,7 +744,8 @@ struct ProjectEditorView: View {
                 Text(version.name)
                     .font(.subheadline)
                     .fontWeight(isSelected ? .semibold : .regular)
-                if version.totalShotCount > 0 {
+                // iPhone keeps the chips compact — the per-version shot count is dropped.
+                if !DeviceLayout.isPhone, version.totalShotCount > 0 {
                     Text("\(version.totalShotCount) shots")
                         .font(.caption2)
                         .padding(.horizontal, 5)
@@ -1026,8 +1027,7 @@ struct ProjectEditorView: View {
                 episodeMenu
                 Divider().frame(height: 18)
             }
-            Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
-            Text("Script Version:")
+            Text("Version:")
                 .font(.subheadline).foregroundStyle(.secondary)
                 .fixedSize()
             ScrollView(.horizontal, showsIndicators: false) {
