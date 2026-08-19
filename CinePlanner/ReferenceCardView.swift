@@ -512,6 +512,12 @@ struct ImagePreviewSheet: View {
     let preview: ImagePreview
     @Environment(\.dismiss) private var dismiss
 
+    // iPhone pinch-to-zoom / pan state.
+    @State private var zoom: CGFloat = 1
+    @State private var lastZoom: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
     var body: some View {
         if DeviceLayout.isPhone {
             phoneViewer
@@ -520,8 +526,8 @@ struct ImagePreviewSheet: View {
         }
     }
 
-    /// iPhone: just the image, full width. No title bar — swipe down or tap the
-    /// close button to dismiss.
+    /// iPhone: just the image, full width. Pinch to zoom, drag to pan when zoomed,
+    /// double-tap to toggle. Single tap (unzoomed) or the close button dismisses.
     private var phoneViewer: some View {
         ZStack(alignment: .topTrailing) {
             Color.platformControlBackground.ignoresSafeArea()
@@ -529,10 +535,38 @@ struct ImagePreviewSheet: View {
             Image(platformImage: preview.image)
                 .resizable()
                 .scaledToFit()
+                .scaleEffect(zoom)
+                .offset(offset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
                 .contentShape(Rectangle())
-                .onTapGesture { dismiss() }
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { value in
+                            zoom = max(1, min(5, lastZoom * value.magnification))
+                        }
+                        .onEnded { _ in
+                            lastZoom = zoom
+                            if zoom <= 1 {
+                                withAnimation(.easeOut(duration: 0.2)) { resetZoom() }
+                            }
+                        }
+                        .simultaneously(with:
+                            DragGesture()
+                                .onChanged { value in
+                                    guard zoom > 1 else { return }
+                                    offset = CGSize(width: lastOffset.width + value.translation.width,
+                                                    height: lastOffset.height + value.translation.height)
+                                }
+                                .onEnded { _ in lastOffset = offset }
+                        )
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if zoom > 1 { resetZoom() } else { zoom = 2.5; lastZoom = 2.5 }
+                    }
+                }
+                .onTapGesture { if zoom <= 1.01 { dismiss() } }
 
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -543,6 +577,10 @@ struct ImagePreviewSheet: View {
             .buttonStyle(.plain)
             .padding()
         }
+    }
+
+    private func resetZoom() {
+        zoom = 1; lastZoom = 1; offset = .zero; lastOffset = .zero
     }
 
     private var desktopViewer: some View {
