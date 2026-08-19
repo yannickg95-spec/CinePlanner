@@ -157,33 +157,56 @@ struct WalkthroughView: View {
                 }
             }
 
-            HStack {
-                Button { goBack() } label: {
-                    Label("Back", systemImage: "chevron.left").labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .opacity(index == 0 ? 0 : 1)
-                .disabled(index == 0)
-
-                Spacer()
-
-                Button { advance() } label: {
-                    HStack(spacing: 6) {
-                        Text(isLast ? "Get Started" : "Next")
-                        if !isLast { Image(systemName: "chevron.right") }
+            if isCompact {
+                // iPhone: a balanced two-button bar — matching capsules that split the
+                // width, rather than a small plain "Back" opposite a big filled "Next".
+                HStack(spacing: 12) {
+                    if index > 0 {
+                        Button { goBack() } label: {
+                            Label("Back", systemImage: "chevron.left")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .tint(.secondary)
                     }
-                    .fontWeight(.semibold)
+                    nextButton(fullWidth: true)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(step.tint)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
+            } else {
+                HStack {
+                    Button { goBack() } label: {
+                        Label("Back", systemImage: "chevron.left").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .opacity(index == 0 ? 0 : 1)
+                    .disabled(index == 0)
+
+                    Spacer()
+
+                    nextButton(fullWidth: false)
+                }
             }
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 22)
+        .padding(.bottom, isCompact ? 28 : 22)
         .padding(.top, 4)
+    }
+
+    private func nextButton(fullWidth: Bool) -> some View {
+        Button { advance() } label: {
+            HStack(spacing: 6) {
+                Text(isLast ? "Get Started" : "Next")
+                if !isLast { Image(systemName: "chevron.right") }
+            }
+            .fontWeight(.semibold)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(step.tint)
+        .controlSize(.large)
+        .keyboardShortcut(.defaultAction)
     }
 
     // MARK: - Illustrations
