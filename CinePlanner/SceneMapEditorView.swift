@@ -22,6 +22,18 @@ struct SceneMapEditorView: View {
     var embedded: Bool = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
+
+    /// iPhone in portrait — where the sun time bar needs the slider on its own row.
+    private var isPhonePortrait: Bool {
+        #if os(iOS)
+        return DeviceLayout.isPhone && verticalSizeClass == .regular
+        #else
+        return false
+        #endif
+    }
 
     enum DrawTool: String, CaseIterable { case wall = "Wall"; case door = "Door"; case window = "Window" }
     enum MoveDirection { case to, from }
@@ -800,25 +812,46 @@ struct SceneMapEditorView: View {
             return SolarPosition.sunriseSunset(date: sun.date, latitude: lat, longitude: lon, timeZone: sun.timeZone)
         }()
         let minutes = Int(sun.timeMinutes)
-        return HStack(spacing: 12) {
-            Image(systemName: "sun.max.fill").foregroundStyle(.orange)
-            Text(hhmm(minutes))
-                .font(.callout.monospacedDigit()).frame(width: 48, alignment: .leading)
-            Slider(value: $sun.timeMinutes, in: 0...1439) { editing in if !editing { saveSun() } }
-            HStack(spacing: 10) {
-                if let riseSet {
-                    Label(hhmm(riseSet.sunrise), systemImage: "sunrise.fill")
-                    Label(hhmm(riseSet.sunset), systemImage: "sunset.fill")
-                }
-                Text(altReadout)
+        let slider = Slider(value: $sun.timeMinutes, in: 0...1439) { editing in if !editing { saveSun() } }
+        let readouts = HStack(spacing: 10) {
+            if let riseSet {
+                Label(hhmm(riseSet.sunrise), systemImage: "sunrise.fill")
+                Label(hhmm(riseSet.sunset), systemImage: "sunset.fill")
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-            .fixedSize()
+            Text(altReadout)
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+
+        return Group {
+            if isPhonePortrait {
+                // Portrait iPhone is too narrow for one row — give the slider the full
+                // width and drop the sunrise/sunset/altitude readouts underneath.
+                VStack(spacing: 6) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sun.max.fill").foregroundStyle(.orange)
+                        Text(hhmm(minutes))
+                            .font(.callout.monospacedDigit()).frame(width: 48, alignment: .leading)
+                        slider
+                    }
+                    readouts
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+            } else {
+                HStack(spacing: 12) {
+                    Image(systemName: "sun.max.fill").foregroundStyle(.orange)
+                    Text(hhmm(minutes))
+                        .font(.callout.monospacedDigit()).frame(width: 48, alignment: .leading)
+                    slider
+                    readouts.fixedSize()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+            }
+        }
         .padding(.bottom, 12)
         .frame(maxWidth: 640)
     }
