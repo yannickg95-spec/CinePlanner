@@ -1031,9 +1031,6 @@ struct ProjectEditorView: View {
                 episodeMenu
                 Divider().frame(height: 18)
             }
-            Text("Version:")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .fixedSize()
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(currentVersions, id: \.uid) { versionTab(for: $0) }
