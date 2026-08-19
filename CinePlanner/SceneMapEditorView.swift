@@ -704,6 +704,13 @@ struct SceneMapEditorView: View {
             .scaleEffect(zoom, anchor: .center)
             .offset(pan)
             .clipped()
+            // Two-finger trackpad swipe pans the zoomed map (all platforms). It only
+            // consumes scrolls while zoomed in, and never steals taps/clicks.
+            .overlay(
+                TrackpadScrollCatcher(enabled: zoom > 1) { delta in
+                    panBy(delta, size: geo.size)
+                }
+            )
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
             // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
@@ -1091,6 +1098,19 @@ struct SceneMapEditorView: View {
                 selectMarkersInMarquee(box, in: rect)
                 #endif
             }
+    }
+
+    /// Pan the zoomed map by an incremental trackpad-scroll delta, clamped to the
+    /// same bounds as the drag pan. `lastPan` is kept in sync so a following drag
+    /// continues from here.
+    private func panBy(_ delta: CGSize, size: CGSize) {
+        guard zoom > 1 else { return }
+        let maxX = size.width * (zoom - 1) / 2
+        let maxY = size.height * (zoom - 1) / 2
+        pan = CGSize(
+            width: min(max(pan.width + delta.width, -maxX), maxX),
+            height: min(max(pan.height + delta.height, -maxY), maxY))
+        lastPan = pan
     }
 
     // MARK: - Furniture
