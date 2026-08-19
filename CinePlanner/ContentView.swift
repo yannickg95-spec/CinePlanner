@@ -1633,7 +1633,7 @@ struct ShotDetailView: View {
                 if !previousCameraValues.isEmpty {
                     ChipMenu(items: previousCameraValues.map { v in
                         ChipMenuItem(title: v) { shot.camera = v }
-                    }) {
+                    }, prefersSheetOnPhone: true) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
@@ -1658,7 +1658,7 @@ struct ShotDetailView: View {
                 if !previousFrameLinesValues.isEmpty {
                     ChipMenu(items: previousFrameLinesValues.map { v in
                         ChipMenuItem(title: v) { shot.framelines = v }
-                    }) {
+                    }, prefersSheetOnPhone: true) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }
@@ -1683,7 +1683,7 @@ struct ShotDetailView: View {
                 if !previousLensValues.isEmpty {
                     ChipMenu(items: previousLensValues.map { v in
                         ChipMenuItem(title: v) { shot.lensPreset = v }
-                    }) {
+                    }, prefersSheetOnPhone: true) {
                         Image(systemName: "chevron.down.circle")
                             .foregroundStyle(.secondary)
                     }

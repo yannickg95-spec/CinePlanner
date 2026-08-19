@@ -30,6 +30,9 @@ struct ChipMenu<Label: View>: View {
     /// default) opens above the button; `.top` opens below it — useful when the
     /// button sits near the top of the screen with little room above.
     var arrowEdge: Edge = .bottom
+    /// iPhone only: present a detented, scrollable sheet instead of an anchored
+    /// popover. Better for longer lists that a popover would crop.
+    var prefersSheetOnPhone: Bool = false
     @ViewBuilder var label: () -> Label
 
     @State private var isPresented = false
@@ -37,27 +40,54 @@ struct ChipMenu<Label: View>: View {
     var body: some View {
         Button { isPresented = true } label: { label() }
             .buttonStyle(.plain)
-            .popover(isPresented: $isPresented, arrowEdge: arrowEdge) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(items) { item in
-                            if item.isDivider {
-                                Divider().padding(.vertical, 2)
-                            } else {
-                                row(item)
-                            }
-                        }
-                    }
-                    .padding(10)
-                }
-                .frame(width: width)
-                .frame(maxHeight: 420)
-                #if os(iOS)
-                // Stay an anchored popover on iPhone instead of adapting to a
-                // full-screen sheet for a handful of rows.
-                .presentationCompactAdaptation(.popover)
-                #endif
+            #if os(iOS)
+            .applyIf(DeviceLayout.isPhone && prefersSheetOnPhone) {
+                $0.sheet(isPresented: $isPresented) { phoneSheet }
             }
+            .applyIf(!(DeviceLayout.isPhone && prefersSheetOnPhone)) {
+                $0.popover(isPresented: $isPresented, arrowEdge: arrowEdge) { popoverContent }
+            }
+            #else
+            .popover(isPresented: $isPresented, arrowEdge: arrowEdge) { popoverContent }
+            #endif
+    }
+
+    private var listContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(items) { item in
+                if item.isDivider {
+                    Divider().padding(.vertical, 2)
+                } else {
+                    row(item)
+                }
+            }
+        }
+    }
+
+    private var popoverContent: some View {
+        ScrollView {
+            listContent.padding(10)
+        }
+        .frame(width: width)
+        .frame(maxHeight: 420)
+        #if os(iOS)
+        // Stay an anchored popover on iPhone instead of adapting to a
+        // full-screen sheet for a handful of rows.
+        .presentationCompactAdaptation(.popover)
+        #endif
+    }
+
+    /// iPhone: a detented, scrollable sheet so the whole list fits and scrolls.
+    private var phoneSheet: some View {
+        ScrollView {
+            listContent
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     private func row(_ item: ChipMenuItem) -> some View {
