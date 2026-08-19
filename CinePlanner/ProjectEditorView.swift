@@ -1418,19 +1418,29 @@ struct ProjectEditorView: View {
         Button {
             showExportSheet = true
         } label: {
-            Text("Export")
-                .font(isPhoneLayout ? .subheadline : .body)
-                .fontWeight(.semibold)
-                .lineLimit(1).fixedSize()
-                .padding(.horizontal, isPhoneLayout ? 16 : 22)
-                .padding(.vertical, isPhoneLayout ? 6 : 10)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.14))
-            .clipShape(Capsule())
-            .overlay(
-                Capsule().stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
-            )
-            .contentShape(Capsule())
+            if isPhoneLayout {
+                // iPhone: an icon-only accent circle (matching the GitHub button) to
+                // save room in the toolbar row.
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.accentColor.opacity(0.14)))
+                    .overlay(Circle().stroke(Color.accentColor.opacity(0.35), lineWidth: 1))
+                    .contentShape(Circle())
+            } else {
+                Text("Export")
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Color.accentColor)
+                    .background(Color.accentColor.opacity(0.14))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color.accentColor.opacity(0.35), lineWidth: 1))
+                    .contentShape(Capsule())
+            }
         }
         .buttonStyle(.plain)
         .help("Export this shot list as PDF, text, or a web page with media")
