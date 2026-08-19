@@ -513,6 +513,39 @@ struct ImagePreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        if DeviceLayout.isPhone {
+            phoneViewer
+        } else {
+            desktopViewer
+        }
+    }
+
+    /// iPhone: just the image, full width. No title bar — swipe down or tap the
+    /// close button to dismiss.
+    private var phoneViewer: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.platformControlBackground.ignoresSafeArea()
+
+            Image(platformImage: preview.image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+                .contentShape(Rectangle())
+                .onTapGesture { dismiss() }
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding()
+        }
+    }
+
+    private var desktopViewer: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(preview.title)
