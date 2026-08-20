@@ -706,13 +706,16 @@ struct SceneMapEditorView: View {
             .scaleEffect(zoom, anchor: .center)
             .offset(pan)
             .clipped()
-            // Two-finger trackpad swipe pans the zoomed map (all platforms). It only
-            // consumes scrolls while zoomed in, and never steals taps/clicks.
+            // Two-finger trackpad swipe pans the zoomed map. macOS only: on iPad the
+            // transparent catcher overlay sat on the touch/pinch path and is the
+            // suspected cause of a zoom crash — touch devices pan by dragging anyway.
+            #if os(macOS)
             .overlay(
                 TrackpadScrollCatcher(enabled: zoom > 1) { delta in
                     panBy(delta, size: geo.size)
                 }
             )
+            #endif
             .onAppear { mapContentWidth = rect.width }
             .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
             // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
