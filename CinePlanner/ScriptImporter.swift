@@ -1190,7 +1190,16 @@ struct ScriptPDFViewer: View {
                 }
             }
         }
-        .onAppear { coverageMargin = version?.coverageLineMargin ?? 0.15 }
+        .onAppear {
+            coverageMargin = version?.coverageLineMargin ?? 0.15
+            // Consume a pending import request set before this viewer mounted (iPhone
+            // opens the script sheet on "New Version"); onChange only sees changes
+            // that happen while mounted, so catch an already-true flag here.
+            if requestImport?.wrappedValue == true {
+                requestImport?.wrappedValue = false
+                showImportOptions = true
+            }
+        }
         .onChange(of: version) {
             // Swap the document in place rather than nil-ing it. Nil-ing removed the
             // PDF view and rebuilt it from scratch on every version switch (a new

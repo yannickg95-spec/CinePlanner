@@ -293,7 +293,15 @@ struct ProjectEditorView: View {
                     selectedScene: selectedScene,
                     selectedShot: selectedShot,
                     onScenesImported: { _ in
-                        if !otherVersionsWithShots.isEmpty { showCopyShotsPrompt = true }
+                        // iPhone imported into a new version via this sheet: close it so
+                        // the fresh scenes and the copy-shots prompt (an alert on the
+                        // editor) are visible.
+                        showScriptSheet = false
+                        if !otherVersionsWithShots.isEmpty {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                showCopyShotsPrompt = true
+                            }
+                        }
                     },
                     requestImport: $requestScriptImport,
                     isMarkingScenePage: sceneBeingMarked != nil,
@@ -1356,8 +1364,14 @@ struct ProjectEditorView: View {
         let version = ScriptVersion(versionNumber: nextNumber)
         version.episode = episode
         selectedVersion = version
-        // Prompt to import the new script right away
+        // Prompt to import the new script right away.
         requestScriptImport = true
+        #if os(iOS)
+        // iPhone has no always-on script pane to catch requestScriptImport, so open
+        // the script sheet — its ScriptPDFViewer consumes the pending flag on appear
+        // and shows the import prompt (auto-detect scenes, then copy shots).
+        if DeviceLayout.isPhone { showScriptSheet = true }
+        #endif
     }
 
     private func deleteVersion(_ version: ScriptVersion) {
