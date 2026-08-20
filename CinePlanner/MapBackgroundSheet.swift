@@ -51,8 +51,9 @@ struct MapBackgroundSheet: View {
     @State private var previewTask: Task<Void, Never>?
 
     private let panelSide: CGFloat = 400
-    /// The capture preview is always shown, beside the map.
-    private var showsPreview: Bool { true }
+    /// The capture preview sits beside the map on Mac/iPad. iPhone is too narrow for
+    /// two panels, so it shows a single flexible map that fits the screen.
+    private var showsPreview: Bool { !DeviceLayout.isPhone }
     /// Width for the map panel plus the always-present preview panel.
     private var sheetWidth: CGFloat { panelSide * 2 + 44 }
 
@@ -101,20 +102,38 @@ struct MapBackgroundSheet: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
 
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    MapPreview(recenter: recenter, visibleRect: $visibleRect,
-                               spanMeters: max(meters * 2.5, 80), scrollEnabled: !lockToCenter)
-                    captureFrame(in: CGSize(width: panelSide, height: panelSide))
+            if DeviceLayout.isPhone {
+                // iPhone: one flexible square map that fits the screen width (no
+                // side-by-side preview panel).
+                GeometryReader { geo in
+                    let s = min(geo.size.width, geo.size.height)
+                    ZStack {
+                        MapPreview(recenter: recenter, visibleRect: $visibleRect,
+                                   spanMeters: max(meters * 2.5, 80), scrollEnabled: !lockToCenter)
+                        captureFrame(in: CGSize(width: s, height: s))
+                    }
+                    .frame(width: s, height: s)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(width: panelSide, height: panelSide)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .onChange(of: previewKey) { schedulePreview() }
+                .padding(.horizontal, 16)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        MapPreview(recenter: recenter, visibleRect: $visibleRect,
+                                   spanMeters: max(meters * 2.5, 80), scrollEnabled: !lockToCenter)
+                        captureFrame(in: CGSize(width: panelSide, height: panelSide))
+                    }
+                    .frame(width: panelSide, height: panelSide)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .onChange(of: previewKey) { schedulePreview() }
 
-                if showsPreview { previewPanel }
+                    if showsPreview { previewPanel }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
 
             HStack(spacing: 12) {
                 Text("Capture size")
