@@ -560,6 +560,7 @@ struct SceneMapEditorView: View {
                             furniture: item,
                             isSelected: furnitureSelectedID == item.id,
                             contentRect: rect,
+                            zoom: zoom,
                             onSelect: { selectFurniture(item.id) },
                             onMove: { normalized in moveFurniture(item.id, to: normalized) },
                             onRotate: { r in rotateFurniture(item.id, to: r) },
@@ -599,6 +600,7 @@ struct SceneMapEditorView: View {
                     MapMarkerView(
                         element: element,
                         label: resolvedLabel(for: element),
+                        zoom: zoom,
                         isSelected: selectedIDs.contains(element.id),
                         contentRect: rect,
                         onSelect: { selectMarker(element.id) },
@@ -2431,6 +2433,9 @@ private struct MapMarkerView: View {
     /// Display label (resolved by the parent — a shot-linked camera follows its
     /// shot's number).
     let label: String
+    /// Current canvas zoom. The label is counter-scaled by 1/zoom so it stays the
+    /// same on-screen size while the marker itself grows with the zoom.
+    var zoom: CGFloat = 1
     let isSelected: Bool
     /// The rect (canvas points) that normalized element coordinates map onto.
     let contentRect: CGRect
@@ -2563,6 +2568,7 @@ private struct MapMarkerView: View {
             if !label.isEmpty && !element.labelHidden {
                 let nudge = liveLabelOffset ?? element.labelOffset
                 labelView
+                    .scaleEffect(1 / zoom, anchor: .top)
                     .contentShape(Rectangle())
                     .offset(x: nudge.width, y: labelOffsetY + nudge.height)
                     .gesture(labelDragGesture)
@@ -3158,6 +3164,8 @@ private struct FurnitureView: View {
     let furniture: Furniture
     let isSelected: Bool
     let contentRect: CGRect
+    /// Counter-scales the label by 1/zoom so it stays a constant on-screen size.
+    var zoom: CGFloat = 1
     let onSelect: () -> Void
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
@@ -3213,6 +3221,7 @@ private struct FurnitureView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.regularMaterial, in: Capsule())
+                    .scaleEffect(1 / zoom, anchor: .top)
                     .offset(x: nudge.width, y: labelBaseOffsetY(w: w, h: h) + nudge.height)
                     .gesture(labelDragGesture(w: w, h: h))
                     .help("Drag to move the label")
