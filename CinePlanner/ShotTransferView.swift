@@ -161,72 +161,102 @@ struct ShotTransferView: View {
             // Header
             VStack(alignment: .leading, spacing: 10) {
                 Text("Copy Shots from a Previous Script Version")
-                    .font(.title2)
+                    .font(DeviceLayout.isPhone ? .title3 : .title2)
                     .fontWeight(.semibold)
 
-                HStack(spacing: 8) {
-                    Text("Copy from:")
-                        .foregroundStyle(.secondary)
-                    Picker("Copy from", selection: $sourceVersion) {
-                        ForEach(sourceCandidates, id: \.uid) { version in
-                            Text("\(version.name) (\(version.totalShotCount) shots)")
-                                .tag(version as ScriptVersion?)
-                        }
+                if DeviceLayout.isPhone {
+                    // iPhone: stack the picker and hint so nothing overflows the width.
+                    HStack(spacing: 8) {
+                        Text("Copy from:").foregroundStyle(.secondary)
+                        versionPicker.frame(maxWidth: .infinity)
                     }
-                    .labelsHidden()
-                    .frame(width: 260)
-
-                    Spacer()
-
-                    Text("Matched scenes are pre-filled — adjust any match on the right before copying.")
+                    Text("Matched scenes are pre-filled — tap a scene's match to change it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        Text("Copy from:")
+                            .foregroundStyle(.secondary)
+                        versionPicker.frame(width: 260)
+
+                        Spacer()
+
+                        Text("Matched scenes are pre-filled — adjust any match on the right before copying.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(16)
 
             Divider()
 
-            // Two columns: source scenes left, target scenes right
-            HStack(spacing: 0) {
-                sourceColumn
-                    .frame(maxWidth: .infinity)
-                Divider()
+            // Two columns: source scenes left, target scenes right. iPhone is too
+            // narrow for both, so it shows just the interactive target column — each
+            // target row's menu already lists the source scenes to match against.
+            if DeviceLayout.isPhone {
                 targetColumn
-                    .frame(maxWidth: .infinity)
+            } else {
+                HStack(spacing: 0) {
+                    sourceColumn
+                        .frame(maxWidth: .infinity)
+                    Divider()
+                    targetColumn
+                        .frame(maxWidth: .infinity)
+                }
             }
 
             Divider()
 
             // Footer
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
+            if DeviceLayout.isPhone {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("\(shotsToCopy) shot\(shotsToCopy == 1 ? "" : "s") will be copied into \(scenesToCopy) scene\(scenesToCopy == 1 ? "" : "s").")
                         .font(.subheadline)
-                    Text("Script coverage selections are not copied — they belong to the old script's pages.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 12) {
+                        Button("Cancel") { dismiss() }
+                            .frame(maxWidth: .infinity)
+                        Button("Copy Shots") { performCopy() }
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity)
+                            .disabled(shotsToCopy == 0)
+                    }
+                    .controlSize(.large)
                 }
+                .padding(16)
+            } else {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(shotsToCopy) shot\(shotsToCopy == 1 ? "" : "s") will be copied into \(scenesToCopy) scene\(scenesToCopy == 1 ? "" : "s").")
+                            .font(.subheadline)
+                        Text("Script coverage selections are not copied — they belong to the old script's pages.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
 
-                Button("Copy Shots") { performCopy() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(shotsToCopy == 0)
+                    Button("Copy Shots") { performCopy() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(shotsToCopy == 0)
+                }
+                .padding(16)
             }
-            .padding(16)
         }
         #if os(macOS)
         .adaptiveSheetFrame(width: 980, height: 640)
         #else
-        // iPad: grow the sheet to fit a roomy layout instead of the narrow default
-        // page-sheet width, so both scene columns are clearly readable.
-        .frame(idealWidth: 900, maxWidth: .infinity, idealHeight: 680, maxHeight: .infinity)
-        .presentationSizing(.fitted)
+        // iPad: grow the sheet to fit a roomy two-column layout instead of the narrow
+        // default page-sheet width. iPhone keeps the default full-height sheet.
+        .applyIf(!DeviceLayout.isPhone) {
+            $0.frame(idealWidth: 900, maxWidth: .infinity, idealHeight: 680, maxHeight: .infinity)
+                .presentationSizing(.fitted)
+        }
         #endif
         // Initial source + matches are set in init(); this only re-matches when the
         // user picks a different source version.
@@ -236,6 +266,16 @@ struct ShotTransferView: View {
     }
 
     // MARK: Columns
+
+    private var versionPicker: some View {
+        Picker("Copy from", selection: $sourceVersion) {
+            ForEach(sourceCandidates, id: \.uid) { version in
+                Text("\(version.name) (\(version.totalShotCount) shots)")
+                    .tag(version as ScriptVersion?)
+            }
+        }
+        .labelsHidden()
+    }
 
     private var sourceColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -352,11 +392,14 @@ struct ShotTransferView: View {
                 .fixedSize()
             Text(scene.isInterior ? "INT" : "EXT")
                 .font(.caption2)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
                 .background(Color.secondary.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 3))
         }
+        .fixedSize()
     }
 
     // MARK: Actions
