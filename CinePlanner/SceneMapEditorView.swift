@@ -692,9 +692,6 @@ struct SceneMapEditorView: View {
                 }
                 // Sun-direction overlay (non-interactive), above the map content.
                 sunOverlay(in: rect)
-                // Camera shot-info card — a plain overlay (not a system popover),
-                // so the marker underneath stays draggable while it's open.
-                cameraShotCard(in: rect, canvas: geo.size)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.platformTextBackground)
@@ -706,6 +703,11 @@ struct SceneMapEditorView: View {
             .scaleEffect(zoom, anchor: .center)
             .offset(pan)
             .clipped()
+            // Camera shot-info card — a plain overlay (not a system popover), so the
+            // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
+            // it's a constant on-screen size and always fits, tracking the marker's
+            // transformed screen position at any zoom.
+            .overlay { cameraShotCard(in: rect, canvas: geo.size) }
             // Two-finger trackpad swipe pans the zoomed map. macOS only: on iPad the
             // transparent catcher overlay sat on the touch/pinch path and is the
             // suspected cause of a zoom crash — touch devices pan by dragging anyway.
@@ -878,26 +880,27 @@ struct SceneMapEditorView: View {
            element.kind == .camera,
            let uid = element.shotUID,
            let shot = scene.shots.first(where: { $0.uid == uid }) {
-            // Counter-scale by 1/zoom so the card stays a constant on-screen size
-            // instead of ballooning with the map zoom. iPhone uses a smaller card.
+            // The card lives outside the zoom transform (constant on-screen size), so
+            // work in screen space: map the marker's logical position through the
+            // scaleEffect(anchor: .center) + offset(pan) to where it actually appears.
             let compact = DeviceLayout.isPhone
-            let s = 1 / max(zoom, 0.01)
             let cardW: CGFloat = compact ? 190 : 264
             let estH: CGFloat = compact ? 230 : 300
             let gap: CGFloat = 24
-            // Effective footprint in the (unscaled) canvas space after counter-scaling.
-            let effW = cardW * s, effH = estH * s, effGap = gap * s
-            let mx = rect.minX + element.x * rect.width
-            let my = rect.minY + element.y * rect.height
-            let placeRight = mx + effGap + effW <= canvas.width
-            let cx = placeRight ? mx + effGap + effW / 2 : mx - effGap - effW / 2
-            let cy = min(max(my, effH / 2 + 8), canvas.height - effH / 2 - 8)
+            let mLogicalX = rect.minX + element.x * rect.width
+            let mLogicalY = rect.minY + element.y * rect.height
+            let cxScreen = canvas.width / 2 + (mLogicalX - canvas.width / 2) * zoom + pan.width
+            let cyScreen = canvas.height / 2 + (mLogicalY - canvas.height / 2) * zoom + pan.height
+            let placeRight = cxScreen + gap + cardW <= canvas.width
+            let cxRaw = placeRight ? cxScreen + gap + cardW / 2 : cxScreen - gap - cardW / 2
+            // Clamp to the screen so an edge marker's card stays fully visible.
+            let cx = min(max(cxRaw, cardW / 2 + 8), max(cardW / 2 + 8, canvas.width - cardW / 2 - 8))
+            let cy = min(max(cyScreen, estH / 2 + 8), max(estH / 2 + 8, canvas.height - estH / 2 - 8))
             CameraShotPopover(shot: shot, compact: compact)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                 .shadow(color: .black.opacity(0.22), radius: 9, y: 2)
                 .fixedSize()
-                .scaleEffect(s, anchor: .center)
                 .position(x: cx, y: cy)
                 .transition(.opacity)
         }
