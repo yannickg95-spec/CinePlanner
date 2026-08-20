@@ -875,19 +875,26 @@ struct SceneMapEditorView: View {
            element.kind == .camera,
            let uid = element.shotUID,
            let shot = scene.shots.first(where: { $0.uid == uid }) {
-            let cardW: CGFloat = 264
-            let estH: CGFloat = 300
+            // Counter-scale by 1/zoom so the card stays a constant on-screen size
+            // instead of ballooning with the map zoom. iPhone uses a smaller card.
+            let compact = DeviceLayout.isPhone
+            let s = 1 / max(zoom, 0.01)
+            let cardW: CGFloat = compact ? 190 : 264
+            let estH: CGFloat = compact ? 230 : 300
             let gap: CGFloat = 24
+            // Effective footprint in the (unscaled) canvas space after counter-scaling.
+            let effW = cardW * s, effH = estH * s, effGap = gap * s
             let mx = rect.minX + element.x * rect.width
             let my = rect.minY + element.y * rect.height
-            let placeRight = mx + gap + cardW <= canvas.width
-            let cx = placeRight ? mx + gap + cardW / 2 : mx - gap - cardW / 2
-            let cy = min(max(my, estH / 2 + 8), canvas.height - estH / 2 - 8)
-            CameraShotPopover(shot: shot)
+            let placeRight = mx + effGap + effW <= canvas.width
+            let cx = placeRight ? mx + effGap + effW / 2 : mx - effGap - effW / 2
+            let cy = min(max(my, effH / 2 + 8), canvas.height - effH / 2 - 8)
+            CameraShotPopover(shot: shot, compact: compact)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                 .shadow(color: .black.opacity(0.22), radius: 9, y: 2)
                 .fixedSize()
+                .scaleEffect(s, anchor: .center)
                 .position(x: cx, y: cy)
                 .transition(.opacity)
         }
@@ -2941,6 +2948,11 @@ func sceneMapAngle(from center: CGPoint, to point: CGPoint) -> Double {
 /// reference image plus its basic info.
 private struct CameraShotPopover: View {
     let shot: Shot
+    /// iPhone: a narrower card with a smaller still, so it fits the screen.
+    var compact: Bool = false
+
+    private var cardWidth: CGFloat { compact ? 190 : 264 }
+    private var imageSize: CGSize { compact ? CGSize(width: 166, height: 93) : CGSize(width: 240, height: 135) }
 
     private var referenceImage: PlatformImage? {
         shot.references.sorted { $0.sortOrder < $1.sortOrder }
@@ -2979,13 +2991,13 @@ private struct CameraShotPopover: View {
                 Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 240, height: 135)
+                    .frame(width: imageSize.width, height: imageSize.height)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.secondary.opacity(0.12))
-                    .frame(width: 240, height: 135)
+                    .frame(width: imageSize.width, height: imageSize.height)
                     .overlay(Image(systemName: "photo").font(.title2).foregroundStyle(.secondary))
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -2997,7 +3009,7 @@ private struct CameraShotPopover: View {
             }
         }
         .padding(12)
-        .frame(width: 264)
+        .frame(width: cardWidth)
     }
 
     @ViewBuilder
