@@ -112,6 +112,25 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
         ])
 
+        // Side scroll slider — the way to scroll while marking (page scrolling is off
+        // then so a drag selects). Vertical (top = start), shown only while marking.
+        let scrollSlider = UISlider()
+        scrollSlider.minimumValue = 0
+        scrollSlider.maximumValue = 1
+        scrollSlider.isHidden = true
+        scrollSlider.transform = CGAffineTransform(rotationAngle: .pi / 2)
+        scrollSlider.addTarget(context.coordinator,
+                               action: #selector(Coordinator.handleScrollSlider(_:)), for: .valueChanged)
+        scrollSlider.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(scrollSlider)
+        NSLayoutConstraint.activate([
+            scrollSlider.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            scrollSlider.centerXAnchor.constraint(equalTo: container.trailingAnchor, constant: -26),
+            // Width constraint is the vertical length after the 90° rotation.
+            scrollSlider.widthAnchor.constraint(equalTo: container.heightAnchor, constant: -80),
+        ])
+        context.coordinator.scrollSlider = scrollSlider
+
         let c = context.coordinator
         c.collectionView = cv
         c.markingView = marking
@@ -235,6 +254,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         weak var selectionPress: UILongPressGestureRecognizer?
         private var pressAnchorPage: PDFPage?
         private var pressAnchorPoint: CGPoint = .zero
+        /// Side scroll slider, shown while marking (scrolling is otherwise off then).
+        weak var scrollSlider: UISlider?
 
         // Edge auto-scroll while selecting.
         private var autoScrollLink: CADisplayLink?
@@ -404,7 +425,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         }
 
         private func beginMarking(shot: Shot) {
-            guard let doc = document, let marking = markingView, let cv = collectionView else { return }
+            guard let doc = document, let marking = markingView else { return }
             selectionShot = shot
             marking.document = doc
             marking.isHidden = false
@@ -415,17 +436,19 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 overlay.selectedShot = nil
                 overlay.isHidden = false
                 if let sv = marking.firstMarkingScrollView {
-                    markingScrollObs = sv.observe(\.contentOffset, options: [.new]) { [weak overlay] _, _ in
+                    markingScrollObs = sv.observe(\.contentOffset, options: [.new]) { [weak self, weak overlay] _, _ in
                         overlay?.requestRedraw()
+                        self?.syncScrollSlider()
                     }
                 }
             }
 
-            // Start on the page the user is currently looking at (after layout).
-            let index = cv.indexPathForItem(at: CGPoint(x: cv.bounds.midX, y: cv.contentOffset.y + 8))?.item ?? 0
+            // Open with the shot's scene heading at the top (after layout).
+            scrollSlider?.isHidden = false
             DispatchQueue.main.async {
-                if let page = doc.page(at: index) { marking.go(to: page) }
+                self.alignMarkingToScene(of: shot)
                 self.markingOverlay?.requestRedraw()
+                self.syncScrollSlider()
             }
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
@@ -472,6 +495,68 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             default:
                 break
             }
+        }
+
+        // MARK: Side scroll slider (scrolling is disabled while marking)
+
+        @objc func handleScrollSlider(_ slider: UISlider) {
+            guard let sv = markingView?.firstMarkingScrollView else { return }
+            let maxY = max(0, sv.contentSize.height - sv.bounds.height)
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: CGFloat(slider.value) * maxY), animated: false)
+            markingOverlay?.requestRedraw()
+        }
+
+        private func syncScrollSlider() {
+            guard let slider = scrollSlider, let sv = markingView?.firstMarkingScrollView else { return }
+            let maxY = max(1, sv.contentSize.height - sv.bounds.height)
+            slider.value = Float(min(max(0, sv.contentOffset.y / maxY), 1))
+        }
+
+        // MARK: Align the marking view to a shot's scene
+
+        /// Scroll the marking view so the shot's scene heading sits at the top.
+        private func alignMarkingToScene(of shot: Shot) {
+            guard let marking = markingView, let doc = document, let scene = shot.scene else { return }
+            let pageIndex = scene.absolutePDFPage
+            guard pageIndex >= 0, pageIndex < doc.pageCount, let page = doc.page(at: pageIndex) else { return }
+            let pb = page.bounds(for: .cropBox)
+            // Heading line top (PDF coords, y-up); fall back to the top of the page.
+            let y = sceneHeadingTopY(pageIndex: pageIndex, scene: scene) ?? pb.maxY
+            marking.go(to: PDFDestination(page: page, at: CGPoint(x: pb.minX, y: y)))
+        }
+
+        private func isHeadingLine(_ line: String) -> Bool {
+            line.uppercased().range(of: "(?<![A-Z])(INT|EXT|I/E)(?![A-Z])",
+                                    options: .regularExpression) != nil
+        }
+
+        /// The top Y (page coords) of `scene`'s heading on `pageIndex`, or nil.
+        /// Mirrors LazyContinuousPDFView.headingTopY for the marking coordinator.
+        private func sceneHeadingTopY(pageIndex: Int, scene: Scene) -> CGFloat? {
+            guard let doc = document, let page = doc.page(at: pageIndex) else { return nil }
+            let targetPage = scene.absolutePDFPage
+            let scenesOnPage = (version?.orderedScenes ?? project?.scenes.sorted { $0.sortOrder < $1.sortOrder } ?? [])
+                .filter { $0.absolutePDFPage == targetPage }
+            let occurrence = scenesOnPage.firstIndex(where: { $0 === scene }) ?? 0
+            let location = scene.nickname.trimmingCharacters(in: .whitespaces).uppercased()
+
+            guard let wholePage = page.selection(for: page.bounds(for: .mediaBox)) else { return nil }
+            var headings: [(location: String, top: CGFloat)] = []
+            for line in wholePage.selectionsByLine() {
+                guard let raw = line.string?.trimmingCharacters(in: .whitespaces), isHeadingLine(raw) else { continue }
+                let parsed = ScreenplayParser.headingLocation(of: raw) ?? raw
+                headings.append((parsed.trimmingCharacters(in: .whitespaces).uppercased(), line.bounds(for: page).maxY))
+            }
+            guard !headings.isEmpty else { return nil }
+            let positional = headings[min(occurrence, headings.count - 1)]
+            if location.isEmpty || positional.location == location { return positional.top }
+            let named = headings.filter { $0.location == location }
+            guard !named.isEmpty else { return positional.top }
+            let sameLocation = scenesOnPage.filter {
+                $0.nickname.trimmingCharacters(in: .whitespaces).uppercased() == location
+            }
+            let index = sameLocation.firstIndex(where: { $0 === scene }) ?? 0
+            return named[min(index, named.count - 1)].top
         }
 
         private func shotsWithCoverage() -> [Shot] {
@@ -604,6 +689,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private func endMarking() {
             stopAutoScroll()
             setMarkingSelectionInstant(false)
+            scrollSlider?.isHidden = true
             selectionShot = nil
             markingScrollObs?.invalidate()
             markingScrollObs = nil
