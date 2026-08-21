@@ -19,6 +19,7 @@ import SwiftUI
 import SwiftData
 import PDFKit
 import UIKit
+import GameController
 
 struct LazyContinuousPDFView: UIViewRepresentable {
     let document: PDFDocument
@@ -233,6 +234,19 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private var firstWordSelection: PDFSelection?
         private var lastWordSelection: PDFSelection?
 
+        /// True when a pointer (mouse/trackpad/Magic Keyboard) is connected. Kept live
+        /// via GameController connect/disconnect notifications.
+        private var hasPointer = !GCMouse.mice().isEmpty
+        /// The current marking session uses the Mac-style native drag-selection (a
+        /// pointer is attached on iPad) rather than the touch two-tap word picker.
+        private var pointerMarking = false
+
+        /// iPad + a pointer → mark the Mac way (drag to select, one Done). iPhone, or
+        /// an iPad with no pointer, keeps the two-tap word picker (best for touch).
+        private func pointerMarkingAvailable() -> Bool {
+            UIDevice.current.userInterfaceIdiom == .pad && hasPointer
+        }
+
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
         func gestureRecognizer(_ g: UIGestureRecognizer,
@@ -391,11 +405,18 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             observers.append(nc.addObserver(forName: .cancelScriptSelection, object: nil, queue: .main) { [weak self] _ in
                 self?.endMarking()
             })
+            observers.append(nc.addObserver(forName: .GCMouseDidConnect, object: nil, queue: .main) { [weak self] _ in
+                self?.hasPointer = true
+            })
+            observers.append(nc.addObserver(forName: .GCMouseDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+                self?.hasPointer = !GCMouse.mice().isEmpty
+            })
         }
 
         private func beginMarking(shot: Shot) {
             guard let doc = document, let marking = markingView else { return }
             selectionShot = shot
+            pointerMarking = pointerMarkingAvailable()
             markPhase = .first
             firstWordSelection = nil
             lastWordSelection = nil
@@ -424,11 +445,13 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 self.markingOverlay?.requestRedraw()
             }
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
-                                            userInfo: ["active": true, "shotID": shot.persistentModelID])
+                                            userInfo: ["active": true, "shotID": shot.persistentModelID,
+                                                       "pointer": pointerMarking])
             postPhase()
 
-            // Enable the tap catcher (and disable scrolling) right away so a tap picks
-            // a word from the first touch. Re-apply next runloop as a safety net.
+            // Touch: enable the word-pick tap so a tap picks a word from the first
+            // touch. Pointer (Mac-style): leave native drag-selection on instead.
+            // Re-apply next runloop as a safety net.
             setMarkingSelectionInstant(true)
             DispatchQueue.main.async { [weak self] in
                 if self?.selectionShot != nil { self?.setMarkingSelectionInstant(true) }
@@ -441,13 +464,14 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                                             userInfo: ["phase": markPhase == .last ? 1 : 0])
         }
 
-        /// While marking, put the tap catcher in front so a tap picks a word and
-        /// PDFView can't scroll/zoom/select. Reversed when marking ends.
+        /// While marking, enable the word-pick tap (touch mode only). Reversed when
+        /// marking ends.
         private func setMarkingSelectionInstant(_ instant: Bool) {
             // Turn the word-pick tap on/off. PDFView keeps its normal drag-scrolling —
-            // a tap doesn't conflict with it. Disable the nav edge-swipe-back so an
-            // edge tap can't pop the screen.
-            wordTap?.isEnabled = instant
+            // a tap doesn't conflict with it. In pointer mode we leave the tap off so
+            // PDFView's native drag-selection (Mac-style) is the interaction. Disable
+            // the nav edge-swipe-back so an edge tap can't pop the screen.
+            wordTap?.isEnabled = instant && !pointerMarking
             if let pop = navigationPopGesture() { pop.isEnabled = !instant }
         }
 
@@ -501,6 +525,12 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         /// Last → capture the whole range and finish. Called by the card/toolbar's
         /// Next/Done button (via `.captureScriptSelection`).
         private func advanceOrCapture() {
+            // Pointer (Mac-style): one Done captures whatever is natively selected.
+            if pointerMarking {
+                guard let sel = markingView?.currentSelection, !(sel.string?.isEmpty ?? true) else { return }
+                captureSelection(sel)
+                return
+            }
             switch markPhase {
             case .first:
                 guard firstWordSelection != nil else { return }   // need a first word
@@ -652,6 +682,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             firstWordSelection = nil
             lastWordSelection = nil
             markPhase = .first
+            pointerMarking = false
             markingScrollObs?.invalidate()
             markingScrollObs = nil
             markingView?.highlightedSelections = nil

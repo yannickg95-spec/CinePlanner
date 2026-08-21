@@ -1108,6 +1108,9 @@ struct ShotDetailView: View {
     @State private var isMarkingCoverage = false
     /// iOS two-tap marking: false while picking the first word, true for the last.
     @State private var markLastPhase = false
+    /// iPad with a pointer marks the Mac way (drag to select, one Done) instead of
+    /// the two-tap word picker.
+    @State private var pointerMarking = false
     @State private var showSecondType: Bool = false
     @State private var showThirdType: Bool = false
     @State private var showSecondSize: Bool = false
@@ -1565,8 +1568,9 @@ struct ShotDetailView: View {
                 Image(systemName: "highlighter")
                     .foregroundStyle(.blue)
                 #if os(iOS)
-                Text(markLastPhase ? "Tap the last word, then Done"
-                                   : "Tap the first word, then Next")
+                Text(pointerMarking ? "Select text in the PDF, then:"
+                     : (markLastPhase ? "Tap the last word, then Done"
+                                      : "Tap the first word, then Next"))
                     .font(.body)
                 #else
                 Text("Select text in the PDF, then:")
@@ -1578,7 +1582,7 @@ struct ShotDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 #if os(iOS)
-                Button(markLastPhase ? "Done" : "Next") {
+                Button(pointerMarking || markLastPhase ? "Done" : "Next") {
                     NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
                 }
                 .buttonStyle(.borderedProminent)
@@ -1627,10 +1631,12 @@ struct ShotDetailView: View {
             if let id = note.userInfo?["shotID"] as? PersistentIdentifier, id == shot.persistentModelID {
                 isMarkingCoverage = true
                 markLastPhase = false
+                pointerMarking = note.userInfo?["pointer"] as? Bool ?? false
             }
         } else {
             isMarkingCoverage = false
             markLastPhase = false
+            pointerMarking = false
         }
     }
     .onReceive(NotificationCenter.default.publisher(for: .scriptSelectionPhaseChanged)) { note in
