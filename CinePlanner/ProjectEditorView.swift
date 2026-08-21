@@ -900,16 +900,19 @@ struct ProjectEditorView: View {
     @ViewBuilder
     private var compactColumns: some View {
         GeometryReader { geo in
-            // Landscape iPhone: try a 50-50 split — scenes on the left, the selected
-            // scene's full 3-tab page (Shots / Scene Map / Script) on the right.
+            // Landscape iPhone: a 30/70 split — scenes on the left, the selected
+            // scene's full 3-tab page (Shots / Scene Map / Script) on the right. The
+            // versions row is hidden here to reclaim vertical space.
             let split = geo.size.width > geo.size.height
             VStack(spacing: 0) {
-                compactEditorHeader
-                Divider()
+                if !split {
+                    compactEditorHeader
+                    Divider()
+                }
                 if split {
                     HStack(spacing: 0) {
                         compactSceneList(selectsInPlace: true)
-                            .frame(maxWidth: .infinity)
+                            .frame(width: geo.size.width * 0.3)
                         Divider()
                         Group {
                             if let scene = selectedScene ?? orderedScenes.first {
