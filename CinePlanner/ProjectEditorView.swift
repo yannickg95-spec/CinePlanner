@@ -904,19 +904,22 @@ struct ProjectEditorView: View {
             // scene's full 3-tab page (Shots / Scene Map / Script) on the right. The
             // versions row is hidden here to reclaim vertical space.
             let split = geo.size.width > geo.size.height
+            let leftWidth = geo.size.width * 0.3
             VStack(spacing: 0) {
-                if !split {
-                    compactEditorHeader
-                    Divider()
-                }
                 if split {
+                    // Top row: the 3 tabs, centered over the right 70% detail pane.
+                    HStack(spacing: 0) {
+                        Color.clear.frame(width: leftWidth, height: 38)
+                        detailTabBar.frame(maxWidth: .infinity)
+                    }
+                    Divider()
                     HStack(spacing: 0) {
                         compactSceneList(selectsInPlace: true)
-                            .frame(width: geo.size.width * 0.3)
+                            .frame(width: leftWidth)
                         Divider()
                         Group {
                             if let scene = selectedScene ?? orderedScenes.first {
-                                compactSceneDetail(scene)
+                                compactSceneTabContent(scene)
                             } else {
                                 ContentUnavailableView("No Scenes", systemImage: "film")
                             }
@@ -924,6 +927,8 @@ struct ProjectEditorView: View {
                         .frame(maxWidth: .infinity)
                     }
                 } else {
+                    compactEditorHeader
+                    Divider()
                     compactSceneList(selectsInPlace: false)
                 }
             }
@@ -964,24 +969,31 @@ struct ProjectEditorView: View {
         VStack(spacing: 0) {
             detailTabBar
             Divider()
-            Group {
-                switch detailTab {
-                case .shot:
-                    ShotListView(
-                        scene: scene,
-                        selectedShots: $selectedShots,
-                        onEditShot: { shotToEdit = $0 },
-                        onDeleteShots: { pendingShotDeletion = $0 }
-                    )
-                case .map:
-                    SceneMapEditorView(scene: scene, embedded: true)
-                        .id(scene.uid)
-                case .script:
-                    compactScriptView(for: scene)
-                }
-            }
-            .padding(.top, 10)   // a bit of breathing room under the tabs
+            compactSceneTabContent(scene)
         }
+    }
+
+    /// Just the selected tab's content (no tab bar) — the landscape split shows the
+    /// tab bar in its own top row instead.
+    @ViewBuilder
+    private func compactSceneTabContent(_ scene: Scene) -> some View {
+        Group {
+            switch detailTab {
+            case .shot:
+                ShotListView(
+                    scene: scene,
+                    selectedShots: $selectedShots,
+                    onEditShot: { shotToEdit = $0 },
+                    onDeleteShots: { pendingShotDeletion = $0 }
+                )
+            case .map:
+                SceneMapEditorView(scene: scene, embedded: true)
+                    .id(scene.uid)
+            case .script:
+                compactScriptView(for: scene)
+            }
+        }
+        .padding(.top, 10)   // a bit of breathing room under the tabs
     }
 
     /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
