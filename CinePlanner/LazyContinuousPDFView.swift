@@ -74,6 +74,19 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         edgePan.cancelsTouchesInView = false
         marking.addGestureRecognizer(edgePan)
 
+        // Our own selection gesture: a near-instant long press that drives the text
+        // selection directly (PDFKit's built-in selection needs a ~0.5s hold, which
+        // felt like scrolling on touch). Enabled only while marking.
+        let selectPress = UILongPressGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleSelectionPress(_:)))
+        selectPress.minimumPressDuration = 0.03
+        selectPress.allowableMovement = .greatestFiniteMagnitude   // don't fail on a quick drag
+        selectPress.delegate = context.coordinator
+        selectPress.cancelsTouchesInView = false
+        selectPress.isEnabled = false
+        marking.addGestureRecognizer(selectPress)
+        context.coordinator.selectionPress = selectPress
+
         // Coverage lines over the marking view, so existing coverage is visible
         // while marking. Same overlay the mac viewer uses; passes touches through.
         let markingOverlay = PDFCoverageOverlayView()
@@ -217,8 +230,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
-        /// Long-press durations saved during marking (see setMarkingSelectionInstant).
-        private var savedPressDurations: [(UILongPressGestureRecognizer, TimeInterval)] = []
+        /// Our own instant selection gesture (enabled only while marking) and its
+        /// anchor — so a drag selects text immediately, without PDFKit's long press.
+        weak var selectionPress: UILongPressGestureRecognizer?
+        private var pressAnchorPage: PDFPage?
+        private var pressAnchorPoint: CGPoint = .zero
 
         // Edge auto-scroll while selecting.
         private var autoScrollLink: CADisplayLink?
@@ -422,29 +438,39 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
         }
 
-        /// While marking: zero PDFKit's selection long-press so a drag selects text
-        /// instantly (like the Mac's click-drag), and disable the marking view's own
-        /// scrolling so the drag isn't consumed by scrolling (the edge-pan still
-        /// auto-scrolls via contentOffset). Restored when marking ends.
+        /// While marking, turn on our instant selection gesture and stop the marking
+        /// view from scrolling, so a drag selects text immediately instead of
+        /// scrolling (the edge-pan still auto-scrolls via contentOffset). Reversed
+        /// when marking ends.
         private func setMarkingSelectionInstant(_ instant: Bool) {
             guard let marking = markingView else { return }
-            if instant {
-                setMarkingSelectionInstant(false)   // clear any stale saved values
-                func walk(_ v: UIView) {
-                    for gr in v.gestureRecognizers ?? [] {
-                        if let lp = gr as? UILongPressGestureRecognizer {
-                            savedPressDurations.append((lp, lp.minimumPressDuration))
-                            lp.minimumPressDuration = 0
-                        }
-                    }
-                    v.subviews.forEach(walk)
+            selectionPress?.isEnabled = instant
+            marking.firstMarkingScrollView?.isScrollEnabled = !instant
+        }
+
+        /// Drives the text selection from a near-instant drag: anchor on begin, then
+        /// extend from the anchor to the finger (across pages) on every move.
+        @objc func handleSelectionPress(_ g: UILongPressGestureRecognizer) {
+            guard selectionShot != nil, let marking = markingView, let doc = document else { return }
+            let vPoint = g.location(in: marking)
+            switch g.state {
+            case .began:
+                guard let page = marking.page(for: vPoint, nearest: true) else { pressAnchorPage = nil; return }
+                pressAnchorPage = page
+                pressAnchorPoint = marking.convert(vPoint, to: page)
+                lastFingerLocation = vPoint
+            case .changed:
+                lastFingerLocation = vPoint
+                // While auto-scrolling near an edge, let that own the selection.
+                guard autoScrollLink == nil, let anchorPage = pressAnchorPage,
+                      let endPage = marking.page(for: vPoint, nearest: true) else { return }
+                let endPoint = marking.convert(vPoint, to: endPage)
+                if let sel = doc.selection(from: anchorPage, at: pressAnchorPoint, to: endPage, at: endPoint) {
+                    marking.setCurrentSelection(sel, animate: false)
+                    markingOverlay?.requestRedraw()
                 }
-                walk(marking)
-                marking.firstMarkingScrollView?.isScrollEnabled = false
-            } else {
-                for (lp, duration) in savedPressDurations { lp.minimumPressDuration = duration }
-                savedPressDurations.removeAll()
-                marking.firstMarkingScrollView?.isScrollEnabled = true
+            default:
+                break
             }
         }
 
