@@ -112,24 +112,43 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
         ])
 
-        // Side scroll slider — the way to scroll while marking (page scrolling is off
-        // then so a drag selects). Vertical (top = start), shown only while marking.
-        let scrollSlider = UISlider()
-        scrollSlider.minimumValue = 0
-        scrollSlider.maximumValue = 1
-        scrollSlider.isHidden = true
-        scrollSlider.transform = CGAffineTransform(rotationAngle: .pi / 2)
-        scrollSlider.addTarget(context.coordinator,
-                               action: #selector(Coordinator.handleScrollSlider(_:)), for: .valueChanged)
-        scrollSlider.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(scrollSlider)
-        NSLayoutConstraint.activate([
-            scrollSlider.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            scrollSlider.centerXAnchor.constraint(equalTo: container.trailingAnchor, constant: -26),
-            // Width constraint is the vertical length after the 90° rotation.
-            scrollSlider.widthAnchor.constraint(equalTo: container.heightAnchor, constant: -80),
+        // Side scroll buttons — the way to scroll while marking (page scrolling is off
+        // then so a drag selects). Each tap bumps the script up/down by a fixed step,
+        // which stays predictable on long scripts (a slider was too sensitive). Shown
+        // only while marking.
+        func scrollButton(_ symbol: String, _ action: Selector) -> UIButton {
+            var config = UIButton.Configuration.filled()
+            config.image = UIImage(systemName: symbol,
+                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
+            config.cornerStyle = .capsule
+            config.baseBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
+            config.baseForegroundColor = .label
+            let button = UIButton(configuration: config)
+            button.addTarget(context.coordinator, action: action, for: .touchUpInside)
+            button.layer.borderWidth = 1
+            button.layer.borderColor = UIColor.separator.cgColor
+            button.layer.cornerRadius = 22
+            button.layer.masksToBounds = true
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 44),
+                button.heightAnchor.constraint(equalToConstant: 44),
+            ])
+            return button
+        }
+        let scrollButtons = UIStackView(arrangedSubviews: [
+            scrollButton("chevron.up", #selector(Coordinator.scrollUp)),
+            scrollButton("chevron.down", #selector(Coordinator.scrollDown)),
         ])
-        context.coordinator.scrollSlider = scrollSlider
+        scrollButtons.axis = .vertical
+        scrollButtons.spacing = 12
+        scrollButtons.isHidden = true
+        scrollButtons.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(scrollButtons)
+        NSLayoutConstraint.activate([
+            scrollButtons.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            scrollButtons.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+        ])
+        context.coordinator.scrollButtons = scrollButtons
 
         let c = context.coordinator
         c.collectionView = cv
@@ -254,8 +273,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         weak var selectionPress: UILongPressGestureRecognizer?
         private var pressAnchorPage: PDFPage?
         private var pressAnchorPoint: CGPoint = .zero
-        /// Side scroll slider, shown while marking (scrolling is otherwise off then).
-        weak var scrollSlider: UISlider?
+        /// Side up/down scroll buttons, shown while marking (page scrolling is off then).
+        weak var scrollButtons: UIStackView?
 
         // Edge auto-scroll while selecting.
         private var autoScrollLink: CADisplayLink?
@@ -436,19 +455,17 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 overlay.selectedShot = nil
                 overlay.isHidden = false
                 if let sv = marking.firstMarkingScrollView {
-                    markingScrollObs = sv.observe(\.contentOffset, options: [.new]) { [weak self, weak overlay] _, _ in
+                    markingScrollObs = sv.observe(\.contentOffset, options: [.new]) { [weak overlay] _, _ in
                         overlay?.requestRedraw()
-                        self?.syncScrollSlider()
                     }
                 }
             }
 
             // Open with the shot's scene heading at the top (after layout).
-            scrollSlider?.isHidden = false
+            scrollButtons?.isHidden = false
             DispatchQueue.main.async {
                 self.alignMarkingToScene(of: shot)
                 self.markingOverlay?.requestRedraw()
-                self.syncScrollSlider()
             }
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
@@ -497,19 +514,19 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
         }
 
-        // MARK: Side scroll slider (scrolling is disabled while marking)
+        // MARK: Side scroll buttons (page scrolling is disabled while marking)
 
-        @objc func handleScrollSlider(_ slider: UISlider) {
+        @objc func scrollUp() { bumpScroll(-1) }
+        @objc func scrollDown() { bumpScroll(1) }
+
+        /// Scroll the marking view by ~60% of a screen in `direction` (−1 up, +1 down).
+        private func bumpScroll(_ direction: CGFloat) {
             guard let sv = markingView?.firstMarkingScrollView else { return }
             let maxY = max(0, sv.contentSize.height - sv.bounds.height)
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: CGFloat(slider.value) * maxY), animated: false)
+            let step = sv.bounds.height * 0.6
+            let newY = min(max(0, sv.contentOffset.y + direction * step), maxY)
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: newY), animated: true)
             markingOverlay?.requestRedraw()
-        }
-
-        private func syncScrollSlider() {
-            guard let slider = scrollSlider, let sv = markingView?.firstMarkingScrollView else { return }
-            let maxY = max(1, sv.contentSize.height - sv.bounds.height)
-            slider.value = Float(min(max(0, sv.contentOffset.y / maxY), 1))
         }
 
         // MARK: Align the marking view to a shot's scene
@@ -689,7 +706,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private func endMarking() {
             stopAutoScroll()
             setMarkingSelectionInstant(false)
-            scrollSlider?.isHidden = true
+            scrollButtons?.isHidden = true
             selectionShot = nil
             markingScrollObs?.invalidate()
             markingScrollObs = nil
