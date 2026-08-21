@@ -552,8 +552,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 guard lastWordSelection != nil,
                       let combined = combinedRangeSelection(), !(combined.string?.isEmpty ?? true)
                 else { return }
-                markingView?.setCurrentSelection(combined, animate: false)
-                captureSelection()   // reads currentSelection, stores, ends marking
+                captureSelection(combined)   // stores our own selection, ends marking
             }
         }
 
@@ -579,14 +578,21 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         }
 
         /// Show the current pick highlighted: just the first word while picking it, or
-        /// the whole building range once the user is on the last word.
+        /// the whole building range once the user is on the last word. Uses
+        /// `highlightedSelections` (persistent) rather than `currentSelection`, which
+        /// PDFView clears on every tap — the reason a picked word flashed and vanished.
         private func refreshPreview() {
             guard let marking = markingView else { return }
+            let sel: PDFSelection?
             switch markPhase {
-            case .first:
-                marking.setCurrentSelection(firstWordSelection, animate: false)
-            case .last:
-                marking.setCurrentSelection(combinedRangeSelection() ?? firstWordSelection, animate: false)
+            case .first: sel = firstWordSelection
+            case .last:  sel = combinedRangeSelection() ?? firstWordSelection
+            }
+            if let sel {
+                sel.color = UIColor.systemBlue.withAlphaComponent(0.35)
+                marking.highlightedSelections = [sel]
+            } else {
+                marking.highlightedSelections = nil
             }
             markingOverlay?.requestRedraw()
         }
@@ -663,10 +669,10 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             return result
         }
 
-        private func captureSelection() {
+        private func captureSelection(_ selection: PDFSelection) {
             defer { endMarking() }
-            guard let shot = selectionShot, let doc = document, let marking = markingView,
-                  let selection = marking.currentSelection, !(selection.string?.isEmpty ?? true) else { return }
+            guard let shot = selectionShot, let doc = document,
+                  !(selection.string?.isEmpty ?? true) else { return }
             var pageRanges: [PageTextRange] = []
             for page in selection.pages {
                 let idx = doc.index(for: page)
@@ -705,6 +711,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markPhase = .first
             markingScrollObs?.invalidate()
             markingScrollObs = nil
+            markingView?.highlightedSelections = nil
             markingView?.clearSelection()
             markingView?.isHidden = true
             markingView?.document = nil   // release the laid-out pages
