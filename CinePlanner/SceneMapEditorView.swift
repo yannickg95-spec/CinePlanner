@@ -72,11 +72,25 @@ struct SceneMapEditorView: View {
     @State private var pan: CGSize = .zero
     @State private var lastPan: CGSize = .zero
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
-    /// segments match the trash / sun buttons.
-    private let toolbarCellWidth: CGFloat = 40
+    /// segments match the trash / sun buttons. Shrinks in iPhone landscape to give
+    /// the map more room.
+    private var toolbarCellWidth: CGFloat { isPhoneLandscape ? 30 : 40 }
+    /// Toolbar icon point size — smaller in iPhone landscape.
+    private var toolbarIconSize: CGFloat { isPhoneLandscape ? 13 : 16 }
+    /// Toolbar pill height — shorter in iPhone landscape.
+    private var toolbarPillHeight: CGFloat { isPhoneLandscape ? 28 : 34 }
     /// iPhone: the toolbar scrolls horizontally instead of centering with edge
     /// overlays, which would overlap on a narrow screen.
     private var isPhone: Bool { DeviceLayout.isPhone }
+    /// iPhone in landscape — the scene-map toolbar shrinks and centers so the map
+    /// itself gets the most space.
+    private var isPhoneLandscape: Bool {
+        #if os(iOS)
+        return DeviceLayout.isPhone && verticalSizeClass == .compact
+        #else
+        return false
+        #endif
+    }
     @State private var furnitureToLabel: UUID?
     @State private var furnitureLabelText = ""
     @State private var markerToLabel: UUID?
@@ -298,15 +312,30 @@ struct SceneMapEditorView: View {
     }
 
     /// iPhone: every group in one horizontally scrollable row so nothing overlaps.
+    /// In landscape the groups are smaller and fit centered without scrolling, and
+    /// the row is pulled tight to the top so the map gets the most height.
     private var compactToolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                trashButton
-                addSegmentedGroup
-                sizeSunGroup
+        Group {
+            if isPhoneLandscape {
+                HStack(spacing: 10) {
+                    trashButton
+                    addSegmentedGroup
+                    sizeSunGroup
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        trashButton
+                        addSegmentedGroup
+                        sizeSunGroup
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
     }
 
@@ -402,16 +431,16 @@ struct SceneMapEditorView: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
                 .help("Add Furniture")
             }
-            .modifier(SegmentedGroup())
+            .modifier(SegmentedGroup(height: toolbarPillHeight))
     }
 
     /// Clear-map (trash) pill.
     private var trashButton: some View {
         Button(role: .destructive) { showingClearAllConfirm = true } label: {
-            Image(systemName: "trash").font(.system(size: 16, weight: .medium)).frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+            Image(systemName: "trash").font(.system(size: toolbarIconSize, weight: .medium)).frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .modifier(SegmentedGroup())
+        .modifier(SegmentedGroup(height: toolbarPillHeight))
         .disabled(mapIsEmpty)
         .help("Clear Map — remove everything from the scene map")
     }
@@ -425,12 +454,12 @@ struct SceneMapEditorView: View {
             if viewableSizeToggleRelevant {
                 Button { toggleViewableMarkerSize() } label: {
                     Image(systemName: scene.sceneMapViewableMarkerSize ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: toolbarIconSize, weight: .medium))
                         .foregroundStyle(scene.sceneMapViewableMarkerSize ? Color.accentColor : .secondary)
                         .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .modifier(SegmentedGroup())
+                .modifier(SegmentedGroup(height: toolbarPillHeight))
                 .help(scene.sceneMapViewableMarkerSize
                       ? "Markers: easy-to-see size — tap for real-world scale"
                       : "Markers: real-world scale — tap for an easy-to-see size")
@@ -442,7 +471,7 @@ struct SceneMapEditorView: View {
                     if sun.enabled && !sun.hasLocation { showSunSettings = true }
                 } label: {
                     Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: toolbarIconSize, weight: .medium))
                         .foregroundStyle(sun.enabled ? .orange : .secondary)
                         .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
@@ -451,13 +480,13 @@ struct SceneMapEditorView: View {
                 segmentDivider
                 Button { showSunSettings = true } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: toolbarIconSize, weight: .medium))
                         .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .help("Sun overlay settings")
             }
-            .modifier(SegmentedGroup())
+            .modifier(SegmentedGroup(height: toolbarPillHeight))
         }
     }
 
@@ -466,7 +495,7 @@ struct SceneMapEditorView: View {
     /// square button.
     private func addMenuLabel(_ systemImage: String) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 16, weight: .medium))
+            .font(.system(size: toolbarIconSize, weight: .medium))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
     }
@@ -2955,9 +2984,10 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
 /// Wraps a row of borderless controls in one bordered, tinted capsule so a group
 /// of scene-map toolbar buttons reads as a single segmented control.
 private struct SegmentedGroup: ViewModifier {
+    var height: CGFloat = 34
     func body(content: Content) -> some View {
         content
-            .frame(height: 34)
+            .frame(height: height)
             .background(Color.secondary.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22), lineWidth: 1))
