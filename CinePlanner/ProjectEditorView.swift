@@ -1006,7 +1006,9 @@ struct ProjectEditorView: View {
                 compactScriptView(for: scene)
             }
         }
-        .padding(.top, 10)   // a bit of breathing room under the tabs
+        // Breathing room under the local tab bar; none in the landscape split, where
+        // the tabs are in the toolbar and the space would just sit above the content.
+        .padding(.top, isLandscapeSplit ? 0 : 10)
     }
 
     /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
