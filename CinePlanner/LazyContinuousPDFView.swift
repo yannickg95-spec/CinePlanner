@@ -519,11 +519,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         @objc func scrollUp() { bumpScroll(-1) }
         @objc func scrollDown() { bumpScroll(1) }
 
-        /// Scroll the marking view by ~60% of a screen in `direction` (−1 up, +1 down).
+        /// Scroll the marking view by ~10% of a screen in `direction` (−1 up, +1 down).
         private func bumpScroll(_ direction: CGFloat) {
             guard let sv = markingView?.firstMarkingScrollView else { return }
             let maxY = max(0, sv.contentSize.height - sv.bounds.height)
-            let step = sv.bounds.height * 0.6
+            let step = sv.bounds.height * 0.1
             let newY = min(max(0, sv.contentOffset.y + direction * step), maxY)
             sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: newY), animated: true)
             markingOverlay?.requestRedraw()
