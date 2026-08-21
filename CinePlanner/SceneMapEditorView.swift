@@ -2610,7 +2610,12 @@ private struct MapMarkerView: View {
             }
 
             if isSelected && showsRotationHandle {
-                rotationHandle.offset(handleOffset)
+                // Counter-scale so the handle keeps a constant on-screen size (and
+                // grab area) instead of ballooning with the map zoom. Its distance
+                // from the marker still scales, so it sits just outside the marker.
+                rotationHandle
+                    .scaleEffect(1 / zoom, anchor: .center)
+                    .offset(handleOffset)
             }
         }
         .position(livePosition ?? center)
