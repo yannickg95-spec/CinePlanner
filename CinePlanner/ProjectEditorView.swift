@@ -1010,25 +1010,16 @@ struct ProjectEditorView: View {
         }
     }
 
-    /// The Script button — on iPhone it leads the version row (Script · Version · …).
-    private var scriptHeaderButton: some View {
-        Button { showScriptSheet = true } label: {
-            Label("Script", systemImage: "doc.text.magnifyingglass")
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1).fixedSize()
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.12), in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
     /// The episode menu (series) and "Script Version:" label stay put; only the
     /// version chips scroll.
     private var headerVersions: some View {
         HStack(spacing: 8) {
-            scriptHeaderButton
-            Divider().frame(height: 18)
+            Image(systemName: "doc.text.magnifyingglass")
+                .foregroundStyle(.secondary)
+            Text("Script Version:")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1).fixedSize()
             if project.isSeries {
                 episodeMenu
                 Divider().frame(height: 18)
