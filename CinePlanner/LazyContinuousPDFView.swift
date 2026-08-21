@@ -72,24 +72,24 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         markingOverlay.isHidden = true
         markingOverlay.translatesAutoresizingMaskIntoConstraints = false
 
-        // Selection box catcher: while marking, an interactive overlay on top of the
-        // PDF that owns the drag. Because it swallows the touch, PDFView never sees it
-        // — so no scrolling, zoom or native selection interfere. It draws a rubber-band
-        // box and selects the lines it spans. Hidden (and non-interactive) otherwise.
-        let boxCatcher = SelectionBoxView()
-        boxCatcher.isHidden = true
-        boxCatcher.translatesAutoresizingMaskIntoConstraints = false
-        let boxPan = UIPanGestureRecognizer(target: context.coordinator,
-                                            action: #selector(Coordinator.handleBoxPan(_:)))
-        boxPan.minimumNumberOfTouches = 1
-        boxPan.maximumNumberOfTouches = 1
-        boxCatcher.addGestureRecognizer(boxPan)
-        context.coordinator.boxCatcher = boxCatcher
+        // Tap catcher: while marking, a transparent overlay on top of the PDF that
+        // owns every touch. Because it swallows them, PDFView never scrolls, zooms or
+        // runs its own selection — so the two-tap word picker is the only thing that
+        // responds. A tap picks the word under the finger; the side buttons scroll.
+        // Hidden (and non-interactive) otherwise.
+        let tapCatcher = UIView()
+        tapCatcher.backgroundColor = .clear
+        tapCatcher.isHidden = true
+        tapCatcher.translatesAutoresizingMaskIntoConstraints = false
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleWordTap(_:)))
+        tapCatcher.addGestureRecognizer(tap)
+        context.coordinator.tapCatcher = tapCatcher
 
         container.addSubview(cv)
         container.addSubview(marking)
         container.addSubview(markingOverlay)
-        container.addSubview(boxCatcher)
+        container.addSubview(tapCatcher)
         NSLayoutConstraint.activate([
             cv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             cv.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -103,14 +103,14 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay.trailingAnchor.constraint(equalTo: marking.trailingAnchor),
             markingOverlay.topAnchor.constraint(equalTo: marking.topAnchor),
             markingOverlay.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
-            boxCatcher.leadingAnchor.constraint(equalTo: marking.leadingAnchor),
-            boxCatcher.trailingAnchor.constraint(equalTo: marking.trailingAnchor),
-            boxCatcher.topAnchor.constraint(equalTo: marking.topAnchor),
-            boxCatcher.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
+            tapCatcher.leadingAnchor.constraint(equalTo: marking.leadingAnchor),
+            tapCatcher.trailingAnchor.constraint(equalTo: marking.trailingAnchor),
+            tapCatcher.topAnchor.constraint(equalTo: marking.topAnchor),
+            tapCatcher.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
         ])
 
         // Side scroll buttons — the way to scroll while marking (page scrolling is off
-        // then so a drag selects). Each tap bumps the script up/down by a fixed step,
+        // then so a tap picks a word). Each tap bumps the script up/down by a fixed step,
         // which stays predictable on long scripts (a slider was too sensitive). Shown
         // only while marking.
         func scrollButton(_ symbol: String, _ action: Selector) -> UIButton {
@@ -265,19 +265,20 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
-        /// Interactive box-drag overlay used while marking (owns the touch, so PDFView
-        /// never scrolls/zooms/selects), and the drag's start point.
-        weak var boxCatcher: SelectionBoxView?
-        private var boxStart: CGPoint = .zero
+        /// Transparent overlay that owns every touch while marking (so PDFView never
+        /// scrolls/zooms/selects). A tap on it picks the word under the finger.
+        weak var tapCatcher: UIView?
         /// Side up/down scroll buttons, shown while marking (page scrolling is off then).
         weak var scrollButtons: UIStackView?
 
-        // Edge auto-scroll while selecting.
-        private var autoScrollLink: CADisplayLink?
-        private var autoScrollDirection: CGFloat = 0   // +1 down, -1 up
-        private var selectionAnchorPage: PDFPage?
-        private var selectionAnchorPoint: CGPoint = .zero
-        private var lastFingerLocation: CGPoint = .zero
+        // Two-tap word marking. The user taps the first word, hits Next, taps the last
+        // word, hits Done — and everything from the first word's start to the last
+        // word's end (inclusive) is marked. Each tap re-picks that end's word, shown
+        // highlighted so a mistap is easy to see and correct.
+        enum MarkPhase { case first, last }
+        private var markPhase: MarkPhase = .first
+        private var firstWordSelection: PDFSelection?
+        private var lastWordSelection: PDFSelection?
 
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
@@ -432,7 +433,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 self.beginMarking(shot: shot)
             })
             observers.append(nc.addObserver(forName: .captureScriptSelection, object: nil, queue: .main) { [weak self] _ in
-                self?.captureSelection()
+                self?.advanceOrCapture()
             })
             observers.append(nc.addObserver(forName: .cancelScriptSelection, object: nil, queue: .main) { [weak self] _ in
                 self?.endMarking()
@@ -442,6 +443,9 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private func beginMarking(shot: Shot) {
             guard let doc = document, let marking = markingView else { return }
             selectionShot = shot
+            markPhase = .first
+            firstWordSelection = nil
+            lastWordSelection = nil
             marking.document = doc
             marking.isHidden = false
             // Force a layout pass now so the PDFView's internal scroll view exists
@@ -469,24 +473,29 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
+            postPhase()
 
-            // Enable instant drag-to-select and disable scrolling right away so it
-            // works from the first touch. Re-apply next runloop as a safety net.
+            // Enable the tap catcher (and disable scrolling) right away so a tap picks
+            // a word from the first touch. Re-apply next runloop as a safety net.
             setMarkingSelectionInstant(true)
             DispatchQueue.main.async { [weak self] in
                 if self?.selectionShot != nil { self?.setMarkingSelectionInstant(true) }
             }
         }
 
-        /// While marking, turn on our instant selection gesture and stop the marking
-        /// view from scrolling, so a drag selects text immediately instead of
-        /// scrolling (the edge-pan still auto-scrolls via contentOffset). Reversed
-        /// when marking ends.
+        /// Tell the card/toolbar which word the user is picking now.
+        private func postPhase() {
+            NotificationCenter.default.post(name: .scriptSelectionPhaseChanged, object: nil,
+                                            userInfo: ["phase": markPhase == .last ? 1 : 0])
+        }
+
+        /// While marking, put the tap catcher in front so a tap picks a word and
+        /// PDFView can't scroll/zoom/select. Reversed when marking ends.
         private func setMarkingSelectionInstant(_ instant: Bool) {
             // The catcher overlay swallows the touch, so PDFView doesn't scroll/zoom/
-            // select. Also disable the nav edge-swipe-back so an edge drag can't pop.
-            boxCatcher?.isHidden = !instant
-            boxCatcher?.isUserInteractionEnabled = instant
+            // select. Also disable the nav edge-swipe-back so an edge tap can't pop.
+            tapCatcher?.isHidden = !instant
+            tapCatcher?.isUserInteractionEnabled = instant
             if let pop = navigationPopGesture() { pop.isEnabled = !instant }
         }
 
@@ -501,49 +510,75 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             return nil
         }
 
-        /// Drag a box (on the catcher overlay) to select the script lines it spans.
-        @objc func handleBoxPan(_ g: UIPanGestureRecognizer) {
-            guard selectionShot != nil, let catcher = boxCatcher else { return }
-            let p = g.location(in: catcher)
-            switch g.state {
-            case .began:
-                boxStart = p
-                catcher.setBox(CGRect(origin: p, size: .zero))
-            case .changed:
-                let rect = CGRect(x: min(boxStart.x, p.x), y: min(boxStart.y, p.y),
-                                  width: abs(p.x - boxStart.x), height: abs(p.y - boxStart.y))
-                catcher.setBox(rect)
-                lastFingerLocation = p
-                if autoScrollLink == nil { selectLines(top: min(boxStart.y, p.y), bottom: max(boxStart.y, p.y)) }
-                // Auto-scroll when the finger reaches the top/bottom edge.
-                if let h = markingView?.bounds.height {
-                    let threshold: CGFloat = 64
-                    if p.y > h - threshold { startAutoScroll(direction: 1) }
-                    else if p.y < threshold { startAutoScroll(direction: -1) }
-                    else { stopAutoScroll() }
-                }
-            case .ended, .cancelled, .failed:
-                catcher.setBox(nil)
-                stopAutoScroll()
-            default:
-                break
+        /// Tap the catcher overlay to pick the word under the finger — the first word
+        /// or the last, depending on the phase. Re-tapping re-picks (the previous pick
+        /// is discarded), so a mistap is corrected by tapping the right word.
+        @objc func handleWordTap(_ g: UITapGestureRecognizer) {
+            guard selectionShot != nil, let marking = markingView else { return }
+            // The catcher shares the marking view's coordinate space.
+            let p = g.location(in: marking)
+            guard let page = marking.page(for: p, nearest: true) else { return }
+            let pagePoint = marking.convert(p, to: page)
+            guard let word = page.selectionForWord(at: pagePoint),
+                  !(word.string?.isEmpty ?? true) else { return }
+            switch markPhase {
+            case .first: firstWordSelection = word
+            case .last:  lastWordSelection = word
+            }
+            refreshPreview()
+        }
+
+        /// Confirm the current phase. First → advance to picking the last word.
+        /// Last → capture the whole range and finish. Called by the card/toolbar's
+        /// Next/Done button (via `.captureScriptSelection`).
+        private func advanceOrCapture() {
+            switch markPhase {
+            case .first:
+                guard firstWordSelection != nil else { return }   // need a first word
+                markPhase = .last
+                postPhase()
+                refreshPreview()
+            case .last:
+                guard lastWordSelection != nil,
+                      let combined = combinedRangeSelection(), !(combined.string?.isEmpty ?? true)
+                else { return }
+                markingView?.setCurrentSelection(combined, animate: false)
+                captureSelection()   // reads currentSelection, stores, ends marking
             }
         }
 
-        /// Select whole lines from view-y `top` to `bottom` (full width, across pages).
-        /// The catcher shares the marking view's coordinate space.
-        private func selectLines(top: CGFloat, bottom: CGFloat) {
-            guard let marking = markingView, let doc = document else { return }
-            let midX = marking.bounds.midX
-            guard let topPage = marking.page(for: CGPoint(x: midX, y: top), nearest: true),
-                  let botPage = marking.page(for: CGPoint(x: midX, y: bottom), nearest: true) else { return }
-            let tb = topPage.bounds(for: .cropBox), bb = botPage.bounds(for: .cropBox)
-            let start = CGPoint(x: tb.minX, y: marking.convert(CGPoint(x: midX, y: top), to: topPage).y)
-            let end = CGPoint(x: bb.maxX, y: marking.convert(CGPoint(x: midX, y: bottom), to: botPage).y)
-            if let sel = doc.selection(from: topPage, at: start, to: botPage, at: end) {
-                marking.setCurrentSelection(sel, animate: false)
-                markingOverlay?.requestRedraw()
+        /// The selection from the first word's start to the last word's end (inclusive),
+        /// ordered by document position so it works regardless of tap order.
+        private func combinedRangeSelection() -> PDFSelection? {
+            guard let doc = document,
+                  let first = firstWordSelection, let firstPage = first.pages.first,
+                  let last = lastWordSelection, let lastPage = last.pages.first else {
+                return firstWordSelection
             }
+            let fb = first.bounds(for: firstPage), lb = last.bounds(for: lastPage)
+            let fIdx = doc.index(for: firstPage), lIdx = doc.index(for: lastPage)
+            // Document order: earlier page first; within a page, higher y (PDF is
+            // y-up) is earlier. The start point is the leading edge of the earlier
+            // word, the end point the trailing edge of the later word.
+            let firstIsEarlier = fIdx < lIdx || (fIdx == lIdx && fb.midY >= lb.midY)
+            let (sPage, sRect) = firstIsEarlier ? (firstPage, fb) : (lastPage, lb)
+            let (ePage, eRect) = firstIsEarlier ? (lastPage, lb) : (firstPage, fb)
+            let start = CGPoint(x: sRect.minX, y: sRect.midY)
+            let end = CGPoint(x: eRect.maxX, y: eRect.midY)
+            return doc.selection(from: sPage, at: start, to: ePage, at: end)
+        }
+
+        /// Show the current pick highlighted: just the first word while picking it, or
+        /// the whole building range once the user is on the last word.
+        private func refreshPreview() {
+            guard let marking = markingView else { return }
+            switch markPhase {
+            case .first:
+                marking.setCurrentSelection(firstWordSelection, animate: false)
+            case .last:
+                marking.setCurrentSelection(combinedRangeSelection() ?? firstWordSelection, animate: false)
+            }
+            markingOverlay?.requestRedraw()
         }
 
         // MARK: Side scroll buttons (page scrolling is disabled while marking)
@@ -651,70 +686,13 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
         }
 
-        // MARK: Edge auto-scroll during selection
-
-        private func startAutoScroll(direction: CGFloat) {
-            guard let marking = markingView, let sel = marking.currentSelection else { return }
-            if autoScrollLink != nil && autoScrollDirection == direction { return }
-            autoScrollDirection = direction
-
-            // Anchor is the far end of the selection from the scroll direction, so
-            // we extend toward the finger as content scrolls under it.
-            let lines = sel.selectionsByLine()
-            if direction > 0, let page = sel.pages.first, let line = lines.first {
-                let b = line.bounds(for: page)
-                selectionAnchorPage = page
-                selectionAnchorPoint = CGPoint(x: b.minX, y: b.maxY)   // top-left
-            } else if direction < 0, let page = sel.pages.last, let line = lines.last {
-                let b = line.bounds(for: page)
-                selectionAnchorPage = page
-                selectionAnchorPoint = CGPoint(x: b.maxX, y: b.minY)   // bottom-right
-            }
-            guard selectionAnchorPage != nil else { return }
-
-            if autoScrollLink == nil {
-                let link = CADisplayLink(target: self, selector: #selector(autoScrollTick))
-                link.add(to: .main, forMode: .common)
-                autoScrollLink = link
-            }
-        }
-
-        @objc private func autoScrollTick() {
-            guard let marking = markingView,
-                  let sv = marking.firstMarkingScrollView,
-                  let anchorPage = selectionAnchorPage,
-                  let doc = document else { stopAutoScroll(); return }
-
-            var offset = sv.contentOffset
-            let maxY = max(0, sv.contentSize.height - sv.bounds.height)
-            let newY = min(max(0, offset.y + 9 * autoScrollDirection), maxY)
-            if newY == offset.y { stopAutoScroll(); return }   // reached the end
-            offset.y = newY
-            sv.setContentOffset(offset, animated: false)
-
-            // Re-derive the selection from the fixed anchor to the finger, which is
-            // now hovering over freshly-scrolled content.
-            guard let endPage = marking.page(for: lastFingerLocation, nearest: true) else { return }
-            let endPoint = marking.convert(lastFingerLocation, to: endPage)
-            if let sel = doc.selection(from: anchorPage, at: selectionAnchorPoint,
-                                       to: endPage, at: endPoint) {
-                marking.setCurrentSelection(sel, animate: false)
-            }
-            markingOverlay?.requestRedraw()
-        }
-
-        private func stopAutoScroll() {
-            autoScrollLink?.invalidate()
-            autoScrollLink = nil
-            autoScrollDirection = 0
-            selectionAnchorPage = nil
-        }
-
         private func endMarking() {
-            stopAutoScroll()
             setMarkingSelectionInstant(false)
             scrollButtons?.isHidden = true
             selectionShot = nil
+            firstWordSelection = nil
+            lastWordSelection = nil
+            markPhase = .first
             markingScrollObs?.invalidate()
             markingScrollObs = nil
             markingView?.clearSelection()
@@ -735,29 +713,6 @@ private extension UIView {
         if let s = self as? UIScrollView { return s }
         for sub in subviews { if let f = sub.firstMarkingScrollView { return f } }
         return nil
-    }
-}
-
-/// Transparent overlay that draws a rubber-band selection rectangle while marking.
-final class SelectionBoxView: UIView {
-    private let boxLayer = CAShapeLayer()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        boxLayer.fillColor = UIColor.tintColor.withAlphaComponent(0.12).cgColor
-        boxLayer.strokeColor = UIColor.tintColor.cgColor
-        boxLayer.lineWidth = 1.5
-        layer.addSublayer(boxLayer)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func setBox(_ rect: CGRect?) {
-        if let rect, rect.width > 1 || rect.height > 1 {
-            boxLayer.path = UIBezierPath(roundedRect: rect, cornerRadius: 3).cgPath
-        } else {
-            boxLayer.path = nil
-        }
     }
 }
 

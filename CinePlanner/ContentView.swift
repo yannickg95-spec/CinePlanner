@@ -31,6 +31,10 @@ extension Notification.Name {
     static let scriptSelectionModeChanged = Notification.Name("scriptSelectionModeChanged")
     static let captureScriptSelection = Notification.Name("captureScriptSelection")
     static let cancelScriptSelection = Notification.Name("cancelScriptSelection")
+    // iOS two-tap marking: the coordinator reports which word the user is picking
+    // (0 = first word, 1 = last word) so the card/toolbar can update its prompt and
+    // its confirm-button label ("Next" vs "Done").
+    static let scriptSelectionPhaseChanged = Notification.Name("scriptSelectionPhaseChanged")
 }
 
 // MARK: - Scene List View
@@ -1102,6 +1106,8 @@ struct ShotDetailView: View {
     /// Which photo is open full size, if any.
     @Environment(\.modelContext) private var shotModelContext
     @State private var isMarkingCoverage = false
+    /// iOS two-tap marking: false while picking the first word, true for the last.
+    @State private var markLastPhase = false
     @State private var showSecondType: Bool = false
     @State private var showThirdType: Bool = false
     @State private var showSecondSize: Bool = false
@@ -1558,17 +1564,30 @@ struct ShotDetailView: View {
             HStack(spacing: 10) {
                 Image(systemName: "highlighter")
                     .foregroundStyle(.blue)
+                #if os(iOS)
+                Text(markLastPhase ? "Tap the last word, then Done"
+                                   : "Tap the first word, then Next")
+                    .font(.body)
+                #else
                 Text("Select text in the PDF, then:")
                     .font(.body)
+                #endif
                 Spacer(minLength: 0)
                 Button("Cancel") {
                     NotificationCenter.default.post(name: .cancelScriptSelection, object: nil)
                 }
                 .buttonStyle(.bordered)
+                #if os(iOS)
+                Button(markLastPhase ? "Done" : "Next") {
+                    NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
+                }
+                .buttonStyle(.borderedProminent)
+                #else
                 Button("Done") {
                     NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
                 }
                 .buttonStyle(.borderedProminent)
+                #endif
             }
         } else {
             HStack {
@@ -1607,10 +1626,15 @@ struct ShotDetailView: View {
         if active {
             if let id = note.userInfo?["shotID"] as? PersistentIdentifier, id == shot.persistentModelID {
                 isMarkingCoverage = true
+                markLastPhase = false
             }
         } else {
             isMarkingCoverage = false
+            markLastPhase = false
         }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .scriptSelectionPhaseChanged)) { note in
+        markLastPhase = (note.userInfo?["phase"] as? Int ?? 0) == 1
     }
     }
 

@@ -24,6 +24,8 @@ struct ProjectEditorView: View {
     /// iPhone: true while the script cover is in text-selection mode, so it shows
     /// Done/Cancel instead of a plain close button.
     @State private var isCoverageMarkingInSheet = false
+    /// iPhone two-tap marking: false while picking the first word, true for the last.
+    @State private var coverageMarkLastPhase = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -276,12 +278,17 @@ struct ProjectEditorView: View {
             guard isPhoneLayout else { return }
             let active = note.userInfo?["active"] as? Bool ?? false
             isCoverageMarkingInSheet = active
+            if active { coverageMarkLastPhase = false }
             // The coverage session ended (Done captured a selection, or Cancel) —
             // close the script and return to the shot.
             if !active, coverageMarkingShot != nil {
                 coverageMarkingShot = nil
                 showScriptSheet = false
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scriptSelectionPhaseChanged)) { note in
+            guard isPhoneLayout else { return }
+            coverageMarkLastPhase = (note.userInfo?["phase"] as? Int ?? 0) == 1
         }
         .fullScreenCover(isPresented: $showScriptSheet,
                          onDismiss: { coverageMarkingShot = nil; isCoverageMarkingInSheet = false }) {
@@ -312,7 +319,8 @@ struct ProjectEditorView: View {
                     },
                     onCancelMarking: { sceneBeingMarked = nil }
                 )
-                .navigationTitle(coverageMarkingShot != nil ? "Mark the Shot's Lines"
+                .navigationTitle(coverageMarkingShot != nil
+                                 ? (coverageMarkLastPhase ? "Tap the Last Word" : "Tap the First Word")
                                  : (sceneBeingMarked != nil ? "Place Scene Page" : "Script"))
                 .navigationBarTitleDisplayMode(.inline)
                 .onAppear {
@@ -332,7 +340,7 @@ struct ProjectEditorView: View {
                             }
                         }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") {
+                            Button(coverageMarkLastPhase ? "Done" : "Next") {
                                 NotificationCenter.default.post(name: .captureScriptSelection, object: nil)
                             }
                         }
