@@ -266,6 +266,10 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         weak var selectionPress: UILongPressGestureRecognizer?
         private var pressAnchorPage: PDFPage?
         private var pressAnchorPoint: CGPoint = .zero
+        private var pressAnchorView: CGPoint = .zero   // view-space start, to resolve the page lazily
+        /// Every other gesture on the marking view, disabled while marking so only our
+        /// box-drag runs (no scroll, zoom, native selection); re-enabled when done.
+        private var disabledMarkingGestures: [UIGestureRecognizer] = []
         /// Side up/down scroll buttons, shown while marking (page scrolling is off then).
         weak var scrollButtons: UIStackView?
 
@@ -482,9 +486,28 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private func setMarkingSelectionInstant(_ instant: Bool) {
             guard let marking = markingView else { return }
             selectionPress?.isEnabled = instant
-            marking.firstMarkingScrollView?.isScrollEnabled = !instant
-            // Stop the navigation edge-swipe-back from firing on a left-to-right drag.
-            if let pop = navigationPopGesture() { pop.isEnabled = !instant }
+            if instant {
+                // Skip every other gesture on the marking view — scroll, pinch-zoom,
+                // PDFKit's own text selection — so only our box-drag runs. (Scrolling
+                // is via the side buttons; the box selects lines.)
+                for pan in disabledMarkingGestures { pan.isEnabled = true }   // clear stale
+                disabledMarkingGestures.removeAll()
+                func walk(_ v: UIView) {
+                    for gr in v.gestureRecognizers ?? [] where gr !== selectionPress && gr.isEnabled {
+                        gr.isEnabled = false
+                        disabledMarkingGestures.append(gr)
+                    }
+                    v.subviews.forEach(walk)
+                }
+                walk(marking)
+                marking.firstMarkingScrollView?.isScrollEnabled = false
+                if let pop = navigationPopGesture() { pop.isEnabled = false }
+            } else {
+                for gr in disabledMarkingGestures { gr.isEnabled = true }
+                disabledMarkingGestures.removeAll()
+                marking.firstMarkingScrollView?.isScrollEnabled = true
+                if let pop = navigationPopGesture() { pop.isEnabled = true }
+            }
         }
 
         /// The hosting navigation controller's interactive-pop (edge swipe back)
@@ -498,30 +521,24 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             return nil
         }
 
-        /// Drives the text selection from a near-instant drag: anchor on begin, then
-        /// extend from the anchor to the finger (across pages) on every move.
+        /// Drag a box to select the script lines it spans. Anchor the box on begin,
+        /// then on every move select every whole line from the anchor's row to the
+        /// finger's row (full width, across pages) — robust and predictable for
+        /// coverage, and driven entirely by us (no PDFKit long-press).
         @objc func handleSelectionPress(_ g: UILongPressGestureRecognizer) {
-            guard selectionShot != nil, let marking = markingView, let doc = document else { return }
+            guard selectionShot != nil, let marking = markingView else { return }
             let vPoint = g.location(in: marking)
             switch g.state {
             case .began:
-                guard let page = marking.page(for: vPoint, nearest: true) else { pressAnchorPage = nil; return }
-                pressAnchorPage = page
-                pressAnchorPoint = marking.convert(vPoint, to: page)
+                pressAnchorView = vPoint
+                pressAnchorPage = marking.page(for: vPoint, nearest: true)
                 lastFingerLocation = vPoint
             case .changed:
                 lastFingerLocation = vPoint
-                // While auto-scrolling near an edge, let that own the selection.
-                if autoScrollLink == nil, let anchorPage = pressAnchorPage,
-                   let endPage = marking.page(for: vPoint, nearest: true) {
-                    let endPoint = marking.convert(vPoint, to: endPage)
-                    if let sel = doc.selection(from: anchorPage, at: pressAnchorPoint, to: endPage, at: endPoint) {
-                        marking.setCurrentSelection(sel, animate: false)
-                        markingOverlay?.requestRedraw()
-                    }
-                }
-                // Auto-scroll when the finger reaches the top/bottom edge, so the
-                // selection can extend beyond the visible page.
+                // The anchor page may not have been laid out at .began; resolve it now.
+                if pressAnchorPage == nil { pressAnchorPage = marking.page(for: pressAnchorView, nearest: true) }
+                if autoScrollLink == nil { updateBoxSelection(to: vPoint) }
+                // Auto-scroll when the finger reaches the top/bottom edge.
                 if marking.currentSelection?.string?.isEmpty == false {
                     let threshold: CGFloat = 64, h = marking.bounds.height
                     if vPoint.y > h - threshold { startAutoScroll(direction: 1) }
@@ -534,6 +551,28 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 stopAutoScroll()
             default:
                 break
+            }
+        }
+
+        /// Select whole lines from the anchor row down to `viewPoint`'s row, full
+        /// width, spanning pages — a box selection by vertical extent.
+        private func updateBoxSelection(to viewPoint: CGPoint) {
+            guard let marking = markingView, let doc = document,
+                  let anchorPage = pressAnchorPage,
+                  let endPage = marking.page(for: viewPoint, nearest: true) else { return }
+            // Order top→bottom so the selection direction doesn't matter.
+            let ai = doc.index(for: anchorPage), ei = doc.index(for: endPage)
+            let (topPage, topView, botPage, botView) = ai <= ei
+                ? (anchorPage, pressAnchorView, endPage, viewPoint)
+                : (endPage, viewPoint, anchorPage, pressAnchorView)
+            // Start at the left edge of the top row, end at the right edge of the
+            // bottom row → whole lines regardless of the drag's horizontal position.
+            let tb = topPage.bounds(for: .cropBox), bb = botPage.bounds(for: .cropBox)
+            let start = CGPoint(x: tb.minX, y: marking.convert(topView, to: topPage).y)
+            let end = CGPoint(x: bb.maxX, y: marking.convert(botView, to: botPage).y)
+            if let sel = doc.selection(from: topPage, at: start, to: botPage, at: end) {
+                marking.setCurrentSelection(sel, animate: false)
+                markingOverlay?.requestRedraw()
             }
         }
 
