@@ -496,6 +496,12 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             // select. Also disable the nav edge-swipe-back so an edge tap can't pop.
             tapCatcher?.isHidden = !instant
             tapCatcher?.isUserInteractionEnabled = instant
+            if instant, let catcher = tapCatcher, let host = catcher.superview {
+                // Make sure the catcher is above the PDF (so taps reach it) while the
+                // scroll buttons stay above the catcher (so they still work).
+                host.bringSubviewToFront(catcher)
+                if let buttons = scrollButtons { host.bringSubviewToFront(buttons) }
+            }
             if let pop = navigationPopGesture() { pop.isEnabled = !instant }
         }
 
@@ -519,13 +525,30 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let p = g.location(in: marking)
             guard let page = marking.page(for: p, nearest: true) else { return }
             let pagePoint = marking.convert(p, to: page)
-            guard let word = page.selectionForWord(at: pagePoint),
+            guard let word = wordSelection(on: page, near: pagePoint),
                   !(word.string?.isEmpty ?? true) else { return }
             switch markPhase {
             case .first: firstWordSelection = word
             case .last:  lastWordSelection = word
             }
             refreshPreview()
+        }
+
+        /// The word nearest `point` on `page`. A screenplay is Courier with wide line
+        /// spacing, so a fingertip often lands in the gaps between glyphs where the
+        /// strict `selectionForWord(at:)` returns nil. We first snap to the nearest
+        /// character (which tolerates that) and take the word around its center, then
+        /// fall back to the raw point.
+        private func wordSelection(on page: PDFPage, near point: CGPoint) -> PDFSelection? {
+            let idx = page.characterIndex(at: point)
+            if idx >= 0 {
+                let cb = page.characterBounds(at: idx)
+                if let w = page.selectionForWord(at: CGPoint(x: cb.midX, y: cb.midY)),
+                   !(w.string?.isEmpty ?? true) {
+                    return w
+                }
+            }
+            return page.selectionForWord(at: point)
         }
 
         /// Confirm the current phase. First → advance to picking the last word.
