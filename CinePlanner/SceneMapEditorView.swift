@@ -78,7 +78,7 @@ struct SceneMapEditorView: View {
     /// Toolbar icon point size — smaller in iPhone landscape.
     private var toolbarIconSize: CGFloat { isPhoneLandscape ? 13 : 16 }
     /// Toolbar pill height — shorter in iPhone landscape.
-    private var toolbarPillHeight: CGFloat { isPhoneLandscape ? 28 : 34 }
+    private var toolbarPillHeight: CGFloat { isPhoneLandscape ? 26 : 34 }
     /// iPhone: the toolbar scrolls horizontally instead of centering with edge
     /// overlays, which would overlap on a narrow screen.
     private var isPhone: Bool { DeviceLayout.isPhone }
@@ -324,7 +324,7 @@ struct SceneMapEditorView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 3)
+                .padding(.vertical, 1)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
