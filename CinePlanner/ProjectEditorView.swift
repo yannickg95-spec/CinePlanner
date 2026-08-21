@@ -1016,7 +1016,7 @@ struct ProjectEditorView: View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.secondary)
-            Text("Script Version:")
+            Text("Version:")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1).fixedSize()
