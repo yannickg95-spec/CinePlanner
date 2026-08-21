@@ -3276,7 +3276,9 @@ private struct FurnitureView: View {
                 cornerHandle( 1, -1, w: w, h: h)
                 cornerHandle(-1,  1, w: w, h: h)
                 cornerHandle( 1,  1, w: w, h: h)
-                rotationHandle.offset(rotationHandleOffset(h: h))
+                rotationHandle
+                    .scaleEffect(1 / zoom, anchor: .center)
+                    .offset(rotationHandleOffset(h: h))
             }
             // Real dimensions while resizing (only on a measured background).
             if liveSize != nil, let dims = realSizeText {
@@ -3285,6 +3287,7 @@ private struct FurnitureView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                    .scaleEffect(1 / zoom, anchor: .center)
                     .offset(y: -(max(w, h) / 2 + 16))
                     .allowsHitTesting(false)
             }
@@ -3404,6 +3407,9 @@ private struct FurnitureView: View {
             .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1.5))
             .frame(width: 11, height: 11)
             .contentShape(Rectangle().inset(by: -(7 + sceneMapHandleSlop)))
+            // Constant on-screen size (grab area included); the corner position (offset)
+            // still scales, so it tracks the resized piece's corner.
+            .scaleEffect(1 / zoom, anchor: .center)
             .offset(x: ox, y: oy)
             .gesture(resizeDrag)
     }
