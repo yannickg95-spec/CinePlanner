@@ -282,6 +282,15 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
+        /// While marking, our selection gesture must win over everything else — the
+        /// PDF's scroll pan and the navigation edge-swipe-back. Make those other
+        /// recognizers wait for our selection to fail (it doesn't, during a drag), so
+        /// a drag never scrolls or pops back.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            g === selectionPress && (selectionPress?.isEnabled ?? false)
+        }
+
         func refreshPageAspect() {
             if let first = document?.page(at: 0) {
                 let b = first.bounds(for: .cropBox)
@@ -481,6 +490,19 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             guard let marking = markingView else { return }
             selectionPress?.isEnabled = instant
             marking.firstMarkingScrollView?.isScrollEnabled = !instant
+            // Stop the navigation edge-swipe-back from firing on a left-to-right drag.
+            if let pop = navigationPopGesture() { pop.isEnabled = !instant }
+        }
+
+        /// The hosting navigation controller's interactive-pop (edge swipe back)
+        /// gesture, via the responder chain from the marking view.
+        private func navigationPopGesture() -> UIGestureRecognizer? {
+            var responder: UIResponder? = markingView
+            while let r = responder {
+                if let nav = r as? UINavigationController { return nav.interactivePopGestureRecognizer }
+                responder = r.next
+            }
+            return nil
         }
 
         /// Drives the text selection from a near-instant drag: anchor on begin, then
