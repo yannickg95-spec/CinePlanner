@@ -585,15 +585,11 @@ struct SceneMapEditorView: View {
                     Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
                         .allowsHitTesting(false)
                 }
-                // Movement arrows between markers, drawn under the markers.
-                if !doc.arrows.isEmpty {
-                    Canvas { ctx, _ in drawArrows(ctx, in: rect, zoom: zoom) }
-                        .allowsHitTesting(false)
-                    // Right-click an arrow to add a pivot / delete it.
-                    if !isDrawing && pendingMove == nil {
-                        ForEach(doc.arrows) { arrow in
-                            arrowHitView(arrow, in: rect)
-                        }
+                // Movement arrows are drawn crisply in a screen-space overlay outside
+                // the zoom (see below); only their right-click hit areas live here.
+                if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
+                    ForEach(doc.arrows) { arrow in
+                        arrowHitView(arrow, in: rect)
                     }
                 }
                 ForEach(doc.elements) { element in
@@ -703,6 +699,18 @@ struct SceneMapEditorView: View {
             .scaleEffect(zoom, anchor: .center)
             .offset(pan)
             .clipped()
+            // Movement arrows: drawn OUTSIDE the zoom in a screen-space Canvas so the
+            // vector rasterizes crisply at any zoom (a Canvas inside scaleEffect would
+            // just be a magnified 1x bitmap). The zoom/pan is applied to the graphics
+            // context instead. Their markers are trimmed away, so drawing on top reads
+            // the same as under them.
+            .overlay {
+                if !doc.arrows.isEmpty {
+                    Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
+                        .allowsHitTesting(false)
+                        .clipped()
+                }
+            }
             // Camera shot-info card — a plain overlay (not a system popover), so the
             // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
             // it's a constant on-screen size and always fits, tracking the marker's
@@ -2203,11 +2211,19 @@ struct SceneMapEditorView: View {
         return pts
     }
 
-    private func drawArrows(_ ctx: GraphicsContext, in rect: CGRect, zoom: CGFloat) {
+    private func drawArrows(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
+        // This Canvas sits outside the map's scaleEffect, so replicate the map's
+        // scaleEffect(zoom, anchor: .center) + offset(pan) on the context. Drawing in
+        // logical (rect) coordinates then rasterizes crisply at the on-screen scale.
+        var ctx = baseCtx
+        ctx.translateBy(x: canvas.width / 2 * (1 - zoom) + pan.width,
+                        y: canvas.height / 2 * (1 - zoom) + pan.height)
+        ctx.scaleBy(x: zoom, y: zoom)
         // Counter-scale the shaft width and arrowhead so they don't balloon with the
         // map zoom — the path (endpoints, and the trim that clears the markers) still
         // scales, but the body thins and the head shrinks as you zoom in. `pow(…, 0.7)`
-        // makes this a bit gentler than a full 1/zoom counter-scale.
+        // makes this a bit gentler than a full 1/zoom counter-scale. (Widths are in
+        // pre-scale units; the ctx scale multiplies them back up.)
         let vs = 1 / pow(max(zoom, 1), 0.7)
         let lineWidth: CGFloat = 6 * vs
         for arrow in doc.arrows {
