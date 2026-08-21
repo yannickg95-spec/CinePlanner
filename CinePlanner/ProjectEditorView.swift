@@ -26,6 +26,8 @@ struct ProjectEditorView: View {
     @State private var isCoverageMarkingInSheet = false
     /// iPhone two-tap marking: false while picking the first word, true for the last.
     @State private var coverageMarkLastPhase = false
+    /// iPhone landscape 30/70 split is active — the detail tabs move into the toolbar.
+    @State private var isLandscapeSplit = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -167,6 +169,19 @@ struct ProjectEditorView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Text(project.filmName).font(.headline).lineLimit(1).fixedSize()
                     }
+                }
+            }
+            #endif
+
+            #if os(iOS)
+            // iPhone landscape split: the detail tabs ride the toolbar row, between
+            // the project name and the GitHub/Export buttons.
+            if isPhoneLayout && isLandscapeSplit {
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .principal) { detailTabPill }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .principal) { detailTabPill }
                 }
             }
             #endif
@@ -907,12 +922,8 @@ struct ProjectEditorView: View {
             let leftWidth = geo.size.width * 0.3
             VStack(spacing: 0) {
                 if split {
-                    // Top row: the 3 tabs, centered over the right 70% detail pane.
-                    HStack(spacing: 0) {
-                        Color.clear.frame(width: leftWidth, height: 38)
-                        detailTabBar.frame(maxWidth: .infinity)
-                    }
-                    Divider()
+                    // The 3 tabs move up into the toolbar row (see isLandscapeSplit);
+                    // here we just show the two panes.
                     HStack(spacing: 0) {
                         compactSceneList(selectsInPlace: true)
                             .frame(width: leftWidth)
@@ -932,6 +943,8 @@ struct ProjectEditorView: View {
                     compactSceneList(selectsInPlace: false)
                 }
             }
+            .onAppear { isLandscapeSplit = split }
+            .onChange(of: split) { _, now in isLandscapeSplit = now }
         }
         .navigationDestination(for: Scene.self) { scene in
             compactSceneScreen(scene)
@@ -1222,17 +1235,23 @@ struct ProjectEditorView: View {
     /// the scene-level top-down map.
     /// The tab header (Shot Details / Scene Map), spanning the shots + detail
     /// region so it sits above both.
+    /// The tab pill itself (Shots / Scene Map / Script), without surrounding spacers —
+    /// reused in the iPhone landscape toolbar's principal slot.
+    private var detailTabPill: some View {
+        HStack(spacing: 4) {
+            tabButton("Shots", .shot)
+            tabButton("Scene Map", .map)
+            // iPhone: the script lives in a tab here (iPad has its own column).
+            if isPhoneLayout { tabButton("Script", .script) }
+        }
+        .padding(3)
+        .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+    }
+
     private var detailTabBar: some View {
         HStack {
             Spacer(minLength: 0)
-            HStack(spacing: 4) {
-                tabButton("Shots", .shot)
-                tabButton("Scene Map", .map)
-                // iPhone: the script lives in a tab here (iPad has its own column).
-                if isPhoneLayout { tabButton("Script", .script) }
-            }
-            .padding(3)
-            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
+            detailTabPill
             Spacer(minLength: 0)
         }
         .frame(height: isPhoneLayout ? 38 : Self.paneHeaderHeight)
