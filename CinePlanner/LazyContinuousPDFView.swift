@@ -65,24 +65,18 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         marking.isHidden = true
         marking.translatesAutoresizingMaskIntoConstraints = false
 
-        // Auto-scroll the selection past the visible edge, so a drag can "push"
-        // onto the next page to keep selecting. Runs alongside PDFKit's own
-        // selection gesture; only acts while a selection is in progress.
-        let edgePan = UIPanGestureRecognizer(target: context.coordinator,
-                                             action: #selector(Coordinator.handleEdgePan(_:)))
-        edgePan.delegate = context.coordinator
-        edgePan.cancelsTouchesInView = false
-        marking.addGestureRecognizer(edgePan)
-
         // Our own selection gesture: a near-instant long press that drives the text
         // selection directly (PDFKit's built-in selection needs a ~0.5s hold, which
-        // felt like scrolling on touch). Enabled only while marking.
+        // felt like scrolling on touch). It also auto-scrolls past the edges. Enabled
+        // only while marking. `cancelsTouchesInView` makes it win over PDFView's
+        // scrolling the instant it recognizes — so a drag selects from the very first
+        // touch, without depending on when the scroll view finishes laying out.
         let selectPress = UILongPressGestureRecognizer(
             target: context.coordinator, action: #selector(Coordinator.handleSelectionPress(_:)))
         selectPress.minimumPressDuration = 0.03
         selectPress.allowableMovement = .greatestFiniteMagnitude   // don't fail on a quick drag
         selectPress.delegate = context.coordinator
-        selectPress.cancelsTouchesInView = false
+        selectPress.cancelsTouchesInView = true
         selectPress.isEnabled = false
         marking.addGestureRecognizer(selectPress)
         context.coordinator.selectionPress = selectPress
@@ -470,10 +464,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
 
-            // Let a drag select text immediately (no ~0.5s hold) and stop the marking
-            // view from scrolling, so the drag isn't taken by scrolling. Applied after
-            // layout so PDFKit's gesture recognizers and scroll view exist.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            // Enable instant drag-to-select right away so it works from the first
+            // touch (the gesture cancels PDFView scrolling itself). Re-apply after
+            // layout too, to catch the scroll view once it exists.
+            setMarkingSelectionInstant(true)
+            DispatchQueue.main.async { [weak self] in
                 if self?.selectionShot != nil { self?.setMarkingSelectionInstant(true) }
             }
         }
@@ -502,13 +497,26 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             case .changed:
                 lastFingerLocation = vPoint
                 // While auto-scrolling near an edge, let that own the selection.
-                guard autoScrollLink == nil, let anchorPage = pressAnchorPage,
-                      let endPage = marking.page(for: vPoint, nearest: true) else { return }
-                let endPoint = marking.convert(vPoint, to: endPage)
-                if let sel = doc.selection(from: anchorPage, at: pressAnchorPoint, to: endPage, at: endPoint) {
-                    marking.setCurrentSelection(sel, animate: false)
-                    markingOverlay?.requestRedraw()
+                if autoScrollLink == nil, let anchorPage = pressAnchorPage,
+                   let endPage = marking.page(for: vPoint, nearest: true) {
+                    let endPoint = marking.convert(vPoint, to: endPage)
+                    if let sel = doc.selection(from: anchorPage, at: pressAnchorPoint, to: endPage, at: endPoint) {
+                        marking.setCurrentSelection(sel, animate: false)
+                        markingOverlay?.requestRedraw()
+                    }
                 }
+                // Auto-scroll when the finger reaches the top/bottom edge, so the
+                // selection can extend beyond the visible page.
+                if marking.currentSelection?.string?.isEmpty == false {
+                    let threshold: CGFloat = 64, h = marking.bounds.height
+                    if vPoint.y > h - threshold { startAutoScroll(direction: 1) }
+                    else if vPoint.y < threshold { startAutoScroll(direction: -1) }
+                    else { stopAutoScroll() }
+                } else {
+                    stopAutoScroll()
+                }
+            case .ended, .cancelled, .failed:
+                stopAutoScroll()
             default:
                 break
             }
@@ -519,11 +527,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         @objc func scrollUp() { bumpScroll(-1) }
         @objc func scrollDown() { bumpScroll(1) }
 
-        /// Scroll the marking view by ~10% of a screen in `direction` (−1 up, +1 down).
+        /// Scroll the marking view by ~20% of a screen in `direction` (−1 up, +1 down).
         private func bumpScroll(_ direction: CGFloat) {
             guard let sv = markingView?.firstMarkingScrollView else { return }
             let maxY = max(0, sv.contentSize.height - sv.bounds.height)
-            let step = sv.bounds.height * 0.1
+            let step = sv.bounds.height * 0.2
             let newY = min(max(0, sv.contentOffset.y + direction * step), maxY)
             sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: newY), animated: true)
             markingOverlay?.requestRedraw()
@@ -620,31 +628,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         }
 
         // MARK: Edge auto-scroll during selection
-
-        @objc func handleEdgePan(_ g: UIPanGestureRecognizer) {
-            guard selectionShot != nil, let marking = markingView else { return }
-            switch g.state {
-            case .changed:
-                lastFingerLocation = g.location(in: marking)
-                // Only auto-scroll once an actual text selection is under way.
-                guard marking.currentSelection?.string?.isEmpty == false else {
-                    stopAutoScroll(); return
-                }
-                let threshold: CGFloat = 64
-                let h = marking.bounds.height
-                if lastFingerLocation.y > h - threshold {
-                    startAutoScroll(direction: 1)
-                } else if lastFingerLocation.y < threshold {
-                    startAutoScroll(direction: -1)
-                } else {
-                    stopAutoScroll()
-                }
-            case .ended, .cancelled, .failed:
-                stopAutoScroll()
-            default:
-                break
-            }
-        }
 
         private func startAutoScroll(direction: CGFloat) {
             guard let marking = markingView, let sel = marking.currentSelection else { return }
