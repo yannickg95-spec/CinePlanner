@@ -217,6 +217,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
+        /// Long-press durations saved during marking (see setMarkingSelectionInstant).
+        private var savedPressDurations: [(UILongPressGestureRecognizer, TimeInterval)] = []
 
         // Edge auto-scroll while selecting.
         private var autoScrollLink: CADisplayLink?
@@ -411,6 +413,39 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
+
+            // Let a drag select text immediately (no ~0.5s hold) and stop the marking
+            // view from scrolling, so the drag isn't taken by scrolling. Applied after
+            // layout so PDFKit's gesture recognizers and scroll view exist.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                if self?.selectionShot != nil { self?.setMarkingSelectionInstant(true) }
+            }
+        }
+
+        /// While marking: zero PDFKit's selection long-press so a drag selects text
+        /// instantly (like the Mac's click-drag), and disable the marking view's own
+        /// scrolling so the drag isn't consumed by scrolling (the edge-pan still
+        /// auto-scrolls via contentOffset). Restored when marking ends.
+        private func setMarkingSelectionInstant(_ instant: Bool) {
+            guard let marking = markingView else { return }
+            if instant {
+                setMarkingSelectionInstant(false)   // clear any stale saved values
+                func walk(_ v: UIView) {
+                    for gr in v.gestureRecognizers ?? [] {
+                        if let lp = gr as? UILongPressGestureRecognizer {
+                            savedPressDurations.append((lp, lp.minimumPressDuration))
+                            lp.minimumPressDuration = 0
+                        }
+                    }
+                    v.subviews.forEach(walk)
+                }
+                walk(marking)
+                marking.firstMarkingScrollView?.isScrollEnabled = false
+            } else {
+                for (lp, duration) in savedPressDurations { lp.minimumPressDuration = duration }
+                savedPressDurations.removeAll()
+                marking.firstMarkingScrollView?.isScrollEnabled = true
+            }
         }
 
         private func shotsWithCoverage() -> [Shot] {
@@ -542,6 +577,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private func endMarking() {
             stopAutoScroll()
+            setMarkingSelectionInstant(false)
             selectionShot = nil
             markingScrollObs?.invalidate()
             markingScrollObs = nil
