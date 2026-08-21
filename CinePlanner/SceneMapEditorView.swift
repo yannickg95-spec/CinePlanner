@@ -699,6 +699,11 @@ struct SceneMapEditorView: View {
             .scaleEffect(zoom, anchor: .center)
             .offset(pan)
             .clipped()
+            // scaleEffect also scales the canvas's hit region, so when zoomed in it
+            // spilled over the toolbar above and swallowed its taps. Reset the
+            // interactive shape to the (unscaled) frame so touches outside it — the
+            // toolbar — pass through again.
+            .contentShape(Rectangle())
             // Movement arrows: drawn OUTSIDE the zoom in a screen-space Canvas so the
             // vector rasterizes crisply at any zoom (a Canvas inside scaleEffect would
             // just be a magnified 1x bitmap). The zoom/pan is applied to the graphics
