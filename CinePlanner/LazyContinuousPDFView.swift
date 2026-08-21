@@ -72,24 +72,22 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         markingOverlay.isHidden = true
         markingOverlay.translatesAutoresizingMaskIntoConstraints = false
 
-        // Tap catcher: while marking, a transparent overlay on top of the PDF that
-        // owns every touch. Because it swallows them, PDFView never scrolls, zooms or
-        // runs its own selection — so the two-tap word picker is the only thing that
-        // responds. A tap picks the word under the finger; the side buttons scroll.
-        // Hidden (and non-interactive) otherwise.
-        let tapCatcher = UIView()
-        tapCatcher.backgroundColor = .clear
-        tapCatcher.isHidden = true
-        tapCatcher.translatesAutoresizingMaskIntoConstraints = false
+        // Word-pick tap, attached directly to the marking PDFView. A separate overlay
+        // sibling never received touches under SwiftUI hosting; a recognizer on the
+        // PDFView itself does. A tap is discrete, so it coexists with normal
+        // drag-scrolling (no conflict) — it just picks the word under the finger.
+        // Enabled only while marking.
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleWordTap(_:)))
-        tapCatcher.addGestureRecognizer(tap)
-        context.coordinator.tapCatcher = tapCatcher
+        tap.delegate = context.coordinator
+        tap.cancelsTouchesInView = false
+        tap.isEnabled = false
+        marking.addGestureRecognizer(tap)
+        context.coordinator.wordTap = tap
 
         container.addSubview(cv)
         container.addSubview(marking)
         container.addSubview(markingOverlay)
-        container.addSubview(tapCatcher)
         NSLayoutConstraint.activate([
             cv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             cv.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -103,14 +101,10 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay.trailingAnchor.constraint(equalTo: marking.trailingAnchor),
             markingOverlay.topAnchor.constraint(equalTo: marking.topAnchor),
             markingOverlay.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
-            tapCatcher.leadingAnchor.constraint(equalTo: marking.leadingAnchor),
-            tapCatcher.trailingAnchor.constraint(equalTo: marking.trailingAnchor),
-            tapCatcher.topAnchor.constraint(equalTo: marking.topAnchor),
-            tapCatcher.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
         ])
 
-        // Side scroll buttons — the way to scroll while marking (page scrolling is off
-        // then so a tap picks a word). Each tap bumps the script up/down by a fixed step,
+        // Side scroll buttons — a quick way to page through the script while marking
+        // (dragging still scrolls too). Each tap bumps the script up/down by a fixed step,
         // which stays predictable on long scripts (a slider was too sensitive). Shown
         // only while marking.
         func scrollButton(_ symbol: String, _ action: Selector) -> UIButton {
@@ -265,9 +259,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private var selectionShot: Shot?
         private var observers: [NSObjectProtocol] = []
-        /// Transparent overlay that owns every touch while marking (so PDFView never
-        /// scrolls/zooms/selects). A tap on it picks the word under the finger.
-        weak var tapCatcher: UIView?
+        /// Word-pick tap on the marking PDFView, enabled only while marking.
+        weak var wordTap: UITapGestureRecognizer?
         /// Side up/down scroll buttons, shown while marking (page scrolling is off then).
         weak var scrollButtons: UIStackView?
 
@@ -492,16 +485,10 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         /// While marking, put the tap catcher in front so a tap picks a word and
         /// PDFView can't scroll/zoom/select. Reversed when marking ends.
         private func setMarkingSelectionInstant(_ instant: Bool) {
-            // The catcher overlay swallows the touch, so PDFView doesn't scroll/zoom/
-            // select. Also disable the nav edge-swipe-back so an edge tap can't pop.
-            tapCatcher?.isHidden = !instant
-            tapCatcher?.isUserInteractionEnabled = instant
-            if instant, let catcher = tapCatcher, let host = catcher.superview {
-                // Make sure the catcher is above the PDF (so taps reach it) while the
-                // scroll buttons stay above the catcher (so they still work).
-                host.bringSubviewToFront(catcher)
-                if let buttons = scrollButtons { host.bringSubviewToFront(buttons) }
-            }
+            // Turn the word-pick tap on/off. PDFView keeps its normal drag-scrolling —
+            // a tap doesn't conflict with it. Disable the nav edge-swipe-back so an
+            // edge tap can't pop the screen.
+            wordTap?.isEnabled = instant
             if let pop = navigationPopGesture() { pop.isEnabled = !instant }
         }
 
@@ -521,7 +508,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         /// is discarded), so a mistap is corrected by tapping the right word.
         @objc func handleWordTap(_ g: UITapGestureRecognizer) {
             guard selectionShot != nil, let marking = markingView else { return }
-            // The catcher shares the marking view's coordinate space.
+            // The recognizer is on the marking view, so its location is in that space.
             let p = g.location(in: marking)
             guard let page = marking.page(for: p, nearest: true) else { return }
             let pagePoint = marking.convert(p, to: page)
