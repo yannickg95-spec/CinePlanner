@@ -900,19 +900,25 @@ struct ProjectEditorView: View {
     @ViewBuilder
     private var compactColumns: some View {
         GeometryReader { geo in
-            // Landscape iPhone with a script: try a 50-50 split — scenes on the left,
-            // the script on the right, the right pane following the selected scene.
-            let splitScript = geo.size.width > geo.size.height && hasScriptPDF
+            // Landscape iPhone: try a 50-50 split — scenes on the left, the selected
+            // scene's full 3-tab page (Shots / Scene Map / Script) on the right.
+            let split = geo.size.width > geo.size.height
             VStack(spacing: 0) {
                 compactEditorHeader
                 Divider()
-                if splitScript {
+                if split {
                     HStack(spacing: 0) {
                         compactSceneList(selectsInPlace: true)
                             .frame(maxWidth: .infinity)
                         Divider()
-                        compactRootScript
-                            .frame(maxWidth: .infinity)
+                        Group {
+                            if let scene = selectedScene ?? orderedScenes.first {
+                                compactSceneDetail(scene)
+                            } else {
+                                ContentUnavailableView("No Scenes", systemImage: "film")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                 } else {
                     compactSceneList(selectsInPlace: false)
@@ -948,33 +954,10 @@ struct ProjectEditorView: View {
         )
     }
 
-    /// The right pane of the iPhone landscape split: the script, opened at the
-    /// selected scene's page (or the first scene when nothing is selected yet).
-    @ViewBuilder
-    private var compactRootScript: some View {
-        let scene = selectedScene ?? orderedScenes.first
-        ScriptPDFViewer(
-            project: project,
-            version: selectedVersion,
-            selectedScenePage: scene?.absolutePDFPage,
-            selectedScene: scene,
-            selectedShot: selectedShot,
-            onScenesImported: { _ in
-                if !otherVersionsWithShots.isEmpty { showCopyShotsPrompt = true }
-            },
-            requestImport: $requestScriptImport,
-            isMarkingScenePage: false,
-            markingSceneLabel: "",
-            onFinishMarking: { _ in },
-            onCancelMarking: { },
-            coverageMarginOverride: scriptCoverageMargin
-        )
-        .id(scriptReloadToken)
-    }
-
-    /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
-    /// same tab control the wide layout uses. Shot rows push the shot detail.
-    private func compactSceneScreen(_ scene: Scene) -> some View {
+    /// The 3-tab scene content (Shots / Scene Map / Script), without navigation
+    /// chrome — shared by the pushed scene screen and the landscape split's right
+    /// pane.
+    private func compactSceneDetail(_ scene: Scene) -> some View {
         VStack(spacing: 0) {
             detailTabBar
             Divider()
@@ -996,6 +979,12 @@ struct ProjectEditorView: View {
             }
             .padding(.top, 10)   // a bit of breathing room under the tabs
         }
+    }
+
+    /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
+    /// same tab control the wide layout uses. Shot rows push the shot detail.
+    private func compactSceneScreen(_ scene: Scene) -> some View {
+        compactSceneDetail(scene)
         .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix)")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
