@@ -53,6 +53,10 @@ struct SceneListView: View {
     /// Called with the freshly created scene so the editor can prompt the user to
     /// place its script page.
     var onSceneAdded: ((Scene) -> Void)? = nil
+    /// When set, tapping a row selects the scene (and calls this) instead of pushing
+    /// its detail — used by the iPhone landscape split, where the right pane follows
+    /// the selection. Nil everywhere else, so the normal drill-down navigation stays.
+    var onSelectScene: ((Scene) -> Void)? = nil
     @State private var showDeleteOldScenesConfirmation = false
     @State private var searchText = ""
     @State private var sceneToClear: Scene?
@@ -223,35 +227,54 @@ struct SceneListView: View {
         sceneToClear = nil
     }
     
+    /// The row's content — title, scene name, tags. Stacked so a narrow column can't
+    /// push anything off the edge.
+    private func sceneRowLabel(for scene: Scene) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Scene \(scene.sceneNumber)\(scene.suffix)")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+
+            if !scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(scene.nickname)
+                    .font(.headline)
+                    .fontWeight(.regular)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // "NIGHT" when the column has room, else the shorter "NITE" — so it
+            // never clips on smaller iPads or at larger text sizes.
+            ViewThatFits(in: .horizontal) {
+                sceneTagRow(scene, nightLabel: "NIGHT")
+                sceneTagRow(scene, nightLabel: "NITE")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+    }
+
     @ViewBuilder
     private func sceneRow(for scene: Scene) -> some View {
-        NavigationLink(value: scene) {
-            // Stacked so a narrow column can't push anything off the edge:
-            // title, then the scene name on its own line, then tags + shot count.
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Scene \(scene.sceneNumber)\(scene.suffix)")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-
-                if !scene.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(scene.nickname)
-                        .font(.headline)
-                        .fontWeight(.regular)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if let onSelectScene {
+                // Landscape split: select-in-place instead of pushing a detail screen.
+                Button {
+                    selectedScenes = [scene.uid]
+                    onSelectScene(scene)
+                } label: {
+                    sceneRowLabel(for: scene)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-
-                // "NIGHT" when the column has room, else the shorter "NITE" — so it
-                // never clips on smaller iPads or at larger text sizes.
-                ViewThatFits(in: .horizontal) {
-                    sceneTagRow(scene, nightLabel: "NIGHT")
-                    sceneTagRow(scene, nightLabel: "NITE")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
+                .listRowBackground(selectedScenes.contains(scene.uid)
+                                   ? Color.accentColor.opacity(0.15) : nil)
+            } else {
+                NavigationLink(value: scene) { sceneRowLabel(for: scene) }
             }
-            .padding(.vertical, 2)
         }
         .dropDestination(for: String.self) { shotIDStrings, _ in
             handleDrop(shotIDStrings: shotIDStrings, toScene: scene)

@@ -899,19 +899,25 @@ struct ProjectEditorView: View {
     /// on the existing selection-driven columns.
     @ViewBuilder
     private var compactColumns: some View {
-        VStack(spacing: 0) {
-            compactEditorHeader
-            Divider()
-            SceneListView(
-                project: project,
-                version: selectedVersion,
-                selectedScenes: $selectedScenes,
-                canImportShots: !otherVersionsWithShots.isEmpty,
-                onEditScene: { sceneToEdit = $0 },
-                onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
-                onDeleteScenes: { pendingSceneDeletion = $0 },
-                onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } }
-            )
+        GeometryReader { geo in
+            // Landscape iPhone with a script: try a 50-50 split — scenes on the left,
+            // the script on the right, the right pane following the selected scene.
+            let splitScript = geo.size.width > geo.size.height && hasScriptPDF
+            VStack(spacing: 0) {
+                compactEditorHeader
+                Divider()
+                if splitScript {
+                    HStack(spacing: 0) {
+                        compactSceneList(selectsInPlace: true)
+                            .frame(maxWidth: .infinity)
+                        Divider()
+                        compactRootScript
+                            .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    compactSceneList(selectsInPlace: false)
+                }
+            }
         }
         .navigationDestination(for: Scene.self) { scene in
             compactSceneScreen(scene)
@@ -924,6 +930,46 @@ struct ProjectEditorView: View {
                 #endif
                 .onAppear { selectedShots = [shot.uid] }
         }
+    }
+
+    /// The iPhone scenes list. `selectsInPlace` (landscape split) makes a tap select
+    /// the scene for the right-hand script pane instead of pushing its detail.
+    private func compactSceneList(selectsInPlace: Bool) -> some View {
+        SceneListView(
+            project: project,
+            version: selectedVersion,
+            selectedScenes: $selectedScenes,
+            canImportShots: !otherVersionsWithShots.isEmpty,
+            onEditScene: { sceneToEdit = $0 },
+            onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
+            onDeleteScenes: { pendingSceneDeletion = $0 },
+            onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } },
+            onSelectScene: selectsInPlace ? { _ in } : nil
+        )
+    }
+
+    /// The right pane of the iPhone landscape split: the script, opened at the
+    /// selected scene's page (or the first scene when nothing is selected yet).
+    @ViewBuilder
+    private var compactRootScript: some View {
+        let scene = selectedScene ?? orderedScenes.first
+        ScriptPDFViewer(
+            project: project,
+            version: selectedVersion,
+            selectedScenePage: scene?.absolutePDFPage,
+            selectedScene: scene,
+            selectedShot: selectedShot,
+            onScenesImported: { _ in
+                if !otherVersionsWithShots.isEmpty { showCopyShotsPrompt = true }
+            },
+            requestImport: $requestScriptImport,
+            isMarkingScenePage: false,
+            markingSceneLabel: "",
+            onFinishMarking: { _ in },
+            onCancelMarking: { },
+            coverageMarginOverride: scriptCoverageMargin
+        )
+        .id(scriptReloadToken)
     }
 
     /// A scene's screen on iPhone: the Shots list and the Scene Map, toggled by the
