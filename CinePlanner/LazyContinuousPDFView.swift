@@ -68,15 +68,14 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         // Our own selection gesture: a near-instant long press that drives the text
         // selection directly (PDFKit's built-in selection needs a ~0.5s hold, which
         // felt like scrolling on touch). It also auto-scrolls past the edges. Enabled
-        // only while marking. `cancelsTouchesInView` makes it win over PDFView's
-        // scrolling the instant it recognizes — so a drag selects from the very first
-        // touch, without depending on when the scroll view finishes laying out.
+        // only while marking; while it's on, the marking view's own scrolling is
+        // disabled (below) so a one-finger drag selects instead of scrolling.
         let selectPress = UILongPressGestureRecognizer(
             target: context.coordinator, action: #selector(Coordinator.handleSelectionPress(_:)))
         selectPress.minimumPressDuration = 0.03
         selectPress.allowableMovement = .greatestFiniteMagnitude   // don't fail on a quick drag
         selectPress.delegate = context.coordinator
-        selectPress.cancelsTouchesInView = true
+        selectPress.cancelsTouchesInView = false
         selectPress.isEnabled = false
         marking.addGestureRecognizer(selectPress)
         context.coordinator.selectionPress = selectPress
@@ -282,15 +281,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
-        /// While marking, our selection gesture must win over everything else — the
-        /// PDF's scroll pan and the navigation edge-swipe-back. Make those other
-        /// recognizers wait for our selection to fail (it doesn't, during a drag), so
-        /// a drag never scrolls or pops back.
-        func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-            g === selectionPress && (selectionPress?.isEnabled ?? false)
-        }
-
         func refreshPageAspect() {
             if let first = document?.page(at: 0) {
                 let b = first.bounds(for: .cropBox)
@@ -451,6 +441,10 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             selectionShot = shot
             marking.document = doc
             marking.isHidden = false
+            // Force a layout pass now so the PDFView's internal scroll view exists
+            // immediately — then disabling its scrolling (below) actually takes hold
+            // before the first drag, instead of a beat later.
+            marking.layoutIfNeeded()
 
             // Show existing coverage lines over the marking view.
             if let overlay = markingOverlay {
@@ -473,9 +467,8 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             NotificationCenter.default.post(name: .scriptSelectionModeChanged, object: nil,
                                             userInfo: ["active": true, "shotID": shot.persistentModelID])
 
-            // Enable instant drag-to-select right away so it works from the first
-            // touch (the gesture cancels PDFView scrolling itself). Re-apply after
-            // layout too, to catch the scroll view once it exists.
+            // Enable instant drag-to-select and disable scrolling right away so it
+            // works from the first touch. Re-apply next runloop as a safety net.
             setMarkingSelectionInstant(true)
             DispatchQueue.main.async { [weak self] in
                 if self?.selectionShot != nil { self?.setMarkingSelectionInstant(true) }
