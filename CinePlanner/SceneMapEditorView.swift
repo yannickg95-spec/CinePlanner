@@ -587,7 +587,7 @@ struct SceneMapEditorView: View {
                 }
                 // Movement arrows between markers, drawn under the markers.
                 if !doc.arrows.isEmpty {
-                    Canvas { ctx, _ in drawArrows(ctx, in: rect) }
+                    Canvas { ctx, _ in drawArrows(ctx, in: rect, zoom: zoom) }
                         .allowsHitTesting(false)
                     // Right-click an arrow to add a pivot / delete it.
                     if !isDrawing && pendingMove == nil {
@@ -2203,8 +2203,13 @@ struct SceneMapEditorView: View {
         return pts
     }
 
-    private func drawArrows(_ ctx: GraphicsContext, in rect: CGRect) {
-        let lineWidth: CGFloat = 6
+    private func drawArrows(_ ctx: GraphicsContext, in rect: CGRect, zoom: CGFloat) {
+        // Counter-scale the shaft width and arrowhead so they don't balloon with the
+        // map zoom — the path (endpoints, and the trim that clears the markers) still
+        // scales, but the body thins and the head shrinks as you zoom in. `pow(…, 0.7)`
+        // makes this a bit gentler than a full 1/zoom counter-scale.
+        let vs = 1 / pow(max(zoom, 1), 0.7)
+        let lineWidth: CGFloat = 6 * vs
         for arrow in doc.arrows {
             guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
                   let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
@@ -2218,8 +2223,8 @@ struct SceneMapEditorView: View {
 
             // Solid triangular head; the shaft attaches to its base (not the tip).
             let tip = pts[n - 1]
-            let headLength: CGFloat = 20
-            let headHalfWidth: CGFloat = 11
+            let headLength: CGFloat = 20 * vs
+            let headHalfWidth: CGFloat = 11 * vs
             let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
             var shaftPts = pts
             shaftPts[n - 1] = baseCenter
