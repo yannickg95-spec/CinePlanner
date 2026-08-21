@@ -937,6 +937,9 @@ struct ProjectEditorView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
+                    // Let the panes run to the physical bottom (under the home
+                    // indicator) so the map isn't cut short by the safe-area inset.
+                    .ignoresSafeArea(.container, edges: .bottom)
                 } else {
                     compactEditorHeader
                     Divider()
