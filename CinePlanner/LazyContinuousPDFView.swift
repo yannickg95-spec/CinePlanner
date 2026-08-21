@@ -103,44 +103,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay.bottomAnchor.constraint(equalTo: marking.bottomAnchor),
         ])
 
-        // Side scroll buttons — a quick way to page through the script while marking
-        // (dragging still scrolls too). Each tap bumps the script up/down by a fixed step,
-        // which stays predictable on long scripts (a slider was too sensitive). Shown
-        // only while marking.
-        func scrollButton(_ symbol: String, _ action: Selector) -> UIButton {
-            var config = UIButton.Configuration.filled()
-            config.image = UIImage(systemName: symbol,
-                                   withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
-            config.cornerStyle = .capsule
-            config.baseBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
-            config.baseForegroundColor = .label
-            let button = UIButton(configuration: config)
-            button.addTarget(context.coordinator, action: action, for: .touchUpInside)
-            button.layer.borderWidth = 1
-            button.layer.borderColor = UIColor.separator.cgColor
-            button.layer.cornerRadius = 22
-            button.layer.masksToBounds = true
-            NSLayoutConstraint.activate([
-                button.widthAnchor.constraint(equalToConstant: 44),
-                button.heightAnchor.constraint(equalToConstant: 44),
-            ])
-            return button
-        }
-        let scrollButtons = UIStackView(arrangedSubviews: [
-            scrollButton("chevron.up", #selector(Coordinator.scrollUp)),
-            scrollButton("chevron.down", #selector(Coordinator.scrollDown)),
-        ])
-        scrollButtons.axis = .vertical
-        scrollButtons.spacing = 12
-        scrollButtons.isHidden = true
-        scrollButtons.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(scrollButtons)
-        NSLayoutConstraint.activate([
-            scrollButtons.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            scrollButtons.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
-        ])
-        context.coordinator.scrollButtons = scrollButtons
-
         let c = context.coordinator
         c.collectionView = cv
         c.markingView = marking
@@ -261,8 +223,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         private var observers: [NSObjectProtocol] = []
         /// Word-pick tap on the marking PDFView, enabled only while marking.
         weak var wordTap: UITapGestureRecognizer?
-        /// Side up/down scroll buttons, shown while marking (page scrolling is off then).
-        weak var scrollButtons: UIStackView?
 
         // Two-tap word marking. The user taps the first word, hits Next, taps the last
         // word, hits Done — and everything from the first word's start to the last
@@ -459,7 +419,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             }
 
             // Open with the shot's scene heading at the top (after layout).
-            scrollButtons?.isHidden = false
             DispatchQueue.main.async {
                 self.alignMarkingToScene(of: shot)
                 self.markingOverlay?.requestRedraw()
@@ -597,21 +556,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             markingOverlay?.requestRedraw()
         }
 
-        // MARK: Side scroll buttons (page scrolling is disabled while marking)
-
-        @objc func scrollUp() { bumpScroll(-1) }
-        @objc func scrollDown() { bumpScroll(1) }
-
-        /// Scroll the marking view by ~20% of a screen in `direction` (−1 up, +1 down).
-        private func bumpScroll(_ direction: CGFloat) {
-            guard let sv = markingView?.firstMarkingScrollView else { return }
-            let maxY = max(0, sv.contentSize.height - sv.bounds.height)
-            let step = sv.bounds.height * 0.2
-            let newY = min(max(0, sv.contentOffset.y + direction * step), maxY)
-            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: newY), animated: true)
-            markingOverlay?.requestRedraw()
-        }
-
         // MARK: Align the marking view to a shot's scene
 
         /// Scroll the marking view so the shot's scene heading sits at the top.
@@ -704,7 +648,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         private func endMarking() {
             setMarkingSelectionInstant(false)
-            scrollButtons?.isHidden = true
             selectionShot = nil
             firstWordSelection = nil
             lastWordSelection = nil
