@@ -28,6 +28,8 @@ struct ProjectEditorView: View {
     @State private var coverageMarkLastPhase = false
     /// iPhone landscape 30/70 split is active — the detail tabs move into the toolbar.
     @State private var isLandscapeSplit = false
+    /// The shooting-schedule board sheet.
+    @State private var showScheduleSheet = false
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -189,6 +191,17 @@ struct ProjectEditorView: View {
             ToolbarItem(placement: .primaryAction) {
                 actionButtons
             }
+
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .primaryAction) { scheduleButton }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .primaryAction) { scheduleButton }
+            }
+            #else
+            ToolbarItem(placement: .primaryAction) { scheduleButton }
+            #endif
 
             // GitHub + Export share the toolbar row with the project name. iPhone
             // keeps its always-visible GitHub button (publish when unpublished, the
@@ -394,6 +407,11 @@ struct ProjectEditorView: View {
         }
         .sheet(isPresented: $showPublishSheet) {
             GitHubPublishSheet(project: project, version: selectedVersion)
+        }
+        .sheet(isPresented: $showScheduleSheet) {
+            if let version = selectedVersion {
+                ShootingScheduleView(project: project, version: version)
+            }
         }
         .sheet(isPresented: $showScriptMarginSheet) {
             scriptMarginSheet
@@ -1531,6 +1549,16 @@ struct ProjectEditorView: View {
         }
         .buttonStyle(.plain)
         .help("Export this shot list as PDF, text, or a web page with media")
+    }
+
+    /// Opens the shooting-schedule board for the selected version.
+    @ViewBuilder
+    private var scheduleButton: some View {
+        Button { showScheduleSheet = true } label: {
+            Label("Schedule", systemImage: "calendar")
+        }
+        .help("Plan shooting days and arrange scenes in shoot order")
+        .disabled(selectedVersion == nil)
     }
 
     @ViewBuilder

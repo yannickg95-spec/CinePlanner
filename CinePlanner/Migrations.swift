@@ -17,7 +17,8 @@ enum SchemaV1: VersionedSchema {
     static var versionIdentifier = Schema.Version(1, 0, 0)
 
     static var models: [any PersistentModel.Type] {
-        [Project.self, Episode.self, ScriptVersion.self, Scene.self, Shot.self, ShotReference.self, ShotCustomInfo.self]
+        [Project.self, Episode.self, ScriptVersion.self, Scene.self, Shot.self, ShotReference.self, ShotCustomInfo.self,
+         ShootingDay.self, ScheduleEntry.self]
     }
 }
 

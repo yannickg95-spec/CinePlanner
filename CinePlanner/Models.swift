@@ -270,6 +270,15 @@ final class ScriptVersion {
         set { scenesStore = newValue }
     }
 
+    /// Shooting days for this version's scenes (the schedule board). Per version, so
+    /// switching versions shows that version's schedule.
+    @Relationship(deleteRule: .cascade, inverse: \ShootingDay.scriptVersion)
+    var shootingDaysStore: [ShootingDay]?
+    var shootingDays: [ShootingDay] {
+        get { shootingDaysStore ?? [] }
+        set { shootingDaysStore = newValue }
+    }
+
     init(versionNumber: Int, name: String? = nil, createdDate: Date = Date()) {
         self.versionNumber = versionNumber
         self.name = name ?? "Version \(versionNumber)"
@@ -278,6 +287,10 @@ final class ScriptVersion {
 
     var orderedScenes: [Scene] {
         scenes.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedShootingDays: [ShootingDay] {
+        shootingDays.sorted { $0.sortOrder < $1.sortOrder }
     }
 
     var totalShotCount: Int {
@@ -373,6 +386,11 @@ final class Scene {
         get { shotsStore ?? [] }
         set { shotsStore = newValue }
     }
+
+    /// Inverse of `ScheduleEntry.scene` — required by CloudKit (every relationship
+    /// needs an inverse). Deleting a scene removes its schedule strips too.
+    @Relationship(deleteRule: .cascade, inverse: \ScheduleEntry.scene)
+    var scheduleEntriesStore: [ScheduleEntry]?
 
     /// Shots in their canonical display order. `shots` is an unordered SwiftData
     /// relationship whose iteration order can differ between stores/platforms, so
@@ -1455,5 +1473,71 @@ extension Scene {
         sceneMapMetersWide = nil
         sceneMapCameraSizeMeters = nil
         sceneMapLocation = nil
+    }
+}
+
+// MARK: - Shooting schedule
+
+/// One shooting day in a version's schedule. Holds an ordered list of scene
+/// "strips" (`ScheduleEntry`). A scene can appear on more than one day (splitting
+/// a scene across days) — that's just multiple entries referencing it.
+@Model
+final class ShootingDay {
+    var uid: String = UUID().uuidString
+    /// Day order in the schedule (Day 1, 2, 3 …).
+    var sortOrder: Int = 0
+    /// Optional label, e.g. "INT. House" or a unit name. Day numbering is derived
+    /// from `sortOrder`, so this is free-form colour.
+    var title: String = ""
+    /// Optional shoot date.
+    var date: Date?
+    var notes: String = ""
+
+    var scriptVersion: ScriptVersion?
+
+    @Relationship(deleteRule: .cascade, inverse: \ScheduleEntry.day)
+    var entriesStore: [ScheduleEntry]?
+    var entries: [ScheduleEntry] {
+        get { entriesStore ?? [] }
+        set { entriesStore = newValue }
+    }
+
+    init(sortOrder: Int, title: String = "", date: Date? = nil) {
+        self.sortOrder = sortOrder
+        self.title = title
+        self.date = date
+    }
+
+    /// Entries in shoot order, skipping any whose scene was deleted underneath us.
+    var orderedEntries: [ScheduleEntry] {
+        entries.filter { $0.scene != nil }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    /// A default "Day N" label from the order when no title is set.
+    var displayTitle: String {
+        let base = "Day \(sortOrder + 1)"
+        let t = title.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? base : "\(base) · \(t)"
+    }
+}
+
+/// One occurrence of a scene on a shooting day — a schedule "strip". Splitting a
+/// scene across days means the scene has several of these on different days; the
+/// `note` labels each part ("pt. 1 of 2", "MOS", "pickups", …).
+@Model
+final class ScheduleEntry {
+    var uid: String = UUID().uuidString
+    /// Order within the day.
+    var sortOrder: Int = 0
+    /// Optional label for this strip (e.g. which part of a split scene).
+    var note: String = ""
+
+    var scene: Scene?
+    var day: ShootingDay?
+
+    init(scene: Scene, sortOrder: Int, note: String = "") {
+        self.scene = scene
+        self.sortOrder = sortOrder
+        self.note = note
     }
 }
