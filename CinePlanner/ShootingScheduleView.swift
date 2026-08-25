@@ -312,7 +312,7 @@ struct ShootingScheduleView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
             .overlay(alignment: .topTrailing) {
-                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge }
+                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge(for: entry) }
             }
             .contentShape(Rectangle())
             .contextMenu { stripMenu(entry) }
@@ -476,7 +476,7 @@ struct ShootingScheduleView: View {
                     }
                 }
                 Spacer()
-                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge }
+                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge(for: entry) }
             }
             .contextMenu {
                 if !scene.shots.isEmpty {
@@ -550,13 +550,29 @@ struct ShootingScheduleView: View {
         return entry.resolvedShots.contains { duplicates.contains($0.uid) }
     }
 
-    /// The red "this shot is also on another day" badge.
-    private var conflictBadge: some View {
-        Image(systemName: "exclamationmark.circle.fill")
-            .font(.footnote)
-            .foregroundStyle(.white, .red)
-            .padding(3)
-            .help("Some of these shots are also planned on another day")
+    /// Per shot in this strip that's double-booked, which other days also carry it.
+    private func conflictDetails(_ entry: ScheduleEntry) -> [(shot: String, days: [String])] {
+        let dupes = duplicatedShotUIDs
+        guard !dupes.isEmpty else { return [] }
+        var result: [(String, [String])] = []
+        for shot in entry.resolvedShots where dupes.contains(shot.uid) {
+            var days: [String] = []
+            for day in version.orderedShootingDays {
+                for other in day.orderedEntries where other !== entry {
+                    if other.resolvedShots.contains(where: { $0.uid == shot.uid }),
+                       !days.contains(day.displayTitle) {
+                        days.append(day.displayTitle)
+                    }
+                }
+            }
+            if !days.isEmpty { result.append((shot.displayNumber, days)) }
+        }
+        return result
+    }
+
+    /// The red "also planned on another day" badge — tap to see which shots and days.
+    private func conflictBadge(for entry: ScheduleEntry) -> some View {
+        ConflictBadgeButton(details: conflictDetails(entry))
     }
 
     private func sceneTag(_ scene: Scene) -> some View {
@@ -827,6 +843,49 @@ private struct ScheduleShotPicker: View {
             entry.selectedShotUIDs = allUIDs.filter { selected.contains($0) }
         }
         onDone()
+    }
+}
+
+// MARK: - Conflict badge
+
+/// The red double-booking badge; tapping it opens a popover naming the clashing
+/// shots and the other days they're on.
+private struct ConflictBadgeButton: View {
+    let details: [(shot: String, days: [String])]
+    @State private var show = false
+
+    var body: some View {
+        Button { show = true } label: {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.white, .red)
+                .padding(3)
+        }
+        .buttonStyle(.plain)
+        .help("Some of these shots are also planned on another day")
+        .popover(isPresented: $show) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Also planned on another day", systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                if details.isEmpty {
+                    Text("Some of these shots are scheduled on more than one day.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(details.indices, id: \.self) { i in
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Text("Shot \(details[i].shot)")
+                                .font(.caption.weight(.semibold))
+                            Text("also on \(details[i].days.joined(separator: ", "))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 240, alignment: .leading)
+            .presentationCompactAdaptation(.popover)
+        }
     }
 }
 
