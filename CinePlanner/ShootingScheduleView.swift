@@ -305,6 +305,7 @@ struct ShootingScheduleView: View {
                     if !entry.note.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(entry.note).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                     }
+                    sunWarningTag(for: entry)
                 }
                 Spacer(minLength: 0)
             }
@@ -474,6 +475,7 @@ struct ShootingScheduleView: View {
                     if entry.isPartialScene {
                         partialShotList(entry)
                     }
+                    sunWarningTag(for: entry)
                 }
                 Spacer()
                 if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge(for: entry) }
@@ -573,6 +575,48 @@ struct ShootingScheduleView: View {
     /// The red "also planned on another day" badge — tap to see which shots and days.
     private func conflictBadge(for entry: ScheduleEntry) -> some View {
         ConflictBadgeButton(details: conflictDetails(entry))
+    }
+
+    /// The scene's sun-seeker date when it differs from this strip's shoot date, as a
+    /// short label — nil when there's no date, no sun date chosen, or they match.
+    private func sunMismatch(for entry: ScheduleEntry) -> String? {
+        guard let scene = entry.scene, let shootDate = entry.day?.date else { return nil }
+        let sun = scene.sunSettings
+        guard sun.dateEpoch != nil else { return nil }
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = sun.timeZone
+        guard !cal.isDate(sun.date, inSameDayAs: shootDate) else { return nil }
+        let f = DateFormatter(); f.timeZone = sun.timeZone; f.dateStyle = .medium
+        return f.string(from: sun.date)
+    }
+
+    /// An in-card warning when this scene's sun-seeker date doesn't match the shoot
+    /// date, with a one-tap fix. Empty view when they line up.
+    @ViewBuilder
+    private func sunWarningTag(for entry: ScheduleEntry) -> some View {
+        if let sunDate = sunMismatch(for: entry) {
+            let shootLabel = entry.day?.date.map {
+                let f = DateFormatter(); f.dateStyle = .medium; return f.string(from: $0)
+            } ?? ""
+            WarningPopoverButton(
+                symbol: "sun.max.trianglebadge.exclamationmark.fill",
+                tint: .orange,
+                title: "Sun date differs from the shoot date",
+                lines: ["Sun seeker set to \(sunDate)"],
+                actionTitle: "Set sun date to \(shootLabel)",
+                action: { fixSunDate(for: entry) },
+                inlineLabel: "Sun date off")
+        }
+    }
+
+    /// Set this scene's sun-seeker date to the strip's shoot date (noon, in the
+    /// scene's timezone, to avoid day-boundary drift).
+    private func fixSunDate(for entry: ScheduleEntry) {
+        guard let scene = entry.scene, let shootDate = entry.day?.date else { return }
+        var sun = scene.sunSettings
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = sun.timeZone
+        sun.dateEpoch = cal.startOfDay(for: shootDate).addingTimeInterval(12 * 3600).timeIntervalSince1970
+        scene.sunSettings = sun
+        save()
     }
 
     private func sceneTag(_ scene: Scene) -> some View {
@@ -880,6 +924,59 @@ private struct ConflictBadgeButton: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 240, alignment: .leading)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// A small tinted warning icon that opens a popover with a title and detail lines.
+private struct WarningPopoverButton: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let lines: [String]
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    var inlineLabel: String? = nil
+    @State private var show = false
+
+    var body: some View {
+        Button { show = true } label: {
+            if let inlineLabel {
+                HStack(spacing: 3) {
+                    Image(systemName: symbol)
+                    Text(inlineLabel)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Capsule().fill(tint.opacity(0.16)))
+            } else {
+                Image(systemName: symbol).font(.footnote).foregroundStyle(tint)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .popover(isPresented: $show) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(title, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(tint)
+                ForEach(lines.indices, id: \.self) { i in
+                    Text(lines[i]).font(.caption).foregroundStyle(.secondary)
+                }
+                if let actionTitle, let action {
+                    Divider()
+                    Button {
+                        action(); show = false
+                    } label: {
+                        Label(actionTitle, systemImage: "calendar.badge.checkmark")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
             }
             .padding(12)
