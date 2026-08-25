@@ -137,7 +137,6 @@ struct ShootingScheduleView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { addDay() } label: { Label("Add Day", systemImage: "calendar.badge.plus") }
                 }
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
                 #else
                 ToolbarItem(placement: .cancellationAction) {
                     Button { addDay() } label: { Label("Add Day", systemImage: "calendar.badge.plus") }
@@ -402,6 +401,19 @@ struct ShootingScheduleView: View {
             if !unscheduledScenes.isEmpty || !scenesMissingShots.isEmpty {
                 Section { unscheduledBanner.listRowInsets(EdgeInsets()) }
             }
+            if version.shootingDays.isEmpty {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No shooting days yet").font(.headline)
+                            Text("Tap the calendar button to add your first day.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "calendar.badge.plus").foregroundStyle(.secondary)
+                    }
+                }
+            }
             ForEach(version.orderedShootingDays) { day in
                 Section {
                     dayNotesCard(day)
@@ -468,15 +480,6 @@ struct ShootingScheduleView: View {
                             }
                         }
                     }
-                }
-            }
-        }
-        .overlay {
-            if version.shootingDays.isEmpty && !version.orderedScenes.isEmpty {
-                ContentUnavailableView {
-                    Label("No shooting days yet", systemImage: "calendar")
-                } description: {
-                    Text("Tap the calendar button to add your first day.")
                 }
             }
         }
