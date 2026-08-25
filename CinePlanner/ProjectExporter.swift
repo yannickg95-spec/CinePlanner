@@ -216,6 +216,7 @@ struct ProjectExporter {
     /// A shooting day for the web export's day-ordered view.
     private struct MediaScheduleDay {
         let number: Int          // 1-based
+        let notes: String        // the day's free-text note, "" when none
         let dateLabel: String    // "" when no date assigned
         let isoDate: String      // "yyyy-MM-dd" for matching "today" in the browser, else ""
         let setups: Int          // scenes on the day
@@ -570,6 +571,7 @@ struct ProjectExporter {
             let totals = ScheduleSummary.totals(for: day)
             let sun = ScheduleSummary.daylightTimes(for: day)
             return MediaScheduleDay(number: day.sortOrder + 1,
+                                    notes: day.notes,
                                     dateLabel: day.date.map { df.string(from: $0) } ?? "",
                                     isoDate: day.date.map { isoFmt.string(from: $0) } ?? "",
                                     setups: totals.setups,
@@ -963,6 +965,7 @@ struct ProjectExporter {
         if hasSchedule {
             let days: [[String: Any]] = schedule.map { day in
                 ["n": day.number,
+                 "notes": day.notes,
                  "date": day.dateLabel,
                  "iso": day.isoDate,
                  "setups": day.setups,
@@ -1532,7 +1535,15 @@ struct ProjectExporter {
                 margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
           .day-title .sun-tags { margin: 0 0 0 auto; }
-          .day-meta { font-size: 13px; font-weight: 600; color: var(--muted); margin: -3px 0 30px; }
+          /* text-size-adjust:100% stops mobile Safari inflating these text blocks
+             when the phone is in landscape (they look fine in portrait). */
+          .day-meta { font-size: 13px; font-weight: 600; color: var(--muted); margin: -3px 0 30px;
+                      -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+          /* The day's free-text note, shown under the header. Preserves line breaks. */
+          .day-note { font-size: 14px; color: var(--text); line-height: 1.5; white-space: pre-wrap;
+                      margin: -16px 0 30px; padding: 12px 14px; background: var(--chip);
+                      border: 1px solid var(--line); border-radius: 10px;
+                      -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
           .sun-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
           .sun-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px;
                      background: rgba(10,132,255,0.10); color: var(--muted); white-space: nowrap; }
@@ -1667,6 +1678,12 @@ struct ProjectExporter {
               meta.textContent = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
                 ' · ' + day.shots + ' shot' + (day.shots === 1 ? '' : 's');
               sec.appendChild(meta);
+              if (day.notes) {
+                var note = document.createElement('div');
+                note.className = 'day-note';
+                note.textContent = day.notes;
+                sec.appendChild(note);
+              }
               if (!day.entries.length) {
                 var p = document.createElement('p'); p.className = 'empty';
                 p.textContent = 'No scenes scheduled.'; sec.appendChild(p);

@@ -1552,12 +1552,10 @@ struct ProjectEditorView: View {
         .help("Export this shot list as PDF, text, or a web page with media")
     }
 
-    /// Opens the shooting-schedule board for the selected version.
-    @ViewBuilder
+    /// Opens the shooting-schedule board for the selected version. Built to match
+    /// the published-page GitHub button (same 36pt circle, secondary glyph) so the
+    /// two toolbar circles are identical in size and color, on every platform.
     private var scheduleButton: some View {
-        #if os(iOS)
-        // Built to match the published-page GitHub button (same 36pt circle,
-        // secondary glyph) so the two toolbar circles are identical in size/color.
         Button { showScheduleSheet = true } label: {
             Image(systemName: "calendar")
                 .font(.system(size: 15))
@@ -1569,13 +1567,6 @@ struct ProjectEditorView: View {
         .buttonStyle(.plain)
         .help("Plan shooting days and arrange scenes in shoot order")
         .disabled(selectedVersion == nil)
-        #else
-        Button { showScheduleSheet = true } label: {
-            Label("Schedule", systemImage: "calendar")
-        }
-        .help("Plan shooting days and arrange scenes in shoot order")
-        .disabled(selectedVersion == nil)
-        #endif
     }
 
     @ViewBuilder
