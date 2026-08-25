@@ -1328,7 +1328,8 @@ struct ProjectExporter {
           .media:empty { display: none; }
           .shot-row .media .mi:not([open]) > summary { display: flex; flex-direction: column;
                    align-items: center; gap: 2px; width: 46px; }
-          .shot-row .media .mi:not([open]) .thumb-label { display: block; text-align: center; line-height: 1.15; }
+          .shot-row .media .mi:not([open]) .thumb-label { display: none; text-align: center; line-height: 1.15; }
+          .shot-toggle:checked ~ .shot-row .media .mi:not([open]) .thumb-label { display: block; }
           .shot-row .media .mi:not([open]) > summary img,
           .shot-row .media .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
           .shot-row .media .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
