@@ -220,7 +220,10 @@ struct ProjectExporter {
         let isoDate: String      // "yyyy-MM-dd" for matching "today" in the browser, else ""
         let setups: Int          // scenes on the day
         let shots: Int           // shots planned on the day
-        let sunLine: String      // daylight summary, or "" when unavailable
+        let sunrise: String      // "" when unavailable
+        let sunset: String
+        let goldenAM: String     // "6:12–6:48"
+        let goldenPM: String     // "20:03–20:39"
         let entries: [MediaScheduleEntry]
     }
 
@@ -565,12 +568,16 @@ struct ProjectExporter {
                                           scheduledShotNumbers: scheduled, note: e.note)
             }
             let totals = ScheduleSummary.totals(for: day)
+            let sun = ScheduleSummary.daylightTimes(for: day)
             return MediaScheduleDay(number: day.sortOrder + 1,
                                     dateLabel: day.date.map { df.string(from: $0) } ?? "",
                                     isoDate: day.date.map { isoFmt.string(from: $0) } ?? "",
                                     setups: totals.setups,
                                     shots: totals.shots,
-                                    sunLine: ScheduleSummary.sunLine(for: day) ?? "",
+                                    sunrise: sun?.sunrise ?? "",
+                                    sunset: sun?.sunset ?? "",
+                                    goldenAM: sun?.goldenMorning ?? "",
+                                    goldenPM: sun?.goldenEvening ?? "",
                                     entries: entries)
         }
     }
@@ -960,7 +967,10 @@ struct ProjectExporter {
                  "iso": day.isoDate,
                  "setups": day.setups,
                  "shots": day.shots,
-                 "sun": day.sunLine,
+                 "sunrise": day.sunrise,
+                 "sunset": day.sunset,
+                 "goldenAM": day.goldenAM,
+                 "goldenPM": day.goldenPM,
                  "entries": day.entries.map { e -> [String: Any] in
                     ["s": e.sceneIndex, "all": e.allShots,
                      "shots": Array(e.scheduledShotNumbers), "note": e.note]
@@ -1495,7 +1505,14 @@ struct ProjectExporter {
           .day-title { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 800;
                 margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
-          .day-meta { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
+          .day-meta { font-size: 12.5px; color: var(--muted); margin: -6px 0 8px; }
+          .sun-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+          .sun-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px;
+                     background: rgba(10,132,255,0.10); color: var(--muted); white-space: nowrap; }
+          .sun-tag b { color: var(--text); font-weight: 700; margin-right: 5px; }
+          .sun-tag.golden { background: rgba(255,170,0,0.16); }
+          .sun-tag.golden b { color: #a86a00; }
+          @media (prefers-color-scheme: dark) { .sun-tag.golden b { color: #f0b84a; } }
           .day-group.is-today .day-title::after { content: "Today"; font-size: 11px; font-weight: 700;
                 letter-spacing: 0.4px; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 999px; }
           .strip-note { font-size: 13px; color: var(--muted); font-style: italic; margin: 2px 0 8px; }
@@ -1605,10 +1622,23 @@ struct ProjectExporter {
               sec.appendChild(h);
               var meta = document.createElement('div');
               meta.className = 'day-meta';
-              var totals = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
+              meta.textContent = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
                 ' · ' + day.shots + ' shot' + (day.shots === 1 ? '' : 's');
-              meta.textContent = day.sun ? totals + '   ·   ' + day.sun : totals;
               sec.appendChild(meta);
+              if (day.sunrise) {
+                var tags = document.createElement('div');
+                tags.className = 'sun-tags';
+                function tag(label, val, golden) {
+                  return '<span class="sun-tag' + (golden ? ' golden' : '') + '">' +
+                    '<b>' + label + '</b>' + val + '</span>';
+                }
+                tags.innerHTML =
+                  tag('Sunrise', day.sunrise, false) +
+                  tag('Sunset', day.sunset, false) +
+                  tag('Golden', day.goldenAM, true) +
+                  tag('Golden', day.goldenPM, true);
+                sec.appendChild(tags);
+              }
               if (!day.entries.length) {
                 var p = document.createElement('p'); p.className = 'empty';
                 p.textContent = 'No scenes scheduled.'; sec.appendChild(p);

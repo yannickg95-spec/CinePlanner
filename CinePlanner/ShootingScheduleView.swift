@@ -115,8 +115,10 @@ struct ShootingScheduleView: View {
                 #endif
             }
         }
-        .frame(minWidth: isPhone ? nil : 1180, idealWidth: isPhone ? nil : 1180,
-               minHeight: isPhone ? nil : 480, idealHeight: isPhone ? nil : 480)
+        .frame(minWidth: isPhone ? nil : 1100, idealWidth: isPhone ? nil : 1500,
+               maxWidth: isPhone ? nil : .infinity,
+               minHeight: isPhone ? nil : 640, idealHeight: isPhone ? nil : 920,
+               maxHeight: isPhone ? nil : .infinity)
     }
 
     // MARK: - Wide board (iPad / Mac)
@@ -250,17 +252,35 @@ struct ShootingScheduleView: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
     }
 
-    /// Load totals (scenes/shots) and the daylight line for a day.
+    /// Load totals (scenes/shots) and daylight tags for a day.
     @ViewBuilder
     private func dayMeta(_ day: ShootingDay) -> some View {
         let t = ScheduleSummary.totals(for: day)
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 5) {
             Text("\(t.setups) scene\(t.setups == 1 ? "" : "s") · \(t.shots) shot\(t.shots == 1 ? "" : "s")")
                 .font(.caption2).foregroundStyle(.secondary)
-            if let sun = ScheduleSummary.sunLine(for: day) {
-                Text(sun).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            if let sun = ScheduleSummary.daylightTimes(for: day) {
+                FlowLayout(spacing: 5) {
+                    sunTag("Sunrise", sun.sunrise, labelColor: .primary, background: Color.accentColor.opacity(0.12))
+                    sunTag("Sunset", sun.sunset, labelColor: .primary, background: Color.accentColor.opacity(0.12))
+                    sunTag("Golden", sun.goldenMorning, labelColor: Self.goldenTint, background: Self.goldenTint.opacity(0.16))
+                    sunTag("Golden", sun.goldenEvening, labelColor: Self.goldenTint, background: Self.goldenTint.opacity(0.16))
+                }
             }
         }
+    }
+
+    private static let goldenTint = Color(red: 0.80, green: 0.55, blue: 0.05)
+
+    /// A small tinted pill with a bold label and its time(s) — mirrors the web tags.
+    private func sunTag(_ label: String, _ value: String, labelColor: Color, background: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(label).font(.caption2.weight(.bold)).foregroundStyle(labelColor)
+            Text(value).font(.caption2).foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        .padding(.horizontal, 7).padding(.vertical, 2)
+        .background(Capsule().fill(background))
     }
 
     /// Date control for a day — a tinted calendar chip that opens a graphical picker.
@@ -788,5 +808,40 @@ private struct ScheduleShotPicker: View {
             entry.selectedShotUIDs = allUIDs.filter { selected.contains($0) }
         }
         onDone()
+    }
+}
+
+// MARK: - Flow layout
+
+/// A minimal wrapping layout: lays subviews left-to-right, wrapping to the next
+/// row when the proposed width runs out. Used for the daylight tags so they wrap
+/// inside a narrow day column instead of overflowing.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+            x += size.width + spacing
+            widest = max(widest, x - spacing)
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+            view.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
+                       proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }

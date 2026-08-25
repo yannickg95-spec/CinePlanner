@@ -1594,10 +1594,22 @@ enum ScheduleSummary {
         return f.string(from: instant)
     }
 
-    /// A compact one-line daylight summary, or nil when unavailable.
-    static func sunLine(for day: ShootingDay) -> String? {
+    /// Formatted daylight times for a day, ready to show as tags.
+    struct DaylightTimes {
+        let sunrise: String       // "6:12"
+        let sunset: String        // "20:39"
+        let goldenMorning: String // "6:12–6:48"
+        let goldenEvening: String // "20:03–20:39"
+    }
+
+    /// Daylight times for a day, or nil when unavailable.
+    static func daylightTimes(for day: ShootingDay) -> DaylightTimes? {
         guard let (dl, tz, date) = daylight(for: day) else { return nil }
         func t(_ m: Int) -> String { clock(m, on: date, timeZone: tz) }
-        return "☀︎ \(t(dl.sunrise))–\(t(dl.sunset))  ·  golden \(t(dl.sunrise))–\(t(dl.goldenMorningEnd)), \(t(dl.goldenEveningStart))–\(t(dl.sunset))"
+        return DaylightTimes(
+            sunrise: t(dl.sunrise),
+            sunset: t(dl.sunset),
+            goldenMorning: "\(t(dl.sunrise))–\(t(dl.goldenMorningEnd))",
+            goldenEvening: "\(t(dl.goldenEveningStart))–\(t(dl.sunset))")
     }
 }
