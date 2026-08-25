@@ -297,10 +297,30 @@ struct ProjectExporter {
         let height: CGFloat
     }
 
-    /// Renders the scene's covered script page(s) as one image, drawing each shot's
-    /// coverage as a coloured bar in the left margin next to the covered lines —
-    /// the same style as the "script with coverage" PDF — with the shot number
-    /// above each bar. Returns nil when no shot in the scene has coverage.
+    /// The absolute PDF page range a scene spans: from its heading page to the page
+    /// where the next scene (on a later page) begins — which this scene shares — or
+    /// the last page for the final scene. So the coverage card can show the whole
+    /// scene, uncovered pages included.
+    private func scenePageSpan(for scene: Scene, in pdf: PDFDocument) -> ClosedRange<Int> {
+        let last = max(0, pdf.pageCount - 1)
+        let start = min(max(0, scene.absolutePDFPage), last)
+        let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
+        var end = last
+        if let idx = ordered.firstIndex(where: { $0 === scene }) {
+            for next in ordered[(idx + 1)...] where next.absolutePDFPage > start {
+                end = next.absolutePDFPage
+                break
+            }
+        }
+        end = min(max(start, end), last)
+        return start...end
+    }
+
+    /// Renders the scene's script page(s) as one image — the whole scene, not only
+    /// the covered pages — drawing each shot's coverage as a coloured bar in the left
+    /// margin next to the covered lines (the same style as the "script with coverage"
+    /// PDF), with the shot number above each bar. Returns nil when no shot in the
+    /// scene has coverage.
     private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> CoverageImage? {
         struct Bar { let color: PlatformColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
         var byPage: [Int: [Bar]] = [:]
@@ -319,11 +339,17 @@ struct ProjectExporter {
         }
         guard !byPage.isEmpty else { return nil }
 
+        // Show the scene's whole extent — every page it spans — not only the pages
+        // that happen to carry coverage lines, so the uncovered parts of the scene
+        // are still visible.
+        let span = scenePageSpan(for: scene, in: sourcePDF)
+
         // Higher scale than a poster: this is text meant to be read when opened.
         let scale: CGFloat = 3.0
         var pageImages: [PlatformImage] = []
-        for pageIndex in byPage.keys.sorted() {
-            guard let page = sourcePDF.page(at: pageIndex) else { continue }
+        for pageIndex in span {
+            guard pageIndex >= 0, pageIndex < sourcePDF.pageCount,
+                  let page = sourcePDF.page(at: pageIndex) else { continue }
             let cropBox = page.bounds(for: .cropBox)
             let size = CGSize(width: cropBox.width * scale, height: cropBox.height * scale)
             guard size.width > 1, size.height > 1 else { continue }
