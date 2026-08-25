@@ -92,6 +92,26 @@ struct ShootingScheduleView: View {
                     ScheduleShotPicker(entry: entry, scene: scene, onDone: save)
                 }
             }
+            .sheet(item: $editDayNoteFor) { day in
+                NavigationStack {
+                    TextEditor(text: $dayNoteDraft)
+                        .font(.body)
+                        .padding(10)
+                        .navigationTitle("Day \(day.sortOrder + 1) Note")
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { editDayNoteFor = nil }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Save") { day.notes = dayNoteDraft; save(); editDayNoteFor = nil }
+                            }
+                        }
+                }
+                .frame(minWidth: 380, minHeight: 260)
+            }
             .navigationTitle("Shooting Schedule")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -195,6 +215,7 @@ struct ShootingScheduleView: View {
             Divider()
             ScrollView {
                 LazyVStack(spacing: 6) {
+                    dayNotesCard(day)
                     ForEach(day.orderedEntries, id: \.uid) { entry in
                         stripRow(entry)
                             .draggable("entry:\(entry.uid)")
@@ -285,7 +306,7 @@ struct ShootingScheduleView: View {
     private func stripRow(_ entry: ScheduleEntry) -> some View {
         guard let scene = entry.scene else { return AnyView(EmptyView()) }
         return AnyView(
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 sceneTag(scene)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Scene \(scene.sceneNumber)\(scene.suffix)")
@@ -372,6 +393,7 @@ struct ShootingScheduleView: View {
             }
             ForEach(version.orderedShootingDays) { day in
                 Section {
+                    dayNotesCard(day)
                     ForEach(day.orderedEntries, id: \.uid) { entry in
                         phoneStripRow(entry)
                     }
@@ -457,7 +479,7 @@ struct ShootingScheduleView: View {
     private func phoneStripRow(_ entry: ScheduleEntry) -> some View {
         guard let scene = entry.scene else { return AnyView(EmptyView()) }
         return AnyView(
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 sceneTag(scene)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Scene \(scene.sceneNumber)\(scene.suffix)").font(.body.weight(.medium)).lineLimit(1)
@@ -494,6 +516,42 @@ struct ShootingScheduleView: View {
     @State private var editNoteFor: ScheduleEntry?
     @State private var noteDraft = ""
     @State private var shotSelectFor: ScheduleEntry?
+    @State private var editDayNoteFor: ShootingDay?
+    @State private var dayNoteDraft = ""
+
+    /// An optional note card at the top of a day's scenes. Shows the note (tap to
+    /// edit) when set, otherwise a subtle "Add note" button.
+    @ViewBuilder
+    private func dayNotesCard(_ day: ShootingDay) -> some View {
+        if !day.notes.trimmingCharacters(in: .whitespaces).isEmpty {
+            Button { editDayNoteFor = day; dayNoteDraft = day.notes } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "note.text").font(.caption2).foregroundStyle(.secondary)
+                    Text(day.notes).font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.yellow.opacity(0.16)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button { editDayNoteFor = day; dayNoteDraft = day.notes } label: {
+                    Label("Edit Note…", systemImage: "pencil")
+                }
+                Button(role: .destructive) { day.notes = ""; save() } label: {
+                    Label("Remove Note", systemImage: "trash")
+                }
+            }
+        } else {
+            Button { editDayNoteFor = day; dayNoteDraft = "" } label: {
+                Label("Add note", systemImage: "note.text.badge.plus")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     // MARK: - Shared bits
 
