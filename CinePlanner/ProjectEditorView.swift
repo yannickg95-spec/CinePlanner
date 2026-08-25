@@ -192,14 +192,9 @@ struct ProjectEditorView: View {
                 actionButtons
             }
 
-            #if os(iOS)
-            if #available(iOS 26.0, *) {
-                ToolbarItem(placement: .primaryAction) { scheduleButton }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .primaryAction) { scheduleButton }
-            }
-            #else
+            // iOS/iPadOS group the schedule button with GitHub/Export (see
+            // headerButtons / exportToolbarGroup) so it sits an even 8pt from them.
+            #if os(macOS)
             ToolbarItem(placement: .primaryAction) { scheduleButton }
             #endif
 
@@ -1088,9 +1083,10 @@ struct ProjectEditorView: View {
             .padding(.vertical, 8)
     }
 
-    /// GitHub + Export, shown in the iPhone toolbar row.
+    /// Schedule + GitHub + Export, shown in the iPhone toolbar row.
     private var headerButtons: some View {
         HStack(spacing: 8) {
+            scheduleButton
             gitHubHeaderButton
             exportButton
         }
@@ -1510,6 +1506,11 @@ struct ProjectEditorView: View {
     @ViewBuilder
     private var exportToolbarGroup: some View {
         HStack(spacing: 8) {
+            // iPad groups the schedule button here for even spacing; macOS keeps its
+            // own separate toolbar item, so it's excluded on that platform.
+            #if os(iOS)
+            scheduleButton
+            #endif
             if let url = publishedURL {
                 publishedPageMenu(url: url)
             }
@@ -1554,11 +1555,27 @@ struct ProjectEditorView: View {
     /// Opens the shooting-schedule board for the selected version.
     @ViewBuilder
     private var scheduleButton: some View {
+        #if os(iOS)
+        // Built to match the published-page GitHub button (same 36pt circle,
+        // secondary glyph) so the two toolbar circles are identical in size/color.
+        Button { showScheduleSheet = true } label: {
+            Image(systemName: "calendar")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Plan shooting days and arrange scenes in shoot order")
+        .disabled(selectedVersion == nil)
+        #else
         Button { showScheduleSheet = true } label: {
             Label("Schedule", systemImage: "calendar")
         }
         .help("Plan shooting days and arrange scenes in shoot order")
         .disabled(selectedVersion == nil)
+        #endif
     }
 
     @ViewBuilder
