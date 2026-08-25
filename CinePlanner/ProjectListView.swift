@@ -902,20 +902,53 @@ struct RestoreBackupSheet: View {
             set: { if !$0 { confirmBackup = nil } }
         )) {
             Button("Cancel", role: .cancel) { }
-            Button("Restore and Quit", role: .destructive) {
+            Button(restoreConfirmTitle, role: .destructive) {
                 if let backup = confirmBackup {
                     StoreBackup.requestRestore(backup)
                     #if os(macOS)
-                    NSApp.terminate(nil)
+                    // Close the alert and the sheet first: AppKit refuses to terminate
+                    // (and beeps) while a modal sheet is still open. Relaunch once it's
+                    // had a moment to animate away.
+                    confirmBackup = nil
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { relaunchApp() }
+                    #else
+                    // iOS can't relaunch itself; the restore applies on next launch
+                    // (the user reopens from the App Switcher).
                     #endif
-                    // On iOS the app can't quit itself; the restore is applied on the
-                    // next launch (the user relaunches from the App Switcher).
                 }
             }
         } message: {
+            #if os(macOS)
+            Text("Your current data will be replaced with this backup. CinePlanner will restart to finish restoring.")
+            #else
             Text("Your current data will be replaced with this backup. CinePlanner will quit — reopen it to finish restoring.")
+            #endif
         }
     }
+
+    private var restoreConfirmTitle: String {
+        #if os(macOS)
+        "Restore & Restart"
+        #else
+        "Restore & Quit"
+        #endif
+    }
+
+    #if os(macOS)
+    /// Relaunch the app: a detached shell waits for this process to exit, then
+    /// reopens the app bundle, so the queued restore is applied on the fresh launch.
+    private func relaunchApp() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let path = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c",
+            "while /bin/kill -0 \(pid) >/dev/null 2>&1; do /bin/sleep 0.2; done; /usr/bin/open \"\(path)\""]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
+    #endif
 }
 
 #Preview {
