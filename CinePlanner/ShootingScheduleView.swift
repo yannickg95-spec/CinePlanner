@@ -172,7 +172,6 @@ struct ShootingScheduleView: View {
                         ForEach(version.orderedShootingDays) { day in
                             dayColumn(day)
                         }
-                        addDayColumnButton
                     }
                     .padding(12)
                 }
@@ -383,21 +382,6 @@ struct ShootingScheduleView: View {
         }
         Divider()
         Button(role: .destructive) { deleteEntry(entry) } label: { Label("Remove", systemImage: "trash") }
-    }
-
-    private var addDayColumnButton: some View {
-        Button { addDay() } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "calendar.badge.plus").font(.title2)
-                Text("Add Day").font(.caption)
-            }
-            .frame(width: 120).frame(maxHeight: .infinity)
-            .foregroundStyle(.secondary)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5]))
-                .foregroundStyle(Color.secondary.opacity(0.4)))
-        }
-        .buttonStyle(.plain)
     }
 
     private var emptyState: some View {

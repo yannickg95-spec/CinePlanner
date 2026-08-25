@@ -1509,7 +1509,7 @@ struct ProjectExporter {
                 margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
           .day-title .sun-tags { margin: 0 0 0 auto; }
-          .day-meta { font-size: 12.5px; color: var(--muted); margin: -6px 0 8px; }
+          .day-meta { font-size: 13px; font-weight: 600; color: var(--muted); margin: -3px 0 30px; }
           .sun-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
           .sun-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px;
                      background: rgba(10,132,255,0.10); color: var(--muted); white-space: nowrap; }
