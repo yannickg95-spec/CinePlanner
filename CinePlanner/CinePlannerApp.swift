@@ -74,6 +74,10 @@ struct CinePlannerApp: App {
         let undo = UndoManager()
         undo.levelsOfUndo = 50
         sharedModelContainer.mainContext.undoManager = undo
+
+        // Upgrade a pre-existing local-only GitHub token to the synced Keychain so
+        // it becomes available on the user's other devices via iCloud Keychain.
+        GitHubPublisher.migrateTokenToSyncIfNeeded()
     }
 
     private static func setRecoveryMessage(_ message: String) {

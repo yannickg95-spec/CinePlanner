@@ -111,6 +111,15 @@ enum GitHubPublisher {
         }
     }
 
+    /// One-time: older builds stored the token in the local (non-synced) Keychain.
+    /// If such a legacy item exists, rewrite it as synchronizable so it reaches the
+    /// user's other devices via iCloud Keychain. Idempotent — a no-op once the token
+    /// is already synced (or absent). Re-storing it also removes the legacy copy.
+    static func migrateTokenToSyncIfNeeded() {
+        guard let legacy = GHKeychain.readLocalOnly(service: tokenService, account: tokenAccount) else { return }
+        token = legacy
+    }
+
     // MARK: - Per-project repo (legacy UserDefaults → model migration)
 
     /// The project→repo link now lives on `Project.publishedRepoFullName` (synced
@@ -559,6 +568,11 @@ private enum GHKeychain {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: Data(value.utf8),
+            // Sync the token across the user's devices via iCloud Keychain, so it
+            // only has to be entered once. AfterFirstUnlock keeps it readable in the
+            // background and is the accessibility class sync requires.
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         SecItemAdd(query as CFDictionary, nil)
     }
@@ -570,6 +584,8 @@ private enum GHKeychain {
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            // Match both the synced item and any legacy local-only one.
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
@@ -582,7 +598,25 @@ private enum GHKeychain {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            // Remove both synced and legacy local-only copies.
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    /// Reads only a legacy, non-synchronizable item (used by the sync migration).
+    static func readLocalOnly(service: String, account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
