@@ -58,6 +58,40 @@ enum SolarPosition {
         guard let sr = sunrise, let ss = sunset else { return nil }
         return (sr, ss)
     }
+
+    /// Daylight landmarks for a day, as minutes since local midnight in `timeZone`:
+    /// sunrise/sunset (−0.833° horizon) plus the golden-hour edges (sun at +6°) — the
+    /// morning golden hour runs sunrise→goldenMorningEnd, the evening one
+    /// goldenEveningStart→sunset. Nil where the sun never rises/sets that day.
+    struct DayLight {
+        let sunrise: Int, sunset: Int
+        let goldenMorningEnd: Int, goldenEveningStart: Int
+    }
+
+    static func dayLight(date: Date, latitude: Double, longitude: Double,
+                         timeZone: TimeZone) -> DayLight? {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        let startOfDay = cal.startOfDay(for: date)
+        let horizon = -0.833, golden = 6.0
+        func alt(_ minute: Int) -> Double {
+            altAzimuth(date: startOfDay.addingTimeInterval(Double(minute) * 60),
+                       latitude: latitude, longitude: longitude).altitude
+        }
+        var previous = alt(0)
+        var sunrise: Int?, sunset: Int?, gMorn: Int?, gEve: Int?
+        for minute in 1...1440 {
+            let a = alt(minute)
+            if sunrise == nil, previous < horizon, a >= horizon { sunrise = minute }
+            if previous >= horizon, a < horizon { sunset = minute }
+            if gMorn == nil, previous < golden, a >= golden { gMorn = minute }
+            if previous >= golden, a < golden { gEve = minute }
+            previous = a
+        }
+        guard let sr = sunrise, let ss = sunset else { return nil }
+        return DayLight(sunrise: sr, sunset: ss,
+                        goldenMorningEnd: gMorn ?? sr, goldenEveningStart: gEve ?? ss)
+    }
 }
 
 /// Per-scene settings for the sun-direction overlay, stored as JSON on the scene.

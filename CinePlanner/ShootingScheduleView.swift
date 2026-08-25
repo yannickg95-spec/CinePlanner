@@ -36,6 +36,52 @@ struct ShootingScheduleView: View {
         }
     }
 
+    /// Scenes that are scheduled but whose strips don't cover all their shots — some
+    /// shots aren't planned on any day.
+    private var scenesMissingShots: [Scene] {
+        version.orderedScenes.filter { scene in
+            guard !scene.shots.isEmpty else { return false }
+            var placed = Set<String>()
+            var scheduled = false
+            for day in version.shootingDays {
+                for e in day.entries where e.scene === scene {
+                    scheduled = true
+                    for s in e.resolvedShots { placed.insert(s.uid) }
+                }
+            }
+            return scheduled && placed.count < scene.shots.count
+        }
+    }
+
+    private func sceneList(_ scenes: [Scene]) -> String {
+        let nums = scenes.prefix(8).map { "\($0.sceneNumber)\($0.suffix)" }
+        return nums.joined(separator: ", ") + (scenes.count > 8 ? "…" : "")
+    }
+
+    /// A warning strip listing scenes not scheduled and scenes missing shots.
+    @ViewBuilder
+    private var unscheduledBanner: some View {
+        let none = unscheduledScenes
+        let missing = scenesMissingShots
+        if !none.isEmpty || !missing.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                if !none.isEmpty {
+                    Label("\(none.count) scene\(none.count == 1 ? "" : "s") not scheduled: \(sceneList(none))",
+                          systemImage: "exclamationmark.triangle.fill")
+                }
+                if !missing.isEmpty {
+                    Label("\(missing.count) scene\(missing.count == 1 ? "" : "s") missing shots: \(sceneList(missing))",
+                          systemImage: "exclamationmark.circle.fill")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.12))
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -76,7 +122,9 @@ struct ShootingScheduleView: View {
     // MARK: - Wide board (iPad / Mac)
 
     private var boardLayout: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
+            unscheduledBanner
+            HStack(spacing: 0) {
             scenePalette
                 .frame(width: 240)
             Divider()
@@ -93,6 +141,7 @@ struct ShootingScheduleView: View {
                     }
                     .padding(12)
                 }
+            }
             }
         }
     }
@@ -176,6 +225,7 @@ struct ShootingScheduleView: View {
     }
 
     private func dayHeader(_ day: ShootingDay) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 6) {
             Text("Day \(day.sortOrder + 1)").font(.subheadline.bold())
             dayDateControl(day)
@@ -195,7 +245,22 @@ struct ShootingScheduleView: View {
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
+        dayMeta(day)
+        }
         .padding(.horizontal, 10).padding(.vertical, 8)
+    }
+
+    /// Load totals (scenes/shots) and the daylight line for a day.
+    @ViewBuilder
+    private func dayMeta(_ day: ShootingDay) -> some View {
+        let t = ScheduleSummary.totals(for: day)
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(t.setups) scene\(t.setups == 1 ? "" : "s") · \(t.shots) shot\(t.shots == 1 ? "" : "s")")
+                .font(.caption2).foregroundStyle(.secondary)
+            if let sun = ScheduleSummary.sunLine(for: day) {
+                Text(sun).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
     }
 
     /// Date control for a day — a tinted calendar chip that opens a graphical picker.
@@ -289,6 +354,9 @@ struct ShootingScheduleView: View {
 
     private var phoneLayout: some View {
         List {
+            if !unscheduledScenes.isEmpty || !scenesMissingShots.isEmpty {
+                Section { unscheduledBanner.listRowInsets(EdgeInsets()) }
+            }
             ForEach(version.orderedShootingDays) { day in
                 Section {
                     ForEach(day.orderedEntries, id: \.uid) { entry in
@@ -314,20 +382,23 @@ struct ShootingScheduleView: View {
                         Label("Add Scene", systemImage: "plus.circle")
                     }
                 } header: {
-                    HStack {
-                        Text("Day \(day.sortOrder + 1)")
-                        dayDateControl(day)
-                        Spacer()
-                        Menu {
-                            if day.date != nil {
-                                Button { day.date = nil; save() } label: {
-                                    Label("Remove Date", systemImage: "calendar.badge.minus")
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Day \(day.sortOrder + 1)")
+                            dayDateControl(day)
+                            Spacer()
+                            Menu {
+                                if day.date != nil {
+                                    Button { day.date = nil; save() } label: {
+                                        Label("Remove Date", systemImage: "calendar.badge.minus")
+                                    }
                                 }
-                            }
-                            Button(role: .destructive) { deleteDay(day) } label: {
-                                Label("Delete Day", systemImage: "trash")
-                            }
-                        } label: { Image(systemName: "ellipsis.circle") }
+                                Button(role: .destructive) { deleteDay(day) } label: {
+                                    Label("Delete Day", systemImage: "trash")
+                                }
+                            } label: { Image(systemName: "ellipsis.circle") }
+                        }
+                        dayMeta(day)
                     }
                 }
             }

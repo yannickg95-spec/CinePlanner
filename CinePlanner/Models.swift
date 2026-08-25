@@ -1557,3 +1557,47 @@ final class ScheduleEntry {
         return !selectedShotUIDs.isEmpty && selectedShotUIDs.count < scene.shots.count
     }
 }
+
+/// Derived read-outs for a shooting day: load totals and daylight times. Shared by
+/// the in-app board and the web export so both show the same numbers.
+enum ScheduleSummary {
+    /// Setups (scenes) and shots planned on the day.
+    static func totals(for day: ShootingDay) -> (setups: Int, shots: Int) {
+        let entries = day.orderedEntries
+        return (entries.count, entries.reduce(0) { $0 + $1.resolvedShots.count })
+    }
+
+    /// The first scheduled scene on the day that carries a sun location, used as the
+    /// day's representative location for daylight times.
+    static func representativeSun(for day: ShootingDay) -> SunSettings? {
+        for entry in day.orderedEntries {
+            if let s = entry.scene?.sunSettings, s.hasLocation { return s }
+        }
+        return nil
+    }
+
+    /// Daylight for the day at its representative location, or nil when the day has
+    /// no date or no located scene (or the sun never rises/sets there that day).
+    static func daylight(for day: ShootingDay) -> (light: SolarPosition.DayLight, timeZone: TimeZone, date: Date)? {
+        guard let date = day.date, let sun = representativeSun(for: day),
+              let lat = sun.latitude, let lon = sun.longitude,
+              let dl = SolarPosition.dayLight(date: date, latitude: lat, longitude: lon, timeZone: sun.timeZone)
+        else { return nil }
+        return (dl, sun.timeZone, date)
+    }
+
+    /// "H:mm" for `minutes` since local midnight, in `timeZone`.
+    static func clock(_ minutes: Int, on date: Date, timeZone: TimeZone) -> String {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = timeZone
+        let instant = cal.startOfDay(for: date).addingTimeInterval(Double(minutes) * 60)
+        let f = DateFormatter(); f.timeZone = timeZone; f.dateFormat = "H:mm"
+        return f.string(from: instant)
+    }
+
+    /// A compact one-line daylight summary, or nil when unavailable.
+    static func sunLine(for day: ShootingDay) -> String? {
+        guard let (dl, tz, date) = daylight(for: day) else { return nil }
+        func t(_ m: Int) -> String { clock(m, on: date, timeZone: tz) }
+        return "☀︎ \(t(dl.sunrise))–\(t(dl.sunset))  ·  golden \(t(dl.sunrise))–\(t(dl.goldenMorningEnd)), \(t(dl.goldenEveningStart))–\(t(dl.sunset))"
+    }
+}

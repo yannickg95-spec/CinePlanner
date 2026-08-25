@@ -217,6 +217,10 @@ struct ProjectExporter {
     private struct MediaScheduleDay {
         let number: Int          // 1-based
         let dateLabel: String    // "" when no date assigned
+        let isoDate: String      // "yyyy-MM-dd" for matching "today" in the browser, else ""
+        let setups: Int          // scenes on the day
+        let shots: Int           // shots planned on the day
+        let sunLine: String      // daylight summary, or "" when unavailable
         let entries: [MediaScheduleEntry]
     }
 
@@ -548,6 +552,9 @@ struct ProjectExporter {
         for (i, scene) in ordered.enumerated() { indexByScene[ObjectIdentifier(scene)] = i }
         guard let days = version?.orderedShootingDays, !days.isEmpty else { return [] }
         let df = DateFormatter(); df.dateStyle = .full
+        let isoFmt = DateFormatter()
+        isoFmt.locale = Locale(identifier: "en_US_POSIX")
+        isoFmt.dateFormat = "yyyy-MM-dd"
         return days.map { day in
             let entries: [MediaScheduleEntry] = day.orderedEntries.compactMap { e in
                 guard let scene = e.scene, let idx = indexByScene[ObjectIdentifier(scene)] else { return nil }
@@ -557,8 +564,13 @@ struct ProjectExporter {
                 return MediaScheduleEntry(sceneIndex: idx, allShots: isAll,
                                           scheduledShotNumbers: scheduled, note: e.note)
             }
+            let totals = ScheduleSummary.totals(for: day)
             return MediaScheduleDay(number: day.sortOrder + 1,
                                     dateLabel: day.date.map { df.string(from: $0) } ?? "",
+                                    isoDate: day.date.map { isoFmt.string(from: $0) } ?? "",
+                                    setups: totals.setups,
+                                    shots: totals.shots,
+                                    sunLine: ScheduleSummary.sunLine(for: day) ?? "",
                                     entries: entries)
         }
     }
@@ -945,6 +957,10 @@ struct ProjectExporter {
             let days: [[String: Any]] = schedule.map { day in
                 ["n": day.number,
                  "date": day.dateLabel,
+                 "iso": day.isoDate,
+                 "setups": day.setups,
+                 "shots": day.shots,
+                 "sun": day.sunLine,
                  "entries": day.entries.map { e -> [String: Any] in
                     ["s": e.sceneIndex, "all": e.allShots,
                      "shots": Array(e.scheduledShotNumbers), "note": e.note]
@@ -1475,10 +1491,13 @@ struct ProjectExporter {
           .vt { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
                 padding: 5px 12px; border-radius: 7px; cursor: pointer; }
           .vt.on { background: var(--accent); color: #fff; }
-          .day-group { margin: 24px 0 8px; }
+          .day-group { margin: 24px 0 8px; scroll-margin-top: calc(var(--sticky) + 16px); }
           .day-title { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 800;
                 margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
+          .day-meta { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
+          .day-group.is-today .day-title::after { content: "Today"; font-size: 11px; font-weight: 700;
+                letter-spacing: 0.4px; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 999px; }
           .strip-note { font-size: 13px; color: var(--muted); font-style: italic; margin: 2px 0 8px; }
           .shot.shot-off { opacity: 0.4; }
           .shot-off-msg { font-size: 11px; font-style: italic; color: var(--muted); margin-left: 8px; }
@@ -1576,11 +1595,20 @@ struct ProjectExporter {
             CP_SCHEDULE.forEach(function (day) {
               var sec = document.createElement('section');
               sec.className = 'day-group';
+              sec.id = 'day-' + day.n;
+              if (day.iso) sec.setAttribute('data-date', day.iso);
+              if (day.iso && day.iso === todayISO()) sec.classList.add('is-today');
               var h = document.createElement('div');
               h.className = 'day-title';
               h.innerHTML = '<span class="day-n">Day ' + day.n + '</span>' +
                 (day.date ? '<span class="day-date">' + day.date + '</span>' : '');
               sec.appendChild(h);
+              var meta = document.createElement('div');
+              meta.className = 'day-meta';
+              var totals = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
+                ' · ' + day.shots + ' shot' + (day.shots === 1 ? '' : 's');
+              meta.textContent = day.sun ? totals + '   ·   ' + day.sun : totals;
+              sec.appendChild(meta);
               if (!day.entries.length) {
                 var p = document.createElement('p'); p.className = 'empty';
                 p.textContent = 'No scenes scheduled.'; sec.appendChild(p);
@@ -1632,6 +1660,16 @@ struct ProjectExporter {
             });
           }
 
+          function todayISO() {
+            var d = new Date();
+            function p(n) { return (n < 10 ? '0' : '') + n; }
+            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+          }
+          function scrollToToday() {
+            var el = document.querySelector('#view-days [data-date="' + todayISO() + '"]');
+            if (el) requestAnimationFrame(function () { el.scrollIntoView({ block: 'start' }); });
+          }
+
           var vtScenes = document.getElementById('vt-scenes');
           var vtDays = document.getElementById('vt-days');
           function setView(days) {
@@ -1641,6 +1679,7 @@ struct ProjectExporter {
             document.body.classList.toggle('days-mode', days);
             if (vtScenes) vtScenes.classList.toggle('on', !days);
             if (vtDays) vtDays.classList.toggle('on', days);
+            if (days) scrollToToday();
           }
           if (vtDays) vtDays.addEventListener('click', function () { setView(true); });
           if (vtScenes) vtScenes.addEventListener('click', function () { setView(false); });
