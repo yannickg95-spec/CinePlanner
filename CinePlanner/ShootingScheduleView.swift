@@ -181,12 +181,10 @@ struct ShootingScheduleView: View {
             Spacer(minLength: 0)
             let count = placementCount(scene)
             if count > 0 {
-                Text("\(count)")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 16, minHeight: 16)
-                    .background(Circle().fill(count > 0 ? Color.accentColor : .secondary))
-                    .help("Placed on \(count) day\(count == 1 ? "" : "s")")
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.green)
+                    .help("Scheduled — placed on \(count) day\(count == 1 ? "" : "s")")
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
@@ -229,7 +227,7 @@ struct ShootingScheduleView: View {
     private func dayHeader(_ day: ShootingDay) -> some View {
         VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 6) {
-            Text("Day \(day.sortOrder + 1)").font(.subheadline.bold())
+            Text("Day \(day.sortOrder + 1)").font(.title3.bold())
             dayDateControl(day)
             Spacer(minLength: 0)
             Menu {
@@ -403,7 +401,7 @@ struct ShootingScheduleView: View {
                 } header: {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text("Day \(day.sortOrder + 1)")
+                            Text("Day \(day.sortOrder + 1)").font(.headline)
                             dayDateControl(day)
                             Spacer()
                             Menu {
