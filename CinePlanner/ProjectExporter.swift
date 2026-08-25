@@ -1391,6 +1391,13 @@ struct ProjectExporter {
           .scene-media .thumb-label { display: block; margin-top: 0; }
           .scene-media .mi-doc > summary,
           .scene-media .mi-report > summary { width: auto; }
+          /* Portrait phone: the scene cards drop onto their own line under the
+             heading, left-aligned to start where "Scene x" does (past the caret),
+             rather than pinned to the right as on wider screens. */
+          @media (max-width: 640px) and (orientation: portrait) {
+            .scene-media { margin-left: 0; width: 100%; box-sizing: border-box;
+                           padding-left: 23px; justify-content: flex-start; }
+          }
           /* The map is landscape, so show the whole thing (letterboxed) rather
              than the top crop the tall script page uses. */
           .cover-thumb.is-map { background-size: contain; background-position: center;

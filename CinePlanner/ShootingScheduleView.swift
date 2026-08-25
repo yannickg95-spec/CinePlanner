@@ -452,7 +452,7 @@ struct ShootingScheduleView: View {
                 } header: {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text("Day \(day.sortOrder + 1)").font(.headline).foregroundColor(Color(.label))
+                            Text("Day \(day.sortOrder + 1)").font(.headline)
                             dayDateControl(day)
                             Spacer()
                             Menu {
