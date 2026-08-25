@@ -91,9 +91,11 @@ struct ShootingScheduleView: View {
             .foregroundStyle(.orange)
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.orange.opacity(0.12))
         }
     }
+
+    /// Shared tint for the unscheduled banner.
+    private var bannerTint: Color { Color.orange.opacity(0.12) }
 
     var body: some View {
         NavigationStack {
@@ -128,6 +130,8 @@ struct ShootingScheduleView: View {
             .navigationTitle("Shooting Schedule")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            // Keep the bar opaque so the orange banner sits below it, not bleeding up.
+            .toolbarBackground(.visible, for: .navigationBar)
             #endif
             .toolbar {
                 #if os(iOS)
@@ -157,7 +161,9 @@ struct ShootingScheduleView: View {
 
     private var boardLayout: some View {
         VStack(spacing: 0) {
-            unscheduledBanner
+            // ignoresSafeAreaEdges: [] keeps the tint inside the banner instead of
+            // bleeding up into the nav-bar safe area (which reached the sheet's top).
+            unscheduledBanner.background(bannerTint, ignoresSafeAreaEdges: [])
             HStack(spacing: 0) {
             scenePalette
                 .frame(width: 240)
@@ -399,7 +405,11 @@ struct ShootingScheduleView: View {
     private var phoneLayout: some View {
         List {
             if !unscheduledScenes.isEmpty || !scenesMissingShots.isEmpty {
-                Section { unscheduledBanner.listRowInsets(EdgeInsets()) }
+                Section {
+                    unscheduledBanner
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(bannerTint)
+                }
             }
             if version.shootingDays.isEmpty {
                 Section {
