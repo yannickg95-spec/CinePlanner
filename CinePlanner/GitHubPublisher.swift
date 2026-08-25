@@ -488,10 +488,46 @@ enum GitHubPublisher {
 
     /// Sends a request and returns the response without judging the status code —
     /// existence checks and creation need to read 404/422 without throwing.
-    private static func rawSend(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw GitHubError.badResponse }
-        return (data, http)
+    ///
+    /// Transient failures are retried with backoff: GitHub's Git Data API returns
+    /// occasional 502/503/504 gateway errors (more likely on the large index.html
+    /// blob), and mobile networks drop connections — a single blip shouldn't abort a
+    /// whole publish. The requests here are safe to repeat: extra unreferenced
+    /// blobs/trees/commits are garbage-collected, and only the final ref move counts.
+    private static func rawSend(_ request: URLRequest, attempts: Int = 4) async throws -> (Data, HTTPURLResponse) {
+        var lastError: Error?
+        for attempt in 0..<attempts {
+            let isLast = attempt == attempts - 1
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw GitHubError.badResponse }
+                if [502, 503, 504].contains(http.statusCode), !isLast {
+                    try? await Task.sleep(nanoseconds: retryDelay(attempt))
+                    continue
+                }
+                return (data, http)
+            } catch let error as URLError where isTransient(error) && !isLast {
+                lastError = error
+                try? await Task.sleep(nanoseconds: retryDelay(attempt))
+                continue
+            }
+        }
+        throw lastError ?? GitHubError.badResponse
+    }
+
+    /// Exponential backoff: ~0.8s, 1.6s, 3.2s between attempts.
+    private static func retryDelay(_ attempt: Int) -> UInt64 {
+        UInt64(0.8 * pow(2.0, Double(attempt)) * 1_000_000_000)
+    }
+
+    private static func isTransient(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost,
+             .dnsLookupFailed, .notConnectedToInternet, .cannotFindHost:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Like `rawSend`, but throws on any non-2xx status.
