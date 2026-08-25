@@ -22,6 +22,19 @@ struct ShootingScheduleView: View {
 
     private var isPhone: Bool { DeviceLayout.isPhone }
 
+    /// Drag feedback: the strip we'd drop before, or the day whose end we'd append to.
+    @State private var dropBeforeUID: String?
+    @State private var dropTailDay: String?
+
+    /// The accent insertion line shown between strips while dragging.
+    private var insertionLine: some View {
+        RoundedRectangle(cornerRadius: 1.5)
+            .fill(Color.accentColor)
+            .frame(height: 3)
+            .padding(.horizontal, 2)
+            .offset(y: -4)
+    }
+
     /// Scenes not yet placed on any day.
     private var unscheduledScenes: [Scene] {
         version.orderedScenes.filter { scene in
@@ -218,15 +231,29 @@ struct ShootingScheduleView: View {
                     dayNotesCard(day)
                     ForEach(day.orderedEntries, id: \.uid) { entry in
                         stripRow(entry)
+                            .overlay(alignment: .top) {
+                                if dropBeforeUID == entry.uid { insertionLine }
+                            }
                             .draggable("entry:\(entry.uid)")
                             .dropDestination(for: String.self) { items, _ in
+                                dropBeforeUID = nil; dropTailDay = nil
                                 handleDrop(items, on: day, before: entry); return true
+                            } isTargeted: { targeted in
+                                if targeted { dropBeforeUID = entry.uid; dropTailDay = nil }
+                                else if dropBeforeUID == entry.uid { dropBeforeUID = nil }
                             }
                     }
                     // Tail drop zone (append to the end of this day).
                     Color.clear.frame(height: 28)
+                        .overlay(alignment: .top) {
+                            if dropTailDay == day.uid { insertionLine }
+                        }
                         .dropDestination(for: String.self) { items, _ in
+                            dropBeforeUID = nil; dropTailDay = nil
                             handleDrop(items, on: day, before: nil); return true
+                        } isTargeted: { targeted in
+                            if targeted { dropTailDay = day.uid; dropBeforeUID = nil }
+                            else if dropTailDay == day.uid { dropTailDay = nil }
                         }
                 }
                 .padding(8)
