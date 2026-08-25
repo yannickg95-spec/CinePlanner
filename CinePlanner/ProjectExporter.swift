@@ -1025,6 +1025,44 @@ struct ProjectExporter {
             // disabled. A heading inside <summary> is phrasing-content only, so the
             // title is a styled span.
             body += "<details class=\"scene\" id=\"\(anchor)\" open data-int=\"\(scene.isInterior ? 1 : 0)\" data-day=\"\(scene.isDay ? 1 : 0)\" data-media=\"\(mediaCount > 0 ? 1 : 0)\" data-text=\"\(esc(sceneSearch))\">\n"
+            // The scene's cards (script coverage, blocking map, film report) — now
+            // shown inside the header row alongside the text. Each is a <details> that
+            // opens full screen; `stopPropagation` keeps a card tap from toggling the
+            // scene's own disclosure.
+            var cards = ""
+            if let cls = coverageClass {
+                cards += "      <details class=\"mi mi-doc\"><summary onclick=\"event.stopPropagation()\" title=\"Script with coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
+            }
+            if let cls = mapClass {
+                cards += "      <details class=\"mi mi-doc\"><summary onclick=\"event.stopPropagation()\" title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
+            }
+            if !scene.filmEntries.isEmpty {
+                var preview = "<span class=\"rp-title\">Film length</span>"
+                for e in scene.filmEntries.prefix(6) {
+                    preview += "<span class=\"rp-line\">\(esc("\(e.shot) · \(e.format) · \(e.length)"))</span>"
+                }
+                cards += "      <details class=\"mi mi-report\"><summary onclick=\"event.stopPropagation()\" title=\"Film length report\"><span class=\"cover-thumb is-report\"><span class=\"report-preview\">\(preview)</span></span><span class=\"thumb-label\">Film</span></summary>\n"
+                cards += "        <div class=\"report-panel\"><div class=\"report-card\">\n"
+                cards += "        <h3 class=\"report-title\">Film length — \(esc(scene.heading))</h3>\n"
+                cards += "        <table class=\"report-table\"><thead><tr><th>Shot</th><th>Format</th><th>fps</th><th>Length</th><th>Time</th></tr></thead><tbody>\n"
+                for e in scene.filmEntries {
+                    cards += "          <tr><td>\(esc(e.shot))</td><td>\(esc(e.format))</td><td>\(esc(e.fps))</td><td>\(esc(e.length))</td><td>\(esc(e.time))</td></tr>\n"
+                }
+                cards += "        </tbody></table>\n"
+                func totalsTable(_ title: String, _ totals: [(gauge: String, metres: String, time: String)]) {
+                    cards += "        <div class=\"report-totals-title\">\(esc(title))</div>\n"
+                    cards += "        <table class=\"report-table report-totals\"><tbody>\n"
+                    for t in totals {
+                        cards += "          <tr><td>\(esc(t.gauge))</td><td>\(esc(t.metres))</td><td>\(esc(t.time))</td></tr>\n"
+                    }
+                    cards += "        </tbody></table>\n"
+                }
+                if !scene.filmTotals.isEmpty { totalsTable("Scene totals", scene.filmTotals) }
+                if !scene.projectFilmTotals.isEmpty { totalsTable("Project totals", scene.projectFilmTotals) }
+                cards += "      </div></div>\n"
+                cards += "      </details>\n"
+            }
+
             body += "  <summary class=\"scene-head\">\n"
             body += "    <span class=\"scene-title\">\(esc(scene.heading))</span>\n"
             body += "    <span class=\"tag tag-type\">\(typeLabel)</span>\n"
@@ -1032,49 +1070,10 @@ struct ProjectExporter {
             if !scene.location.isEmpty {
                 body += "    <span class=\"scene-loc\">\(esc(scene.location))</span>\n"
             }
-            body += "    <span class=\"scene-count\">\(shotCount) shot\(shotCount == 1 ? "" : "s")</span>\n"
-            body += "  </summary>\n"
-            // Shown once at the top of the scene: the script pages with every
-            // shot's coverage marked, and the scene's blocking map — side by side,
-            // rather than repeated on each shot. Each is a <details> so it expands
-            // full screen with no JavaScript (works in Quick Look).
-            if coverageClass != nil || mapClass != nil || !scene.filmEntries.isEmpty {
-                body += "  <div class=\"scene-coverage\">\n"
-                if let cls = coverageClass {
-                    body += "    <details class=\"mi mi-doc\"><summary title=\"Script with coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Script coverage</span></summary></details>\n"
-                }
-                if let cls = mapClass {
-                    body += "    <details class=\"mi mi-doc\"><summary title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
-                }
-                if !scene.filmEntries.isEmpty {
-                    // A tiny text preview of the report, standing in for a thumbnail.
-                    var preview = "<span class=\"rp-title\">Film length</span>"
-                    for e in scene.filmEntries.prefix(6) {
-                        preview += "<span class=\"rp-line\">\(esc("\(e.shot) · \(e.format) · \(e.length)"))</span>"
-                    }
-                    body += "    <details class=\"mi mi-report\"><summary title=\"Film length report\"><span class=\"cover-thumb is-report\"><span class=\"report-preview\">\(preview)</span></span><span class=\"thumb-label\">Film report</span></summary>\n"
-                    body += "      <div class=\"report-panel\"><div class=\"report-card\">\n"
-                    body += "        <h3 class=\"report-title\">Film length — \(esc(scene.heading))</h3>\n"
-                    body += "        <table class=\"report-table\"><thead><tr><th>Shot</th><th>Format</th><th>fps</th><th>Length</th><th>Time</th></tr></thead><tbody>\n"
-                    for e in scene.filmEntries {
-                        body += "          <tr><td>\(esc(e.shot))</td><td>\(esc(e.format))</td><td>\(esc(e.fps))</td><td>\(esc(e.length))</td><td>\(esc(e.time))</td></tr>\n"
-                    }
-                    body += "        </tbody></table>\n"
-                    func totalsTable(_ title: String, _ totals: [(gauge: String, metres: String, time: String)]) {
-                        body += "        <div class=\"report-totals-title\">\(esc(title))</div>\n"
-                        body += "        <table class=\"report-table report-totals\"><tbody>\n"
-                        for t in totals {
-                            body += "          <tr><td>\(esc(t.gauge))</td><td>\(esc(t.metres))</td><td>\(esc(t.time))</td></tr>\n"
-                        }
-                        body += "        </tbody></table>\n"
-                    }
-                    if !scene.filmTotals.isEmpty { totalsTable("Scene totals", scene.filmTotals) }
-                    if !scene.projectFilmTotals.isEmpty { totalsTable("Project totals", scene.projectFilmTotals) }
-                    body += "      </div></div>\n"
-                    body += "    </details>\n"
-                }
-                body += "  </div>\n"
+            if !cards.isEmpty {
+                body += "    <span class=\"scene-media\">\n\(cards)    </span>\n"
             }
+            body += "  </summary>\n"
             body += "  <div class=\"shots\">\n"
             if scene.shots.isEmpty {
                 body += "    <p class=\"empty\">No shots in this scene.</p>\n"
@@ -1148,11 +1147,11 @@ struct ProjectExporter {
                         body += "          <details class=\"mi\"><summary title=\"Reference frame\"><img class=\"still\" src=\"\(photo)\" alt=\"Reference frame\"><span class=\"thumb-label\">Ref\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     if let topDown = m.topDownURI {
-                        body += "          <details class=\"mi\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Shot map\(tag)</span></summary>\(noteHTML)</details>\n"
+                        body += "          <details class=\"mi ref-map\"><summary title=\"Top-down plan\"><img class=\"still\" src=\"\(topDown)\" alt=\"Top-down plan\"><span class=\"thumb-label\">Shot map\(tag)</span></summary>\(noteHTML)</details>\n"
                     }
                     if let mapVideo = m.mapVideoPath {
                         let mime = mapVideo.hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
-                        body += "          <details class=\"mi mi-video\">\n            <summary title=\"Play map\">"
+                        body += "          <details class=\"mi mi-video ref-map\">\n            <summary title=\"Play map\">"
                         if let poster = m.mapPosterURI {
                             body += "<img src=\"\(poster)\" alt=\"Map video\">"
                         } else {
@@ -1280,7 +1279,7 @@ struct ProjectExporter {
 
           /* Scenes */
           .scene { margin-bottom: 46px; scroll-margin-top: calc(var(--sticky) + 16px); }
-          .scene-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; cursor: pointer;
+          .scene-head { display: flex; align-items: flex-end; gap: 9px; flex-wrap: wrap; cursor: pointer;
                         padding-bottom: 10px; margin-bottom: 16px; border-bottom: 1px solid var(--line-strong);
                         list-style: none; -webkit-tap-highlight-color: transparent; }
           .scene-head::-webkit-details-marker { display: none; }
@@ -1307,7 +1306,7 @@ struct ProjectExporter {
                   box-shadow: var(--shadow); }
           .shot + .shot { margin-top: 8px; }
           .shot-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-          .shot-row { display: flex; align-items: center; gap: 7px 12px; padding: 9px 14px; }
+          .shot-row { display: flex; align-items: center; gap: 7px 12px; padding: 9px 10px 9px 14px; }
           /* The clickable text part expands the shot; the thumbnails don't. */
           .shot-main { display: flex; align-items: center; gap: 7px 12px; flex: 1 1 auto;
                        min-width: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1325,18 +1324,23 @@ struct ProjectExporter {
           .si-empty { font-style: italic; color: var(--faint); }
           /* Inline thumbnails, pushed to the right of the row and shrunk. */
           .media { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px;
-                   flex: none; margin-left: auto; }
+                   flex: none; margin-left: auto; justify-content: flex-end; align-items: flex-start; }
           .media:empty { display: none; }
-          .shot-row .media .thumb-label { display: none; }
-          .shot-row .media .mi:not([open]) > summary,
+          .shot-row .media .mi:not([open]) > summary { display: flex; flex-direction: column;
+                   align-items: center; gap: 2px; width: 46px; }
+          .shot-row .media .mi:not([open]) .thumb-label { display: block; text-align: center; line-height: 1.15; }
           .shot-row .media .mi:not([open]) > summary img,
           .shot-row .media .mi:not([open]) .thumb-blank { width: 46px; height: 32px; }
           .shot-row .media .mi:not([open]) .play { top: 16px; width: 18px; height: 18px; font-size: 8px; }
+          /* The reference map is hidden in the collapsed row and appears only when the
+             shot is expanded. */
+          .shot-row .media .ref-map { display: none; }
+          .shot-toggle:checked ~ .shot-row .media .ref-map { display: block; }
           /* Expanded detail rows, revealed by the checkbox; indented under the row. */
           .shot-body { display: none; padding: 4px 15px 13px 40px; }
           .shot-toggle:checked ~ .shot-body { display: block; }
           /* One reference: its photo/video and map side by side. */
-          .mi-pair { display: flex; flex-direction: row; gap: 8px; }
+          .mi-pair { display: flex; flex-direction: row; gap: 6px; }
           /* Closed: a 94px thumbnail. Open: a full-screen viewer. Driven entirely by
              the <details> element so it works without JavaScript. */
           .mi > summary { position: relative; display: block; width: 94px; cursor: zoom-in;
@@ -1378,6 +1382,14 @@ struct ProjectExporter {
                                  background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0)); }
           /* The scene's coverage + map thumbnails, shown once under the header. */
           .scene-coverage { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+          /* Same cards, folded into the scene header row: small thumbnails with a
+             label underneath, pushed to the right of the title. */
+          .scene-media { display: flex; align-items: flex-start; gap: 12px; margin-left: auto; }
+          .scene-media .cover-thumb { width: 76px; height: 46px; }
+          .scene-media .mi > summary { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+          .scene-media .thumb-label { display: block; margin-top: 0; }
+          .scene-media .mi-doc > summary,
+          .scene-media .mi-report > summary { width: auto; }
           /* The map is landscape, so show the whole thing (letterboxed) rather
              than the top crop the tall script page uses. */
           .cover-thumb.is-map { background-size: contain; background-position: center;
