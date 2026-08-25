@@ -58,13 +58,11 @@ struct ShootingScheduleView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { addDay() } label: { Label("Add Day", systemImage: "calendar.badge.plus") }
                 }
-                ToolbarItem(placement: .topBarLeading) { shareButton }
                 ToolbarItem(placement: .topBarTrailing) { EditButton() }
                 #else
                 ToolbarItem(placement: .cancellationAction) {
                     Button { addDay() } label: { Label("Add Day", systemImage: "calendar.badge.plus") }
                 }
-                ToolbarItem { shareButton }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { save(); dismiss() }
                 }
@@ -73,13 +71,6 @@ struct ShootingScheduleView: View {
         }
         .frame(minWidth: isPhone ? nil : 1180, idealWidth: isPhone ? nil : 1180,
                minHeight: isPhone ? nil : 480, idealHeight: isPhone ? nil : 480)
-    }
-
-    private var shareButton: some View {
-        ShareLink(item: scheduleText()) {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        .disabled(version.shootingDays.isEmpty)
     }
 
     // MARK: - Wide board (iPad / Mac)
@@ -579,42 +570,6 @@ struct ShootingScheduleView: View {
     }
 
     private func save() { try? context.save() }
-
-    // MARK: - Export
-
-    private func scheduleText() -> String {
-        let df = DateFormatter(); df.dateStyle = .medium
-        var lines: [String] = []
-        lines.append("\(project.filmName) — Shooting Schedule")
-        if !version.name.isEmpty { lines.append(version.name) }
-        lines.append("")
-        for day in version.orderedShootingDays {
-            var header = "DAY \(day.sortOrder + 1)"
-            if let date = day.date { header += " — \(df.string(from: date))" }
-            lines.append(header)
-            let entries = day.orderedEntries
-            if entries.isEmpty {
-                lines.append("  (no scenes)")
-            } else {
-                for (i, e) in entries.enumerated() {
-                    guard let s = e.scene else { continue }
-                    var row = "  \(i + 1). Scene \(s.sceneNumber)\(s.suffix) — \(s.isInterior ? "INT" : "EXT") \(s.isDay ? "DAY" : "NIGHT")"
-                    if !s.nickname.trimmingCharacters(in: .whitespaces).isEmpty { row += " · \(s.nickname)" }
-                    if e.isPartialScene {
-                        // Only the shots picked for this day.
-                        row += "  [shots \(e.resolvedShots.map { $0.displayNumber }.joined(separator: ", "))]"
-                    } else {
-                        let shots = s.shots.count
-                        row += "  [\(shots) shot\(shots == 1 ? "" : "s")]"
-                    }
-                    if !e.note.trimmingCharacters(in: .whitespaces).isEmpty { row += " — \(e.note)" }
-                    lines.append(row)
-                }
-            }
-            lines.append("")
-        }
-        return lines.joined(separator: "\n")
-    }
 }
 
 // MARK: - Day date chip

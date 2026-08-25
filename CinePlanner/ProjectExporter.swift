@@ -204,6 +204,22 @@ struct ProjectExporter {
         let shot: String; let format: String; let fps: String; let length: String; let time: String
     }
 
+    /// One scene placed on a shooting day (a schedule "strip") for the web export's
+    /// shooting-day view. `sceneIndex` points into the exported `scenes` array.
+    private struct MediaScheduleEntry {
+        let sceneIndex: Int
+        let allShots: Bool                    // whole scene on this day
+        let scheduledShotNumbers: Set<String> // display numbers shot on this day
+        let note: String
+    }
+
+    /// A shooting day for the web export's day-ordered view.
+    private struct MediaScheduleDay {
+        let number: Int          // 1-based
+        let dateLabel: String    // "" when no date assigned
+        let entries: [MediaScheduleEntry]
+    }
+
     /// Videos are the only thing that has to live beside the web page as a real
     /// file — photos are embedded in the HTML itself. Without them the export is a
     /// single self-contained page and needs no folder, and so no zip.
@@ -497,6 +513,30 @@ struct ProjectExporter {
         }
     }
 
+    /// The shooting schedule for the day-ordered web view, aligned to the same scene
+    /// order `snapshotScenesForMedia` uses (so `sceneIndex` matches). Empty when the
+    /// version has no shooting days.
+    private func snapshotSchedule() -> [MediaScheduleDay] {
+        let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
+        var indexByScene: [ObjectIdentifier: Int] = [:]
+        for (i, scene) in ordered.enumerated() { indexByScene[ObjectIdentifier(scene)] = i }
+        guard let days = version?.orderedShootingDays, !days.isEmpty else { return [] }
+        let df = DateFormatter(); df.dateStyle = .full
+        return days.map { day in
+            let entries: [MediaScheduleEntry] = day.orderedEntries.compactMap { e in
+                guard let scene = e.scene, let idx = indexByScene[ObjectIdentifier(scene)] else { return nil }
+                let all = Set(scene.orderedShots.map { $0.displayNumber })
+                let scheduled = Set(e.resolvedShots.map { $0.displayNumber })
+                let isAll = e.selectedShotUIDs.isEmpty || scheduled == all
+                return MediaScheduleEntry(sceneIndex: idx, allShots: isAll,
+                                          scheduledShotNumbers: scheduled, note: e.note)
+            }
+            return MediaScheduleDay(number: day.sortOrder + 1,
+                                    dateLabel: day.date.map { df.string(from: $0) } ?? "",
+                                    entries: entries)
+        }
+    }
+
     private func shotDetails(_ shot: Shot) -> [(label: String, value: String)] {
         var rows: [(String, String)] = []
         if shot.hasSize {
@@ -580,7 +620,7 @@ struct ProjectExporter {
                 }
             }
             let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
-                                      scenes: scenes, media: rendered)
+                                      scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
             guard let data = html.data(using: .utf8) else {
                 throw Self.exportError("Failed to encode the web page.")
             }
@@ -670,7 +710,7 @@ struct ProjectExporter {
         }
 
         let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
-                                  scenes: scenes, media: rendered)
+                                  scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
         guard let data = html.data(using: .utf8) else {
             throw Self.exportError("Failed to encode the web page.")
         }
@@ -770,7 +810,7 @@ struct ProjectExporter {
         }
 
         let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
-                                  scenes: scenes, media: rendered)
+                                  scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
         // Named after the shot list rather than index.html, so it's identifiable
         // once unzipped alongside other files.
         try html.data(using: .utf8)?.write(to: staging.appendingPathComponent("\(bundleName).html"))
@@ -861,13 +901,34 @@ struct ProjectExporter {
 
     private static func buildHTML(filmName: String, episodeName: String?, versionName: String?,
                                   scenes: [MediaScene],
-                                  media: [String: RenderedMedia]) -> String {
+                                  media: [String: RenderedMedia],
+                                  schedule: [MediaScheduleDay] = []) -> String {
         let totalShots = scenes.reduce(0) { $0 + $1.shots.count }
         var subtitleBits: [String] = []
         if let episodeName { subtitleBits.append(esc(episodeName)) }
         if let versionName { subtitleBits.append(esc(versionName)) }
         subtitleBits.append("\(scenes.count) scene\(scenes.count == 1 ? "" : "s")")
         subtitleBits.append("\(totalShots) shot\(totalShots == 1 ? "" : "s")")
+
+        // The shooting-day view is built in the browser by cloning scene cards per
+        // this manifest, so the page carries the schedule as JSON rather than a second
+        // rendered copy of every scene.
+        let hasSchedule = !schedule.isEmpty
+        var scheduleJSON = "[]"
+        if hasSchedule {
+            let days: [[String: Any]] = schedule.map { day in
+                ["n": day.number,
+                 "date": day.dateLabel,
+                 "entries": day.entries.map { e -> [String: Any] in
+                    ["s": e.sceneIndex, "all": e.allShots,
+                     "shots": Array(e.scheduledShotNumbers), "note": e.note]
+                 }]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: days),
+               let str = String(data: data, encoding: .utf8) {
+                scheduleJSON = str
+            }
+        }
 
         var body = ""
         var toc = ""
@@ -1383,6 +1444,21 @@ struct ProjectExporter {
             .scene { break-inside: avoid-page; }
             body { background: #fff; }
           }
+          /* Shooting-day view */
+          .viewtoggle { display: inline-flex; gap: 2px; background: var(--chip); border-radius: 9px; padding: 2px; flex: 0 0 auto; }
+          .vt { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
+                padding: 5px 12px; border-radius: 7px; cursor: pointer; }
+          .vt.on { background: var(--accent); color: #fff; }
+          .day-group { margin: 24px 0 8px; }
+          .day-title { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 800;
+                margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+          .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
+          .strip-note { font-size: 13px; color: var(--muted); font-style: italic; margin: 2px 0 8px; }
+          .shot.shot-off { opacity: 0.4; }
+          .shot-off-msg { font-size: 11px; font-style: italic; color: var(--muted); margin-left: 8px; }
+          .days-mode .layout { grid-template-columns: minmax(0,1fr); }
+          .days-mode #toc { display: none; }
+          .days-mode .search, .days-mode .chips, .days-mode #reset, .days-mode #toggleall, .days-mode .count { display: none; }
         \(coverageStyles)</style>
         </head>
         <body>
@@ -1404,6 +1480,10 @@ struct ProjectExporter {
              worse than none. -->
         <div class="toolbar" id="toolbar" hidden>
           <div class="toolbar-inner">
+            <div class="viewtoggle"\(hasSchedule ? "" : " hidden")>
+              <button class="vt on" id="vt-scenes" type="button">Scenes</button>
+              <button class="vt" id="vt-days" type="button">Shooting days</button>
+            </div>
             <div class="search">
               <span class="glass">⌕</span>
               <input id="q" type="search" placeholder="Search scenes, shots, locations, details…" autocomplete="off">
@@ -1429,18 +1509,22 @@ struct ProjectExporter {
             <div class="toc-title">Scenes</div>
         \(toc)  </nav>
           <main id="main">
+            <div id="view-scenes">
         \(body)    <div class="noresults" id="noresults" hidden>
               <p><b>No matching shots.</b></p>
               <p>Try a different search or clear the filters.</p>
             </div>
+            </div>
+            <div id="view-days" hidden></div>
           </main>
         </div>
 
         <button class="totop" id="totop" type="button" aria-label="Back to top" hidden>↑</button>
 
+        <script>var CP_SCHEDULE = \(scheduleJSON);</script>
         <script>
         (function () {
-          var scenes = Array.prototype.slice.call(document.querySelectorAll('.scene'));
+          var scenes = Array.prototype.slice.call(document.querySelectorAll('#view-scenes .scene'));
           var tocItems = Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
           var q = document.getElementById('q');
           var clearq = document.getElementById('clearq');
@@ -1453,6 +1537,87 @@ struct ProjectExporter {
 
           // Reveal the filter bar only now that we know scripting is available.
           document.getElementById('toolbar').hidden = false;
+
+          // Shooting-day view: built on demand by cloning scene cards per CP_SCHEDULE,
+          // so scenes split across days show whole (with off-day shots greyed out).
+          var daysBuilt = false;
+          function buildDays() {
+            if (daysBuilt) return;
+            daysBuilt = true;
+            var container = document.getElementById('view-days');
+            var sceneNodes = Array.prototype.slice.call(document.querySelectorAll('#view-scenes .scene'));
+            var uid = 0;
+            CP_SCHEDULE.forEach(function (day) {
+              var sec = document.createElement('section');
+              sec.className = 'day-group';
+              var h = document.createElement('div');
+              h.className = 'day-title';
+              h.innerHTML = '<span class="day-n">Day ' + day.n + '</span>' +
+                (day.date ? '<span class="day-date">' + day.date + '</span>' : '');
+              sec.appendChild(h);
+              if (!day.entries.length) {
+                var p = document.createElement('p'); p.className = 'empty';
+                p.textContent = 'No scenes scheduled.'; sec.appendChild(p);
+              }
+              day.entries.forEach(function (entry) {
+                var src = sceneNodes[entry.s];
+                if (!src) return;
+                var node = src.cloneNode(true);
+                node.removeAttribute('id');
+                uid++;
+                // Re-id the pure-CSS expand checkboxes so their labels still toggle.
+                Array.prototype.forEach.call(node.querySelectorAll('.shot-toggle'), function (box) {
+                  var lab = node.querySelector('label[for="' + box.id + '"]');
+                  var newId = box.id + '-d' + uid;
+                  box.id = newId;
+                  if (lab) lab.setAttribute('for', newId);
+                });
+                // Optional strip note under the scene heading.
+                if (entry.note) {
+                  var nb = document.createElement('div');
+                  nb.className = 'strip-note';
+                  nb.textContent = entry.note;
+                  var head = node.querySelector('.scene-head');
+                  if (head && head.nextSibling) node.insertBefore(nb, head.nextSibling);
+                  else node.appendChild(nb);
+                }
+                // Grey the shots not scheduled for this day.
+                if (!entry.all) {
+                  var wanted = {};
+                  entry.shots.forEach(function (n) { wanted[n] = true; });
+                  Array.prototype.forEach.call(node.querySelectorAll('.shot'), function (shot) {
+                    var numEl = shot.querySelector('.shot-num');
+                    var num = numEl ? numEl.textContent.trim() : '';
+                    if (!wanted[num]) {
+                      shot.classList.add('shot-off');
+                      var main = shot.querySelector('.shot-main');
+                      if (main) {
+                        var msg = document.createElement('span');
+                        msg.className = 'shot-off-msg';
+                        msg.textContent = 'Not scheduled for this day';
+                        main.appendChild(msg);
+                      }
+                    }
+                  });
+                }
+                sec.appendChild(node);
+              });
+              container.appendChild(sec);
+            });
+          }
+
+          var vtScenes = document.getElementById('vt-scenes');
+          var vtDays = document.getElementById('vt-days');
+          function setView(days) {
+            if (days) buildDays();
+            document.getElementById('view-scenes').hidden = days;
+            document.getElementById('view-days').hidden = !days;
+            document.body.classList.toggle('days-mode', days);
+            if (vtScenes) vtScenes.classList.toggle('on', !days);
+            if (vtDays) vtDays.classList.toggle('on', days);
+          }
+          if (vtDays) vtDays.addEventListener('click', function () { setView(true); });
+          if (vtScenes) vtScenes.addEventListener('click', function () { setView(false); });
 
           function tocFor(id) {
             for (var i = 0; i < tocItems.length; i++) {
