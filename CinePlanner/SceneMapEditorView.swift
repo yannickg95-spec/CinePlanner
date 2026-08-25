@@ -222,7 +222,8 @@ struct SceneMapEditorView: View {
             }
         }
         .sheet(isPresented: $showSunSettings) {
-            SunSettingsSheet(settings: $sun, onChange: saveSun)
+            SunSettingsSheet(settings: $sun, onChange: saveSun,
+                             isNorthLocked: scene.sceneMapBackgroundIsSatellite)
         }
         .sheet(item: $mapBackgroundMode) { mode in
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
@@ -464,29 +465,28 @@ struct SceneMapEditorView: View {
                       ? "Markers: easy-to-see size — tap for real-world scale"
                       : "Markers: real-world scale — tap for an easy-to-see size")
             }
-            HStack(spacing: 0) {
-                Button {
-                    sun.enabled.toggle()
-                    saveSun()
-                    if sun.enabled && !sun.hasLocation { showSunSettings = true }
-                } label: {
-                    Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
-                        .font(.system(size: toolbarIconSize, weight: .medium))
-                        .foregroundStyle(sun.enabled ? .orange : .secondary)
-                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .help("Toggle the sun-direction overlay")
-                segmentDivider
-                Button { showSunSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: toolbarIconSize, weight: .medium))
-                        .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .help("Sun overlay settings")
+            Button {
+                sun.enabled.toggle()
+                saveSun()
+                if sun.enabled && !sun.hasLocation { showSunSettings = true }
+            } label: {
+                Image(systemName: sun.enabled ? "sun.max.fill" : "sun.max")
+                    .font(.system(size: toolbarIconSize, weight: .medium))
+                    .foregroundStyle(sun.enabled ? .orange : .secondary)
+                    .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
             .modifier(SegmentedGroup(height: toolbarPillHeight))
+            .help("Toggle the sun-direction overlay")
+
+            Button { showSunSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: toolbarIconSize, weight: .medium))
+                    .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .modifier(SegmentedGroup(height: toolbarPillHeight))
+            .help("Location details")
         }
     }
 

@@ -150,10 +150,6 @@ struct ShootingScheduleView: View {
 
     private var scenePalette: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Scenes")
-                .font(.headline)
-                .padding(.horizontal, 12).padding(.vertical, 10)
-            Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(version.orderedScenes, id: \.uid) { scene in
