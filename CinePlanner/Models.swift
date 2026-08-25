@@ -1486,10 +1486,7 @@ final class ShootingDay {
     var uid: String = UUID().uuidString
     /// Day order in the schedule (Day 1, 2, 3 …).
     var sortOrder: Int = 0
-    /// Optional label, e.g. "INT. House" or a unit name. Day numbering is derived
-    /// from `sortOrder`, so this is free-form colour.
-    var title: String = ""
-    /// Optional shoot date.
+    /// Optional shoot date assigned to this day.
     var date: Date?
     var notes: String = ""
 
@@ -1502,9 +1499,8 @@ final class ShootingDay {
         set { entriesStore = newValue }
     }
 
-    init(sortOrder: Int, title: String = "", date: Date? = nil) {
+    init(sortOrder: Int, date: Date? = nil) {
         self.sortOrder = sortOrder
-        self.title = title
         self.date = date
     }
 
@@ -1513,11 +1509,12 @@ final class ShootingDay {
         entries.filter { $0.scene != nil }.sorted { $0.sortOrder < $1.sortOrder }
     }
 
-    /// A default "Day N" label from the order when no title is set.
+    /// "Day N", with the assigned date appended when set.
     var displayTitle: String {
         let base = "Day \(sortOrder + 1)"
-        let t = title.trimmingCharacters(in: .whitespaces)
-        return t.isEmpty ? base : "\(base) · \(t)"
+        guard let date else { return base }
+        let df = DateFormatter(); df.dateStyle = .medium
+        return "\(base) · \(df.string(from: date))"
     }
 }
 
@@ -1531,6 +1528,9 @@ final class ScheduleEntry {
     var sortOrder: Int = 0
     /// Optional label for this strip (e.g. which part of a split scene).
     var note: String = ""
+    /// Which of the scene's shots are shot on this day, by Shot.uid. Empty means the
+    /// whole scene (all shots) — the default, so existing strips keep meaning "all".
+    var selectedShotUIDs: [String] = []
 
     var scene: Scene?
     var day: ShootingDay?
@@ -1539,5 +1539,21 @@ final class ScheduleEntry {
         self.scene = scene
         self.sortOrder = sortOrder
         self.note = note
+    }
+
+    /// The shots this strip covers, in scene order. Empty selection = the whole
+    /// scene. Deleted shots are dropped automatically.
+    var resolvedShots: [Shot] {
+        guard let scene else { return [] }
+        let ordered = scene.orderedShots
+        guard !selectedShotUIDs.isEmpty else { return ordered }
+        let set = Set(selectedShotUIDs)
+        return ordered.filter { set.contains($0.uid) }
+    }
+
+    /// True when this strip is a subset (not the whole scene).
+    var isPartialScene: Bool {
+        guard let scene else { return false }
+        return !selectedShotUIDs.isEmpty && selectedShotUIDs.count < scene.shots.count
     }
 }

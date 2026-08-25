@@ -41,6 +41,11 @@ struct ShootingScheduleView: View {
             Group {
                 if isPhone { phoneLayout } else { boardLayout }
             }
+            .sheet(item: $shotSelectFor) { entry in
+                if let scene = entry.scene {
+                    ScheduleShotPicker(entry: entry, scene: scene, onDone: save)
+                }
+            }
             .navigationTitle("Shooting Schedule")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +71,8 @@ struct ShootingScheduleView: View {
                 #endif
             }
         }
-        .frame(minWidth: isPhone ? nil : 900, minHeight: isPhone ? nil : 600)
+        .frame(minWidth: isPhone ? nil : 1180, idealWidth: isPhone ? nil : 1180,
+               minHeight: isPhone ? nil : 480, idealHeight: isPhone ? nil : 480)
     }
 
     private var shareButton: some View {
@@ -180,20 +186,17 @@ struct ShootingScheduleView: View {
 
     private func dayHeader(_ day: ShootingDay) -> some View {
         HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Day \(day.sortOrder + 1)").font(.subheadline.bold())
-                TextField("Label", text: Binding(
-                    get: { day.title }, set: { day.title = $0; save() }))
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Day \(day.sortOrder + 1)").font(.subheadline.bold())
+            dayDateControl(day)
             Spacer(minLength: 0)
             Menu {
                 Button { moveDay(day, by: -1) } label: { Label("Move Left", systemImage: "arrow.left") }
                     .disabled(day.sortOrder == 0)
                 Button { moveDay(day, by: 1) } label: { Label("Move Right", systemImage: "arrow.right") }
                     .disabled(day.sortOrder >= version.shootingDays.count - 1)
+                if day.date != nil {
+                    Button { day.date = nil; save() } label: { Label("Remove Date", systemImage: "calendar.badge.minus") }
+                }
                 Divider()
                 Button(role: .destructive) { deleteDay(day) } label: { Label("Delete Day", systemImage: "trash") }
             } label: {
@@ -202,6 +205,11 @@ struct ShootingScheduleView: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
+    }
+
+    /// Date control for a day — a tinted calendar chip that opens a graphical picker.
+    private func dayDateControl(_ day: ShootingDay) -> some View {
+        DayDateChip(day: day, onChange: save)
     }
 
     private func stripRow(_ entry: ScheduleEntry) -> some View {
@@ -215,6 +223,11 @@ struct ShootingScheduleView: View {
                     if !scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(scene.nickname).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    if let shots = shotSummary(entry) {
+                        Label(shots, systemImage: "checklist")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
+                    }
                     if !entry.note.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(entry.note).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                     }
@@ -224,6 +237,9 @@ struct ShootingScheduleView: View {
             .padding(.horizontal, 10).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
+            .overlay(alignment: .topTrailing) {
+                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge }
+            }
             .contentShape(Rectangle())
             .contextMenu { stripMenu(entry) }
         )
@@ -231,13 +247,18 @@ struct ShootingScheduleView: View {
 
     @ViewBuilder
     private func stripMenu(_ entry: ScheduleEntry) -> some View {
+        if let scene = entry.scene, !scene.shots.isEmpty {
+            Button { shotSelectFor = entry } label: {
+                Label("Select Shots…", systemImage: "checklist")
+            }
+        }
         Button { editNoteFor = entry; noteDraft = entry.note } label: {
             Label("Edit Note…", systemImage: "text.badge.plus")
         }
         if version.shootingDays.count > 1, let current = entry.day {
             Menu {
                 ForEach(version.orderedShootingDays.filter { $0 !== current }) { d in
-                    Button("Day \(d.sortOrder + 1)\(d.title.isEmpty ? "" : " · \(d.title)")") {
+                    Button(d.displayTitle) {
                         moveEntry(entry, to: d, before: nil)
                     }
                 }
@@ -304,11 +325,13 @@ struct ShootingScheduleView: View {
                 } header: {
                     HStack {
                         Text("Day \(day.sortOrder + 1)")
-                        if !day.title.isEmpty { Text("· \(day.title)").foregroundStyle(.secondary) }
+                        dayDateControl(day)
                         Spacer()
                         Menu {
-                            Button { renameDayFor = day; dayTitleDraft = day.title } label: {
-                                Label("Rename Day…", systemImage: "pencil")
+                            if day.date != nil {
+                                Button { day.date = nil; save() } label: {
+                                    Label("Remove Date", systemImage: "calendar.badge.minus")
+                                }
                             }
                             Button(role: .destructive) { deleteDay(day) } label: {
                                 Label("Delete Day", systemImage: "trash")
@@ -349,11 +372,6 @@ struct ShootingScheduleView: View {
                 }
             }
         }
-        .alert("Rename Day", isPresented: Binding(get: { renameDayFor != nil }, set: { if !$0 { renameDayFor = nil } })) {
-            TextField("Label", text: $dayTitleDraft)
-            Button("Save") { renameDayFor?.title = dayTitleDraft; save(); renameDayFor = nil }
-            Button("Cancel", role: .cancel) { renameDayFor = nil }
-        }
         .alert("Strip Note", isPresented: Binding(get: { editNoteFor != nil }, set: { if !$0 { editNoteFor = nil } })) {
             TextField("Note", text: $noteDraft)
             Button("Save") { editNoteFor?.note = noteDraft; save(); editNoteFor = nil }
@@ -368,6 +386,11 @@ struct ShootingScheduleView: View {
                 sceneTag(scene)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Scene \(scene.sceneNumber)\(scene.suffix)").font(.body.weight(.medium)).lineLimit(1)
+                    if let shots = shotSummary(entry) {
+                        Label(shots, systemImage: "checklist")
+                            .labelStyle(.titleAndIcon)
+                            .font(.caption).foregroundStyle(Color.accentColor).lineLimit(1)
+                    }
                     if !entry.note.isEmpty {
                         Text(entry.note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     } else if !scene.nickname.isEmpty {
@@ -375,8 +398,12 @@ struct ShootingScheduleView: View {
                     }
                 }
                 Spacer()
+                if hasShotConflict(entry, duplicates: duplicatedShotUIDs) { conflictBadge }
             }
             .contextMenu {
+                if !scene.shots.isEmpty {
+                    Button { shotSelectFor = entry } label: { Label("Select Shots…", systemImage: "checklist") }
+                }
                 Button { editNoteFor = entry; noteDraft = entry.note } label: { Label("Edit Note…", systemImage: "text.badge.plus") }
                 if version.shootingDays.count > 1, let current = entry.day {
                     Menu {
@@ -390,12 +417,46 @@ struct ShootingScheduleView: View {
     }
 
     // Alerts / editing state
-    @State private var renameDayFor: ShootingDay?
-    @State private var dayTitleDraft = ""
     @State private var editNoteFor: ScheduleEntry?
     @State private var noteDraft = ""
+    @State private var shotSelectFor: ScheduleEntry?
 
     // MARK: - Shared bits
+
+    /// A one-line summary of a strip's shots when it covers only part of the scene
+    /// (nil when it's the whole scene, to keep full-scene strips uncluttered).
+    private func shotSummary(_ entry: ScheduleEntry) -> String? {
+        guard entry.isPartialScene else { return nil }
+        let nums = entry.resolvedShots.map { $0.displayNumber }
+        return nums.isEmpty ? nil : "Shots " + nums.joined(separator: ", ")
+    }
+
+    /// Shots planned on more than one strip (any day). Empty selection counts as the
+    /// whole scene, so scheduling the same full scene twice flags every shot.
+    private var duplicatedShotUIDs: Set<String> {
+        var counts: [String: Int] = [:]
+        for day in version.shootingDays {
+            for entry in day.entries {
+                for shot in entry.resolvedShots { counts[shot.uid, default: 0] += 1 }
+            }
+        }
+        return Set(counts.filter { $0.value >= 2 }.keys)
+    }
+
+    /// True when any of this strip's shots is also planned on another strip.
+    private func hasShotConflict(_ entry: ScheduleEntry, duplicates: Set<String>) -> Bool {
+        guard !duplicates.isEmpty else { return false }
+        return entry.resolvedShots.contains { duplicates.contains($0.uid) }
+    }
+
+    /// The red "this shot is also on another day" badge.
+    private var conflictBadge: some View {
+        Image(systemName: "exclamationmark.circle.fill")
+            .font(.footnote)
+            .foregroundStyle(.white, .red)
+            .padding(3)
+            .help("Some of these shots are also planned on another day")
+    }
 
     private func sceneTag(_ scene: Scene) -> some View {
         VStack(spacing: 2) {
@@ -529,8 +590,7 @@ struct ShootingScheduleView: View {
         lines.append("")
         for day in version.orderedShootingDays {
             var header = "DAY \(day.sortOrder + 1)"
-            if !day.title.isEmpty { header += " — \(day.title)" }
-            if let date = day.date { header += " (\(df.string(from: date)))" }
+            if let date = day.date { header += " — \(df.string(from: date))" }
             lines.append(header)
             let entries = day.orderedEntries
             if entries.isEmpty {
@@ -540,8 +600,13 @@ struct ShootingScheduleView: View {
                     guard let s = e.scene else { continue }
                     var row = "  \(i + 1). Scene \(s.sceneNumber)\(s.suffix) — \(s.isInterior ? "INT" : "EXT") \(s.isDay ? "DAY" : "NIGHT")"
                     if !s.nickname.trimmingCharacters(in: .whitespaces).isEmpty { row += " · \(s.nickname)" }
-                    let shots = s.shots.count
-                    row += "  [\(shots) shot\(shots == 1 ? "" : "s")]"
+                    if e.isPartialScene {
+                        // Only the shots picked for this day.
+                        row += "  [shots \(e.resolvedShots.map { $0.displayNumber }.joined(separator: ", "))]"
+                    } else {
+                        let shots = s.shots.count
+                        row += "  [\(shots) shot\(shots == 1 ? "" : "s")]"
+                    }
                     if !e.note.trimmingCharacters(in: .whitespaces).isEmpty { row += " — \(e.note)" }
                     lines.append(row)
                 }
@@ -549,5 +614,153 @@ struct ShootingScheduleView: View {
             lines.append("")
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - Day date chip
+
+/// A tinted calendar chip showing a day's date (or "Add date"), opening a
+/// graphical date picker in a popover. Reads nicer than a bare system picker.
+private struct DayDateChip: View {
+    @Bindable var day: ShootingDay
+    var onChange: () -> Void
+    @State private var showPicker = false
+
+    private static let fmt: DateFormatter = {
+        let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("EEEdMMM"); return f
+    }()
+
+    private var hasDate: Bool { day.date != nil }
+
+    var body: some View {
+        Button { showPicker = true } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar")
+                Text(day.date.map { Self.fmt.string(from: $0) } ?? "Add date")
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            .foregroundStyle(.secondary)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showPicker) {
+            VStack(spacing: 10) {
+                DatePicker("Shoot date",
+                           selection: Binding(get: { day.date ?? Date() },
+                                              set: { day.date = $0; onChange() }),
+                           displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .frame(width: 300)
+                if hasDate {
+                    Divider()
+                    Button(role: .destructive) {
+                        day.date = nil; onChange(); showPicker = false
+                    } label: {
+                        Label("Remove Date", systemImage: "calendar.badge.minus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(14)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+// MARK: - Shot picker (which shots are shot on this day)
+
+/// Lets the user choose which of a scene's shots this strip covers. All selected
+/// (or none touched) means the whole scene, stored as an empty list so a strip
+/// defaults to the full scene.
+private struct ScheduleShotPicker: View {
+    @Bindable var entry: ScheduleEntry
+    let scene: Scene
+    var onDone: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<String>
+
+    init(entry: ScheduleEntry, scene: Scene, onDone: @escaping () -> Void) {
+        self.entry = entry
+        self.scene = scene
+        self.onDone = onDone
+        let all = Set(scene.orderedShots.map { $0.uid })
+        _selected = State(initialValue: entry.selectedShotUIDs.isEmpty ? all : Set(entry.selectedShotUIDs))
+    }
+
+    private var allUIDs: [String] { scene.orderedShots.map { $0.uid } }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(scene.orderedShots, id: \.uid) { shot in
+                        Button { toggle(shot.uid) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: selected.contains(shot.uid) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selected.contains(shot.uid) ? Color.accentColor : .secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Shot \(shot.displayNumber)").font(.body)
+                                    let sub = shotSubtitle(shot)
+                                    if !sub.isEmpty {
+                                        Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    HStack {
+                        Text("Shot on this day")
+                        Spacer()
+                        Button("All") { selected = Set(allUIDs) }
+                            .font(.caption)
+                            .disabled(selected.count == allUIDs.count)
+                    }
+                } footer: {
+                    Text("Leave every shot selected to shoot the whole scene on this day.")
+                }
+            }
+            .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix) Shots")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { commit(); dismiss() }
+                }
+            }
+        }
+        .frame(minWidth: 340, minHeight: 420)
+    }
+
+    private func shotSubtitle(_ shot: Shot) -> String {
+        var parts: [String] = []
+        if !shot.nickname.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(shot.nickname) }
+        if shot.hasSize { parts.append(shot.sizeShort) }
+        if shot.hasType { parts.append(shot.typeShort) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func toggle(_ uid: String) {
+        if selected.contains(uid) { selected.remove(uid) } else { selected.insert(uid) }
+    }
+
+    private func commit() {
+        // Whole scene (all, or accidentally none) → store empty; otherwise the
+        // subset in scene order.
+        if selected.isEmpty || selected.count == allUIDs.count {
+            entry.selectedShotUIDs = []
+        } else {
+            entry.selectedShotUIDs = allUIDs.filter { selected.contains($0) }
+        }
+        onDone()
     }
 }
