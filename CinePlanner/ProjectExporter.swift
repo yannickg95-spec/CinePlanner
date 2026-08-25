@@ -1524,7 +1524,8 @@ struct ProjectExporter {
           .day-group { margin: 24px 0 8px; scroll-margin-top: calc(var(--sticky) + 16px); }
           /* Nest each day's scenes (and their shots) under the day header. */
           .day-group > .scene, .day-group > .empty { margin-left: 24px; }
-          @media (max-width: 640px) { .day-group > .scene, .day-group > .empty { margin-left: 14px; } }
+          /* Narrow / portrait phone: no indent — scenes start flush with the day header. */
+          @media (max-width: 640px) { .day-group > .scene, .day-group > .empty { margin-left: 0; } }
           .day-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; font-size: 20px; font-weight: 800;
                 margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
