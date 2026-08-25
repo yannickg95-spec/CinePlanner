@@ -1386,6 +1386,8 @@ struct ProjectExporter {
           /* Same cards, folded into the scene header row: small thumbnails with a
              label underneath, pushed to the right of the title. */
           .scene-media { display: flex; align-items: flex-start; gap: 12px; margin-left: auto; }
+          /* A collapsed scene hides its cards too, leaving just the heading row. */
+          .scene:not([open]) > .scene-head .scene-media { display: none; }
           .scene-media .cover-thumb { width: 76px; height: 46px; }
           .scene-media .mi > summary { display: flex; flex-direction: column; align-items: center; gap: 2px; }
           .scene-media .thumb-label { display: block; margin-top: 0; }
