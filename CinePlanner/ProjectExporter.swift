@@ -1502,9 +1502,13 @@ struct ProjectExporter {
                 padding: 5px 12px; border-radius: 7px; cursor: pointer; }
           .vt.on { background: var(--accent); color: #fff; }
           .day-group { margin: 24px 0 8px; scroll-margin-top: calc(var(--sticky) + 16px); }
-          .day-title { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 800;
-                margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+          /* Nest each day's scenes (and their shots) under the day header. */
+          .day-group > .scene, .day-group > .empty { margin-left: 24px; }
+          @media (max-width: 640px) { .day-group > .scene, .day-group > .empty { margin-left: 14px; } }
+          .day-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; font-size: 20px; font-weight: 800;
+                margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
+          .day-title .sun-tags { margin: 0 0 0 auto; }
           .day-meta { font-size: 12.5px; color: var(--muted); margin: -6px 0 8px; }
           .sun-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
           .sun-tag { font-size: 12px; padding: 3px 10px; border-radius: 999px;
@@ -1513,8 +1517,8 @@ struct ProjectExporter {
           .sun-tag.golden { background: rgba(255,170,0,0.16); }
           .sun-tag.golden b { color: #a86a00; }
           @media (prefers-color-scheme: dark) { .sun-tag.golden b { color: #f0b84a; } }
-          .day-group.is-today .day-title::after { content: "Today"; font-size: 11px; font-weight: 700;
-                letter-spacing: 0.4px; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 999px; }
+          .today-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; color: #fff;
+                background: var(--accent); padding: 2px 8px; border-radius: 999px; }
           .strip-note { font-size: 13px; color: var(--muted); font-style: italic; margin: 2px 0 8px; }
           .shot.shot-off { opacity: 0.4; }
           .shot-off-msg { font-size: 11px; font-style: italic; color: var(--muted); margin-left: 8px; }
@@ -1618,13 +1622,8 @@ struct ProjectExporter {
               var h = document.createElement('div');
               h.className = 'day-title';
               h.innerHTML = '<span class="day-n">Day ' + day.n + '</span>' +
-                (day.date ? '<span class="day-date">' + day.date + '</span>' : '');
-              sec.appendChild(h);
-              var meta = document.createElement('div');
-              meta.className = 'day-meta';
-              meta.textContent = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
-                ' · ' + day.shots + ' shot' + (day.shots === 1 ? '' : 's');
-              sec.appendChild(meta);
+                (day.date ? '<span class="day-date">' + day.date + '</span>' : '') +
+                (day.iso && day.iso === todayISO() ? '<span class="today-badge">Today</span>' : '');
               if (day.sunrise) {
                 var tags = document.createElement('div');
                 tags.className = 'sun-tags';
@@ -1634,11 +1633,17 @@ struct ProjectExporter {
                 }
                 tags.innerHTML =
                   tag('Sunrise', day.sunrise, false) +
-                  tag('Sunset', day.sunset, false) +
                   tag('Golden', day.goldenAM, true) +
-                  tag('Golden', day.goldenPM, true);
-                sec.appendChild(tags);
+                  tag('Golden', day.goldenPM, true) +
+                  tag('Sunset', day.sunset, false);
+                h.appendChild(tags);
               }
+              sec.appendChild(h);
+              var meta = document.createElement('div');
+              meta.className = 'day-meta';
+              meta.textContent = day.setups + ' scene' + (day.setups === 1 ? '' : 's') +
+                ' · ' + day.shots + ' shot' + (day.shots === 1 ? '' : 's');
+              sec.appendChild(meta);
               if (!day.entries.length) {
                 var p = document.createElement('p'); p.className = 'empty';
                 p.textContent = 'No scenes scheduled.'; sec.appendChild(p);

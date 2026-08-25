@@ -299,10 +299,8 @@ struct ShootingScheduleView: View {
                     if !scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(scene.nickname).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if let shots = shotSummary(entry) {
-                        Label(shots, systemImage: "checklist")
-                            .labelStyle(.titleAndIcon)
-                            .font(.caption2).foregroundStyle(Color.accentColor).lineLimit(1)
+                    if entry.isPartialScene {
+                        partialShotList(entry)
                     }
                     if !entry.note.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(entry.note).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
@@ -468,15 +466,13 @@ struct ShootingScheduleView: View {
                 sceneTag(scene)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Scene \(scene.sceneNumber)\(scene.suffix)").font(.body.weight(.medium)).lineLimit(1)
-                    if let shots = shotSummary(entry) {
-                        Label(shots, systemImage: "checklist")
-                            .labelStyle(.titleAndIcon)
-                            .font(.caption).foregroundStyle(Color.accentColor).lineLimit(1)
-                    }
                     if !entry.note.isEmpty {
                         Text(entry.note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     } else if !scene.nickname.isEmpty {
                         Text(scene.nickname).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if entry.isPartialScene {
+                        partialShotList(entry)
                     }
                 }
                 Spacer()
@@ -505,12 +501,35 @@ struct ShootingScheduleView: View {
 
     // MARK: - Shared bits
 
-    /// A one-line summary of a strip's shots when it covers only part of the scene
-    /// (nil when it's the whole scene, to keep full-scene strips uncluttered).
-    private func shotSummary(_ entry: ScheduleEntry) -> String? {
-        guard entry.isPartialScene else { return nil }
-        let nums = entry.resolvedShots.map { $0.displayNumber }
-        return nums.isEmpty ? nil : "Shots " + nums.joined(separator: ", ")
+    /// The shots this strip covers when it's a partial scene, stacked one per line —
+    /// shot number plus nickname · size · type — inside the scene card.
+    @ViewBuilder
+    private func partialShotList(_ entry: ScheduleEntry) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(entry.resolvedShots, id: \.uid) { shot in
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(shot.displayNumber)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.accentColor)
+                        .fixedSize()
+                    let line = shotLine(shot)
+                    if !line.isEmpty {
+                        Text(line).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(.top, 1)
+    }
+
+    /// nickname · size · type for a shot (each part omitted when empty).
+    private func shotLine(_ shot: Shot) -> String {
+        var parts: [String] = []
+        let nick = shot.nickname.trimmingCharacters(in: .whitespaces)
+        if !nick.isEmpty { parts.append(nick) }
+        if shot.hasSize { parts.append(shot.sizeShort) }
+        if shot.hasType { parts.append(shot.typeShort) }
+        return parts.joined(separator: " · ")
     }
 
     /// Shots planned on more than one strip (any day). Empty selection counts as the
