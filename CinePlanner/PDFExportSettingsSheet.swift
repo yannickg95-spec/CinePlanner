@@ -19,6 +19,9 @@ struct PDFExportOptions: Equatable {
     var includeReferenceImages = true
     /// The full-page scene map after each scene.
     var includeSceneMap = true
+    /// Start every scene on a fresh page (default). Ignored while the scene map is
+    /// on, since that already forces each scene onto its own page.
+    var startEachSceneOnNewPage = true
 
     func includesScene(_ scene: Scene) -> Bool {
         guard let ids = includedSceneUIDs else { return true }
@@ -29,6 +32,85 @@ struct PDFExportOptions: Equatable {
     /// The special labels for the two fields that aren't camera/lens spec pairs.
     static let coverageLabel = "Coverage"
     static let extraInfoLabel = "Extra Info"
+
+    // MARK: - Presets
+
+    enum Preset: String, CaseIterable {
+        case custom = "Custom", full = "Full", textOnly = "Text Only", basic = "Basic"
+    }
+
+    /// The standard (non-custom) field labels; anything else is a custom "tool".
+    static let standardLabels: Set<String> = [
+        "Size", "Type", "Focal Length", "Grip", "Camera", "Framelines", "Lens",
+        coverageLabel, extraInfoLabel
+    ]
+
+    /// "Basic" drops the camera/lens spec fields, coverage, and every custom tool
+    /// field (e.g. Film length), keeping Size, Type, Focal Length, Grip, Extra Info.
+    static func basicExcludedLabels(fields: [String]) -> Set<String> {
+        let base: Set<String> = ["Camera", "Framelines", "Lens", coverageLabel]
+        let customTools = Set(fields).subtracting(standardLabels)
+        return base.intersection(fields).union(customTools)
+    }
+
+    /// Which preset the current field/image choices match (scene selection aside).
+    func preset(fields: [String]) -> Preset {
+        let imagesFull = includeReferenceImages && includeSceneMap
+        let imagesOff = !includeReferenceImages && !includeSceneMap
+        if excludedFieldLabels.isEmpty, imagesFull { return .full }
+        if excludedFieldLabels.isEmpty, imagesOff { return .textOnly }
+        if excludedFieldLabels == Self.basicExcludedLabels(fields: fields), imagesOff { return .basic }
+        return .custom
+    }
+
+    /// Apply a preset to the field/image choices (scene selection is untouched).
+    mutating func apply(_ preset: Preset, fields: [String]) {
+        switch preset {
+        case .custom:
+            break
+        case .full:
+            excludedFieldLabels = []; includeReferenceImages = true; includeSceneMap = true
+        case .textOnly:
+            excludedFieldLabels = []; includeReferenceImages = false; includeSceneMap = false
+        case .basic:
+            excludedFieldLabels = Self.basicExcludedLabels(fields: fields)
+            includeReferenceImages = false; includeSceneMap = false
+        }
+    }
+
+    // MARK: - Persistence (field/image/layout choices; scene selection is not stored)
+
+    private static let storeKey = "pdfExportOptions_v1"
+    private struct Stored: Codable {
+        var excludedFieldLabels: [String]
+        var includeReferenceImages: Bool
+        var includeSceneMap: Bool
+        var startEachSceneOnNewPage: Bool
+    }
+
+    /// Loads the last-used options (scene selection always resets to all scenes,
+    /// since scene ids are project-specific).
+    static func loadStored() -> PDFExportOptions {
+        var options = PDFExportOptions()
+        if let data = UserDefaults.standard.data(forKey: storeKey),
+           let s = try? JSONDecoder().decode(Stored.self, from: data) {
+            options.excludedFieldLabels = Set(s.excludedFieldLabels)
+            options.includeReferenceImages = s.includeReferenceImages
+            options.includeSceneMap = s.includeSceneMap
+            options.startEachSceneOnNewPage = s.startEachSceneOnNewPage
+        }
+        return options
+    }
+
+    func store() {
+        let s = Stored(excludedFieldLabels: Array(excludedFieldLabels),
+                       includeReferenceImages: includeReferenceImages,
+                       includeSceneMap: includeSceneMap,
+                       startEachSceneOnNewPage: startEachSceneOnNewPage)
+        if let data = try? JSONEncoder().encode(s) {
+            UserDefaults.standard.set(data, forKey: Self.storeKey)
+        }
+    }
 
     /// The shot-detail fields actually present across `scenes`, in display order.
     /// Only fields that appear on at least one shot are returned, so the settings
@@ -68,8 +150,64 @@ struct PDFExportSettingsSheet: View {
 
     @State private var allScenes = true
     @State private var selectedScenes: Set<String> = []
+    @State private var preset: PDFExportOptions.Preset = .full
 
     private var fields: [String] { PDFExportOptions.availableFields(in: scenes) }
+    private var currentPreset: PDFExportOptions.Preset { options.preset(fields: fields) }
+
+    private var presetDescription: String {
+        switch preset {
+        case .full:     return "Everything — all details, reference images and the scene map."
+        case .textOnly: return "All shot details, no images."
+        case .basic:    return "Essentials only — no camera info, tools, coverage or images."
+        case .custom:   return "Your own selection below."
+        }
+    }
+
+    /// The coherent top panel: preset picker + description, bulk select buttons,
+    /// and the page-layout toggle — the quick controls, above the detailed toggles.
+    private var topControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("PRESET")
+                    .font(.caption2.weight(.semibold)).kerning(0.6).foregroundStyle(.secondary)
+                Picker("Preset", selection: $preset) {
+                    ForEach(PDFExportOptions.Preset.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(presetDescription)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Toggle(isOn: $options.startEachSceneOnNewPage) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Start each scene on a new page")
+                    if options.includeSceneMap {
+                        Text("Always on while the scene map is shown.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .disabled(options.includeSceneMap)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button { selectAll() } label: {
+                    Label("Select All", systemImage: "checkmark.circle").frame(maxWidth: .infinity)
+                }
+                Button { deselectAll() } label: {
+                    Label("Deselect All", systemImage: "circle").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(16)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,20 +219,24 @@ struct PDFExportSettingsSheet: View {
             .padding(16)
             Divider()
 
+            topControls
+
+            Divider()
+
             Form {
-                Section {
-                    ForEach(fields, id: \.self) { label in
-                        Toggle(label, isOn: fieldBinding(label))
-                    }
-                } header: {
-                    HStack {
-                        Text("Shot Details")
-                        Spacer()
-                        Button("All") { options.excludedFieldLabels.subtract(fields) }
-                            .font(.caption).buttonStyle(.borderless)
-                        Text("·").foregroundStyle(.secondary)
-                        Button("None") { options.excludedFieldLabels.formUnion(fields) }
-                            .font(.caption).buttonStyle(.borderless)
+                Section("Shot Details") {
+                    let mid = Int(ceil(Double(fields.count) / 2.0))
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(spacing: 10) {
+                            ForEach(Array(fields.prefix(mid)), id: \.self) { label in
+                                Toggle(label, isOn: fieldBinding(label))
+                            }
+                        }
+                        VStack(spacing: 10) {
+                            ForEach(Array(fields.dropFirst(mid)), id: \.self) { label in
+                                Toggle(label, isOn: fieldBinding(label))
+                            }
+                        }
                     }
                 }
 
@@ -126,10 +268,33 @@ struct PDFExportSettingsSheet: View {
                 allScenes = true
                 selectedScenes = Set(scenes.map(\.uid))
             }
+            preset = currentPreset
         }
         .onChange(of: allScenes) { _, _ in commit() }
         .onChange(of: selectedScenes) { _, _ in commit() }
+        // Applying a preset writes the options; editing a field flips back to Custom.
+        .onChange(of: preset) { _, new in options.apply(new, fields: fields) }
+        .onChange(of: options) { _, _ in
+            let detected = currentPreset
+            if detected != preset { preset = detected }
+        }
         .adaptiveSheetFrame(width: 440, height: 640)
+    }
+
+    /// Turn on all shot-detail fields and both image types. Scene selection is
+    /// left untouched.
+    private func selectAll() {
+        options.excludedFieldLabels = []
+        options.includeReferenceImages = true
+        options.includeSceneMap = true
+    }
+
+    /// Turn off all shot-detail fields and both image types. Scene selection is
+    /// left untouched.
+    private func deselectAll() {
+        options.excludedFieldLabels = Set(fields)
+        options.includeReferenceImages = false
+        options.includeSceneMap = false
     }
 
     private func fieldBinding(_ label: String) -> Binding<Bool> {

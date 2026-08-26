@@ -14,7 +14,13 @@ struct ExportOptionsSheet: View {
     @State private var selected: Set<ExportFormat> = []
     @State private var showingPublish = false
     @State private var showingPDFSettings = false
-    @State private var pdfOptions = PDFExportOptions()
+    @State private var pdfOptions = PDFExportOptions.loadStored()
+
+    /// The preset the current PDF options match, e.g. "Full" or "Custom".
+    private var pdfPresetName: String {
+        let fields = PDFExportOptions.availableFields(in: exportScenes.sorted { $0.sortOrder < $1.sortOrder })
+        return pdfOptions.preset(fields: fields).rawValue
+    }
 
     /// Selected formats in the order they're listed.
     private var orderedSelection: [ExportFormat] {
@@ -163,6 +169,7 @@ struct ExportOptionsSheet: View {
             PDFExportSettingsSheet(options: $pdfOptions,
                                    scenes: exportScenes.sorted { $0.sortOrder < $1.sortOrder })
         }
+        .onChange(of: pdfOptions) { _, new in new.store() }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -297,16 +304,21 @@ struct ExportOptionsSheet: View {
                 Spacer(minLength: 0)
 
                 if option.format == .pdf {
-                    Button { showingPDFSettings = true } label: {
-                        Image(systemName: "gearshape")
-                            .font(.title3.weight(.semibold))
+                    VStack(spacing: 2) {
+                        Button { showingPDFSettings = true } label: {
+                            Image(systemName: "gearshape")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28, height: 24)
+                                .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Choose what to include in the PDF")
+                        Text(pdfPresetName)
+                            .font(.system(size: 9))
                             .foregroundStyle(.secondary)
-                            .frame(width: 34, height: 32)
-                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
                     }
-                    .buttonStyle(.plain)
                     .frame(maxHeight: .infinity)
-                    .help("Choose what to include in the PDF")
                 }
 
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")

@@ -2925,11 +2925,26 @@ struct ProjectExporter {
         }
 
         let bottomLimit = pageHeight - margin
+        // The scene map always takes its own page, so with it on scenes always start
+        // fresh; otherwise honour the user's layout choice.
+        let newPagePerScene = pdfOptions.includeSceneMap || pdfOptions.startEachSceneOnNewPage
+        let headerHeight: CGFloat = 34
         for scene in orderedScenes {
             let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
 
-            // Every scene starts on a fresh page.
-            endContentPage(); beginContentPage()
+            if newPagePerScene {
+                endContentPage(); beginContentPage()
+            } else {
+                // Continuous flow: keep filling the page, breaking only when the
+                // header plus its first shot won't fit; a small gap separates scenes.
+                let firstRowHeight = orderedShots.first.map { pdfShotRowHeight($0, textWidth: textWidth) } ?? 30
+                let needed = headerHeight + min(firstRowHeight, pageHeight - margin * 2 - headerHeight)
+                if !pageOpen || yPosition + needed > bottomLimit {
+                    endContentPage(); beginContentPage()
+                } else {
+                    yPosition += 14
+                }
+            }
             yPosition = drawSceneHeaderRow(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
 
             // 1) The scene's shots as a plain text list.
@@ -3188,7 +3203,7 @@ struct ProjectExporter {
 
     /// Size, Type and Focal Length ride the shot's name row; everything else drops
     /// into a muted two-column label/value grid below it.
-    private static let pdfPrimaryLabels: Set<String> = ["Size", "Type", "Focal Length"]
+    private static let pdfPrimaryLabels: Set<String> = ["Size", "Type", "Focal Length", "Grip"]
     private static let pdfMetaRowH: CGFloat = 13
     private static let pdfMetaBoxPadTop: CGFloat = 5
     private static let pdfMetaBoxPadBottom: CGFloat = 4
