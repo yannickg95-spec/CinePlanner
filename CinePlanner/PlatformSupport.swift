@@ -63,6 +63,12 @@ extension View {
     func adaptiveSheetFrame(width: CGFloat, height: CGFloat) -> some View {
         modifier(AdaptiveSheetFrame(width: width, height: height))
     }
+
+    /// Like `adaptiveSheetFrame` but sizes the sheet to its content height (only as
+    /// tall as needed), capped at `maxHeight`, instead of a fixed height.
+    func adaptiveSheetFrame(width: CGFloat, maxHeight: CGFloat) -> some View {
+        modifier(AdaptiveSheetFitFrame(width: width, maxHeight: maxHeight))
+    }
 }
 
 private struct AdaptiveSheetFrame: ViewModifier {
@@ -73,6 +79,20 @@ private struct AdaptiveSheetFrame: ViewModifier {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             content.frame(width: width, height: height)
+        }
+    }
+}
+
+private struct AdaptiveSheetFitFrame: ViewModifier {
+    let width: CGFloat
+    let maxHeight: CGFloat
+    func body(content: Content) -> some View {
+        if DeviceLayout.isPhone {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            // Fixed width, natural height (capped) so the sheet is only as tall as
+            // its content needs.
+            content.frame(width: width).frame(maxHeight: maxHeight)
         }
     }
 }

@@ -22,6 +22,8 @@ struct PDFExportOptions: Equatable {
     /// Start every scene on a fresh page (default). Ignored while the scene map is
     /// on, since that already forces each scene onto its own page.
     var startEachSceneOnNewPage = true
+    /// Order the PDF by shooting day (mirroring the web export) instead of by scene.
+    var groupByShootingDay = false
 
     func includesScene(_ scene: Scene) -> Bool {
         guard let ids = includedSceneUIDs else { return true }
@@ -86,6 +88,7 @@ struct PDFExportOptions: Equatable {
         var includeReferenceImages: Bool
         var includeSceneMap: Bool
         var startEachSceneOnNewPage: Bool
+        var groupByShootingDay: Bool?
     }
 
     /// Loads the last-used options (scene selection always resets to all scenes,
@@ -98,6 +101,7 @@ struct PDFExportOptions: Equatable {
             options.includeReferenceImages = s.includeReferenceImages
             options.includeSceneMap = s.includeSceneMap
             options.startEachSceneOnNewPage = s.startEachSceneOnNewPage
+            options.groupByShootingDay = s.groupByShootingDay ?? false
         }
         return options
     }
@@ -106,7 +110,8 @@ struct PDFExportOptions: Equatable {
         let s = Stored(excludedFieldLabels: Array(excludedFieldLabels),
                        includeReferenceImages: includeReferenceImages,
                        includeSceneMap: includeSceneMap,
-                       startEachSceneOnNewPage: startEachSceneOnNewPage)
+                       startEachSceneOnNewPage: startEachSceneOnNewPage,
+                       groupByShootingDay: groupByShootingDay)
         if let data = try? JSONEncoder().encode(s) {
             UserDefaults.standard.set(data, forKey: Self.storeKey)
         }
@@ -147,6 +152,8 @@ struct PDFExportSettingsSheet: View {
     @Binding var options: PDFExportOptions
     /// All exportable scenes, in order, for the per-scene selection list.
     let scenes: [Scene]
+    /// Whether the version has any shooting days (enables the "Shooting Days" order).
+    var hasShootingDays: Bool = false
 
     @State private var allScenes = true
     @State private var selectedScenes: Set<String> = []
@@ -169,6 +176,22 @@ struct PDFExportSettingsSheet: View {
     private var topControls: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
+                Text("ORDER")
+                    .font(.caption2.weight(.semibold)).kerning(0.6).foregroundStyle(.secondary)
+                Picker("Order", selection: $options.groupByShootingDay) {
+                    Text("Scenes").tag(false)
+                    Text("Shooting Days").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(!hasShootingDays)
+                if !hasShootingDays {
+                    Text("Add shooting days in the schedule to order by day.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("PRESET")
                     .font(.caption2.weight(.semibold)).kerning(0.6).foregroundStyle(.secondary)
                 Picker("Preset", selection: $preset) {
@@ -185,13 +208,16 @@ struct PDFExportSettingsSheet: View {
             Toggle(isOn: $options.startEachSceneOnNewPage) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Start each scene on a new page")
-                    if options.includeSceneMap {
+                    if options.groupByShootingDay {
+                        Text("Ordered by day — each day starts a new page.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if options.includeSceneMap {
                         Text("Always on while the scene map is shown.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
-            .disabled(options.includeSceneMap)
+            .disabled(options.includeSceneMap || options.groupByShootingDay)
 
             Divider()
 

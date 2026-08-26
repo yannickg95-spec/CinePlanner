@@ -117,29 +117,12 @@ struct ExportOptionsSheet: View {
 
             Divider()
 
-            // Format options, grouped
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("SHARE ONLINE")
-                        publishFeatureCard
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("SHOTLIST AS FILE")
-                        ForEach(shotListOptions) { option in
-                            optionRow(option)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionHeader("SCRIPT")
-                        ForEach(scriptOptions) { option in
-                            optionRow(option)
-                        }
-                    }
-                }
-                .padding(16)
+            // Format options. iPhone (full-screen sheet) scrolls; iPad/Mac size the
+            // sheet to the content so it's only as tall as needed.
+            if DeviceLayout.isPhone {
+                ScrollView { optionsContent }
+            } else {
+                optionsContent
             }
 
             Divider()
@@ -161,15 +144,41 @@ struct ExportOptionsSheet: View {
             }
             .padding(16)
         }
-        .adaptiveSheetFrame(width: 600, height: 720)
+        .adaptiveSheetFrame(width: 600, maxHeight: 820)
         .sheet(isPresented: $showingPublish) {
             GitHubPublishSheet(project: project, version: version)
         }
         .sheet(isPresented: $showingPDFSettings) {
             PDFExportSettingsSheet(options: $pdfOptions,
-                                   scenes: exportScenes.sorted { $0.sortOrder < $1.sortOrder })
+                                   scenes: exportScenes.sorted { $0.sortOrder < $1.sortOrder },
+                                   hasShootingDays: !(version?.shootingDays.isEmpty ?? true))
         }
         .onChange(of: pdfOptions) { _, new in new.store() }
+    }
+
+    /// The grouped format options (share online, shot-list files, script).
+    private var optionsContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("SHARE ONLINE")
+                publishFeatureCard
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("SHOTLIST AS FILE")
+                ForEach(shotListOptions) { option in
+                    optionRow(option)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("SCRIPT")
+                ForEach(scriptOptions) { option in
+                    optionRow(option)
+                }
+            }
+        }
+        .padding(16)
     }
 
     private func sectionHeader(_ title: String) -> some View {

@@ -30,6 +30,13 @@ struct ProjectExporter {
         exportScenes.sorted { $0.sortOrder < $1.sortOrder }.filter { pdfOptions.includesScene($0) }
     }
 
+    /// Whether the PDF is actually rendered day-ordered (option on and days exist).
+    private var pdfIsDayMode: Bool {
+        pdfOptions.groupByShootingDay && !(version?.orderedShootingDays.isEmpty ?? true)
+    }
+    /// The PDF's document name — "Shot List Per Day" when day-ordered, else "Shot List".
+    private var pdfDocumentName: String { pdfIsDayMode ? "Shot List Per Day" : "Shot List" }
+
     enum ExportError: Error { case generationFailed }
 
     /// Generates the export for `format` into a temporary file and returns its URL,
@@ -50,7 +57,7 @@ struct ProjectExporter {
             return url
         case .pdf:
             guard let data = createPDFData(from: generateFullTextContent()) else { throw ExportError.generationFailed }
-            let url = temp("\(project.filmName) - Shot List.pdf")
+            let url = temp("\(project.filmName) - \(pdfDocumentName).pdf")
             try data.write(to: url)
             return url
         case .scriptWithCoverage:
@@ -109,6 +116,8 @@ struct ProjectExporter {
             switch format {
             case .scriptWithCoverage:
                 fileName = "\(self.project.filmName) - Script with Coverage.\(format.fileExtension)"
+            case .pdf:
+                fileName = "\(self.project.filmName) - \(self.pdfDocumentName).\(format.fileExtension)"
             default:
                 fileName = "\(self.project.filmName) - Shot List.\(format.fileExtension)"
             }
@@ -1927,6 +1936,8 @@ struct ProjectExporter {
         case .htmlWithMedia:
             // Only a shot list carrying video needs the zipped folder.
             return "\(project.filmName) - Shot List.\(webExportNeedsFolder ? "zip" : "html")"
+        case .pdf:
+            return "\(project.filmName) - \(pdfDocumentName).\(format.fileExtension)"
         default:
             return "\(project.filmName) - Shot List.\(format.fileExtension)"
         }
@@ -2856,169 +2867,230 @@ struct ProjectExporter {
     }
 
     private func buildPDFData(from text: String) -> Data? {
-        print("🔵 [PDF] Creating PDF with new layout")
-        
-        // Define page size (US Letter)
-        let pageWidth: CGFloat = 612  // 8.5" x 72 DPI
-        let pageHeight: CGFloat = 792 // 11" x 72 DPI
-        let margin: CGFloat = 36      // 0.5" margins
-        
+        // Page size (US Letter).
+        let pageWidth: CGFloat = 612
+        let pageHeight: CGFloat = 792
+        let margin: CGFloat = 36
         let textWidth = pageWidth - (margin * 2)
-        let textHeight = pageHeight - (margin * 2)
-        
-        // Create PDF data
-        let pdfData = NSMutableData()
-        
-        // Create PDF context
-        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData) else {
-            print("❌ [PDF] Failed to create data consumer")
-            return nil
-        }
-        
-        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
-        guard let pdfContext = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            print("❌ [PDF] Failed to create PDF context")
-            return nil
-        }
-        
-        var pageNumber = 0
-        
-        // PAGE 1: Project Information and Statistics
-        pageNumber += 1
-        pdfContext.beginPDFPage(nil)
-        pdfContext.saveGState()
-        pdfContext.translateBy(x: 0, y: pageHeight)
-        pdfContext.scaleBy(x: 1.0, y: -1.0)
-
-        PlatformGraphics.pushContext(pdfContext)
-
-        // Draw first page content
-        drawFirstPage(in: pdfContext, pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, textWidth: textWidth)
-
-        PlatformGraphics.popContext()
-        pdfContext.restoreGState()
-        pdfContext.endPDFPage()
-        
-        // Scenes flow continuously: a new scene continues on the current page
-        // when there's room, only breaking to a new page when it must — but a
-        // scene header is never left stranded at the foot of a page without at
-        // least its first shot.
+        let bottomLimit = pageHeight - margin
+        let headerHeight: CGFloat = 34
+        // The scene map always takes its own page, so with it on scenes always start
+        // fresh; otherwise honour the user's layout choice.
+        let newPagePerScene = pdfOptions.includeSceneMap || pdfOptions.startEachSceneOnNewPage
         let orderedScenes = pdfExportScenes
-        var yPosition: CGFloat = 0
-        var pageOpen = false
+        let dayMode = pdfOptions.groupByShootingDay && !(version?.orderedShootingDays.isEmpty ?? true)
 
-        func beginContentPage() {
+        var mediaBox = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+
+        // Scene maps are expensive to render; cache so both passes share them.
+        var mapCache: [ObjectIdentifier: CoverageImage?] = [:]
+        func cachedMap(_ scene: Scene) -> CoverageImage? {
+            let key = ObjectIdentifier(scene)
+            if let cached = mapCache[key] { return cached }
+            let rendered = renderSceneMap(scene: scene)
+            mapCache[key] = rendered
+            return rendered
+        }
+
+        // Renders the document into `pdfContext`. In day mode it stamps a
+        // "Day N · Page X of Y" header at the top-right of each day page, where the
+        // totals come from `headerCounts` (nil on the first, counting pass). Returns
+        // the per-day page counts it observed.
+        func render(into pdfContext: CGContext, headerCounts: [Int: Int]?) -> [Int: Int] {
+            var yPosition: CGFloat = 0
+            var pageOpen = false
+            var dayPageCounts: [Int: Int] = [:]
+            var currentDayIndex: Int?
+            var pageInDay = 0
+
+            func drawCornerHeader() {
+                guard let di = currentDayIndex, let total = headerCounts?[di] else { return }
+                let str = "Day \(di + 1) · Page \(pageInDay) of \(total)"
+                let attr: [NSAttributedString.Key: Any] = [
+                    .font: PlatformFont.systemFont(ofSize: 8, weight: .medium),
+                    .foregroundColor: PlatformColor(white: 0.5, alpha: 1)
+                ]
+                let w = (str as NSString).size(withAttributes: attr).width
+                (str as NSString).draw(at: CGPoint(x: pageWidth - margin - w, y: 16), withAttributes: attr)
+            }
+
+            func beginContentPage() {
+                pdfContext.beginPDFPage(nil)
+                pdfContext.saveGState()
+                pdfContext.translateBy(x: 0, y: pageHeight)
+                pdfContext.scaleBy(x: 1.0, y: -1.0)
+                PlatformGraphics.pushContext(pdfContext)
+                yPosition = margin
+                pageOpen = true
+                if let di = currentDayIndex {
+                    pageInDay += 1
+                    dayPageCounts[di] = pageInDay
+                    drawCornerHeader()
+                }
+            }
+            func endContentPage() {
+                if pageOpen {
+                    PlatformGraphics.popContext()
+                    pdfContext.restoreGState(); pdfContext.endPDFPage(); pageOpen = false
+                }
+            }
+
+            // PAGE 1: project info + statistics (never carries a day header).
             pdfContext.beginPDFPage(nil)
             pdfContext.saveGState()
             pdfContext.translateBy(x: 0, y: pageHeight)
             pdfContext.scaleBy(x: 1.0, y: -1.0)
             PlatformGraphics.pushContext(pdfContext)
-            yPosition = margin
-            pageOpen = true
-            pageNumber += 1
-        }
-        func endContentPage() {
-            if pageOpen {
-                PlatformGraphics.popContext()
-                pdfContext.restoreGState(); pdfContext.endPDFPage(); pageOpen = false
-            }
-        }
+            drawFirstPage(in: pdfContext, pageWidth: pageWidth, pageHeight: pageHeight, margin: margin, textWidth: textWidth)
+            PlatformGraphics.popContext()
+            pdfContext.restoreGState()
+            pdfContext.endPDFPage()
 
-        let bottomLimit = pageHeight - margin
-        // The scene map always takes its own page, so with it on scenes always start
-        // fresh; otherwise honour the user's layout choice.
-        let newPagePerScene = pdfOptions.includeSceneMap || pdfOptions.startEachSceneOnNewPage
-        let headerHeight: CGFloat = 34
-        for scene in orderedScenes {
-            let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
+            // Draws one scene: header, shot list, reference gallery, scene-map page.
+            // `scheduledShotUIDs` is nil for a whole scene; when set (a split scene on
+            // a shooting day) the shots outside it are shown greyed as "not scheduled".
+            func drawScene(_ scene: Scene, scheduledShotUIDs: Set<String>?, newPage: Bool) {
+                let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
+                func offDay(_ shot: Shot) -> Bool {
+                    guard let ids = scheduledShotUIDs else { return false }
+                    return !ids.contains(shot.uid)
+                }
 
-            if newPagePerScene {
-                endContentPage(); beginContentPage()
-            } else {
-                // Continuous flow: keep filling the page, breaking only when the
-                // header plus its first shot won't fit; a small gap separates scenes.
-                let firstRowHeight = orderedShots.first.map { pdfShotRowHeight($0, textWidth: textWidth) } ?? 30
-                let needed = headerHeight + min(firstRowHeight, pageHeight - margin * 2 - headerHeight)
-                if !pageOpen || yPosition + needed > bottomLimit {
+                if newPage {
                     endContentPage(); beginContentPage()
                 } else {
-                    yPosition += 14
+                    // Continuous flow: fill the page, break only when the header plus
+                    // its first shot won't fit; a small gap separates scenes.
+                    let firstRowHeight = orderedShots.first.map { pdfShotRowHeight($0, textWidth: textWidth, offDay: offDay($0)) } ?? 30
+                    let needed = headerHeight + min(firstRowHeight, pageHeight - margin * 2 - headerHeight)
+                    if !pageOpen || yPosition + needed > bottomLimit {
+                        endContentPage(); beginContentPage()
+                    } else {
+                        yPosition += 14
+                    }
                 }
-            }
-            yPosition = drawSceneHeaderRow(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                yPosition = drawSceneHeaderRow(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
 
-            // 1) The scene's shots as a plain text list.
-            if orderedShots.isEmpty {
-                NSAttributedString(string: "No shots in this scene.",
-                                   attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
-                    .draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += 18
-            } else {
-                for shot in orderedShots {
-                    let h = pdfShotRowHeight(shot, textWidth: textWidth)
-                    if yPosition + h > bottomLimit {
+                // 1) Shot list.
+                if orderedShots.isEmpty {
+                    NSAttributedString(string: "No shots in this scene.",
+                                       attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
+                        .draw(at: CGPoint(x: margin, y: yPosition))
+                    yPosition += 18
+                } else {
+                    for shot in orderedShots {
+                        let dim = offDay(shot)
+                        let h = pdfShotRowHeight(shot, textWidth: textWidth, offDay: dim)
+                        if yPosition + h > bottomLimit {
+                            endContentPage(); beginContentPage()
+                            yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                        }
+                        yPosition = drawShotRow(shot, in: pdfContext, at: yPosition, margin: margin, textWidth: textWidth, offDay: dim)
+                    }
+                }
+
+                // 2) Reference gallery (only the day's shots for a split scene).
+                let items = pdfOptions.includeReferenceImages ? pdfGalleryItems(for: scene, onlyShotUIDs: scheduledShotUIDs) : []
+                if !items.isEmpty {
+                    let cols = 3
+                    let gap: CGFloat = 12
+                    let thumbW = (textWidth - gap * CGFloat(cols - 1)) / CGFloat(cols)
+                    let thumbH = thumbW * 0.66
+                    let rowH = thumbH + 12 + 10          // image + caption + gap
+                    let headingH: CGFloat = 22
+
+                    if yPosition + headingH + rowH > bottomLimit {
                         endContentPage(); beginContentPage()
                         yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                    } else {
+                        yPosition += 8
                     }
-                    yPosition = drawShotRow(shot, in: pdfContext, at: yPosition, margin: margin, textWidth: textWidth)
+                    NSAttributedString(string: "References",
+                                       attributes: [.font: PlatformFont.boldSystemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.42, alpha: 1)])
+                        .draw(at: CGPoint(x: margin, y: yPosition))
+                    yPosition += headingH
+
+                    var col = 0
+                    for item in items {
+                        if col == 0 && yPosition + rowH > bottomLimit {
+                            endContentPage(); beginContentPage()
+                        }
+                        let x = margin + CGFloat(col) * (thumbW + gap)
+                        drawPDFThumb(item.data, caption: item.caption, in: pdfContext,
+                                     box: CGRect(x: x, y: yPosition, width: thumbW, height: thumbH))
+                        col += 1
+                        if col == cols { col = 0; yPosition += rowH }
+                    }
+                    if col != 0 { yPosition += rowH }
                 }
-            }
 
-            // 2) A gallery of the reference photos, below the shot list.
-            let items = pdfOptions.includeReferenceImages ? pdfGalleryItems(for: scene) : []
-            if !items.isEmpty {
-                let cols = 3
-                let gap: CGFloat = 12
-                let thumbW = (textWidth - gap * CGFloat(cols - 1)) / CGFloat(cols)
-                let thumbH = thumbW * 0.66
-                let rowH = thumbH + 12 + 10          // image + caption + gap
-                let headingH: CGFloat = 22
-
-                if yPosition + headingH + rowH > bottomLimit {
+                // 3) The scene map on its own page, as large as possible.
+                if pdfOptions.includeSceneMap, let map = cachedMap(scene) {
                     endContentPage(); beginContentPage()
-                    yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
-                } else {
-                    yPosition += 8
+                    let title = "Scene \(scene.sceneNumber)\(scene.suffix) — Scene Map"
+                    NSAttributedString(string: title,
+                                       attributes: [.font: PlatformFont.boldSystemFont(ofSize: 12), .foregroundColor: PlatformColor.black])
+                        .draw(at: CGPoint(x: margin, y: yPosition))
+                    yPosition += 24
+                    drawPDFImageFit(map.data, in: pdfContext,
+                                    box: CGRect(x: margin, y: yPosition, width: textWidth, height: bottomLimit - yPosition),
+                                    border: true)
+                    yPosition = bottomLimit    // nothing else shares the map page
                 }
-                NSAttributedString(string: "References",
-                                   attributes: [.font: PlatformFont.boldSystemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.42, alpha: 1)])
-                    .draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += headingH
-
-                var col = 0
-                for item in items {
-                    if col == 0 && yPosition + rowH > bottomLimit {
-                        endContentPage(); beginContentPage()
-                    }
-                    let x = margin + CGFloat(col) * (thumbW + gap)
-                    drawPDFThumb(item.data, caption: item.caption, in: pdfContext,
-                                 box: CGRect(x: x, y: yPosition, width: thumbW, height: thumbH))
-                    col += 1
-                    if col == cols { col = 0; yPosition += rowH }
-                }
-                if col != 0 { yPosition += rowH }
             }
 
-            // 3) The scene map on its own page, as large as possible.
-            if pdfOptions.includeSceneMap, let map = renderSceneMap(scene: scene) {
-                endContentPage(); beginContentPage()
-                let title = "Scene \(scene.sceneNumber)\(scene.suffix) — Scene Map"
-                NSAttributedString(string: title,
-                                   attributes: [.font: PlatformFont.boldSystemFont(ofSize: 12), .foregroundColor: PlatformColor.black])
-                    .draw(at: CGPoint(x: margin, y: yPosition))
-                yPosition += 24
-                drawPDFImageFit(map.data, in: pdfContext,
-                                box: CGRect(x: margin, y: yPosition, width: textWidth, height: bottomLimit - yPosition),
-                                border: true)
+            if dayMode, let days = version?.orderedShootingDays {
+                // Day-ordered (mirrors the web export): scenes grouped under each day,
+                // a split scene shown whole with its off-day shots greyed out.
+                for (dayIdx, day) in days.enumerated() {
+                    let entries = day.orderedEntries.filter { entry in
+                        guard let scene = entry.scene else { return false }
+                        return pdfOptions.includesScene(scene)
+                    }
+                    guard !entries.isEmpty else { continue }
+                    currentDayIndex = dayIdx
+                    pageInDay = 0
+                    endContentPage(); beginContentPage()
+                    let setups = entries.count
+                    let shots = entries.reduce(0) { $0 + $1.resolvedShots.count }
+                    yPosition = drawDayHeader(day, setups: setups, shots: shots, in: pdfContext,
+                                              at: yPosition, margin: margin, pageWidth: pageWidth, textWidth: textWidth)
+                    for entry in entries {
+                        guard let scene = entry.scene else { continue }
+                        let scheduled: Set<String>? = entry.selectedShotUIDs.isEmpty ? nil : Set(entry.resolvedShots.map { $0.uid })
+                        drawScene(scene, scheduledShotUIDs: scheduled, newPage: false)
+                    }
+                }
+                currentDayIndex = nil
+            } else {
+                for scene in orderedScenes {
+                    drawScene(scene, scheduledShotUIDs: nil, newPage: newPagePerScene)
+                }
+            }
+            endContentPage()
+            return dayPageCounts
+        }
+
+        // Day mode needs each day's total page count for the header, so run a
+        // throwaway counting pass first.
+        var counts: [Int: Int] = [:]
+        if dayMode {
+            let tmp = NSMutableData()
+            if let consumer = CGDataConsumer(data: tmp as CFMutableData),
+               let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) {
+                counts = render(into: ctx, headerCounts: nil)
+                ctx.closePDF()
             }
         }
-        endContentPage()
-        
-        // Close the PDF
+
+        // Real pass.
+        let pdfData = NSMutableData()
+        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData),
+              let pdfContext = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            return nil
+        }
+        _ = render(into: pdfContext, headerCounts: dayMode ? counts : nil)
         pdfContext.closePDF()
-        
-        print("✅ [PDF] Created PDF with \(pageNumber) page(s)")
-        
         return pdfData as Data
     }
     
@@ -3101,6 +3173,55 @@ struct ProjectExporter {
 
     /// The scene header row: "Scene N" + INT/EXT and DAY/NIGHT chips + location,
     /// with the script page and shot count on the right. Returns the new y.
+    /// A shooting-day banner: "Day N", its date, totals, daylight times and note,
+    /// above the day's scenes. Returns the y just below it.
+    private func drawDayHeader(_ day: ShootingDay, setups: Int, shots: Int, in context: CGContext,
+                               at y: CGFloat, margin: CGFloat, pageWidth: CGFloat, textWidth: CGFloat) -> CGFloat {
+        var yy = y
+        let grey = PlatformColor(white: 0.45, alpha: 1)
+
+        let title = "Day \(day.sortOrder + 1)"
+        let titleFont = PlatformFont.boldSystemFont(ofSize: 17)
+        NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: PlatformColor.black])
+            .draw(at: CGPoint(x: margin, y: yy))
+        if let date = day.date {
+            let df = DateFormatter(); df.dateStyle = .full
+            let cx = margin + (title as NSString).size(withAttributes: [.font: titleFont]).width + 10
+            NSAttributedString(string: df.string(from: date),
+                               attributes: [.font: PlatformFont.systemFont(ofSize: 12), .foregroundColor: grey])
+                .draw(at: CGPoint(x: cx, y: yy + 5))
+        }
+        yy += 24
+
+        NSAttributedString(string: "\(setups) scene\(setups == 1 ? "" : "s") · \(shots) shot\(shots == 1 ? "" : "s")",
+                           attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: grey])
+            .draw(at: CGPoint(x: margin, y: yy))
+        yy += 15
+
+        if let sun = ScheduleSummary.daylightTimes(for: day) {
+            let line = "Sunrise \(sun.sunrise)    ·    Golden \(sun.goldenMorning)    ·    Golden \(sun.goldenEvening)    ·    Sunset \(sun.sunset)"
+            NSAttributedString(string: line, attributes: [.font: PlatformFont.systemFont(ofSize: 9), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
+                .draw(at: CGPoint(x: margin, y: yy))
+            yy += 14
+        }
+
+        let notes = day.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !notes.isEmpty {
+            let h = pdfTextHeight(notes, font: PlatformFont.systemFont(ofSize: 10), width: textWidth)
+            NSAttributedString(string: notes, attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.2, alpha: 1)])
+                .draw(with: CGRect(x: margin, y: yy + 2, width: textWidth, height: h), options: [.usesLineFragmentOrigin], context: nil)
+            yy += h + 4
+        }
+
+        yy += 6
+        context.setStrokeColor(PlatformColor(white: 0.65, alpha: 1).cgColor)
+        context.setLineWidth(1.5)
+        context.move(to: CGPoint(x: margin, y: yy))
+        context.addLine(to: CGPoint(x: pageWidth - margin, y: yy))
+        context.strokePath()
+        return yy + 14
+    }
+
     private func drawSceneHeaderRow(_ scene: Scene, in context: CGContext, at y: CGFloat,
                                     margin: CGFloat, pageWidth: CGFloat) -> CGFloat {
         var yPosition = y
@@ -3126,15 +3247,6 @@ struct ProjectExporter {
                                attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.45, alpha: 1)])
                 .draw(at: CGPoint(x: cx, y: yPosition + 3))
         }
-
-        var rightBits: [String] = []
-        if scene.scriptPageNumber > 0 { rightBits.append("Script p.\(scene.scriptPageNumber)") }
-        rightBits.append("\(scene.shots.count) shot\(scene.shots.count == 1 ? "" : "s")")
-        let rightText = rightBits.joined(separator: " · ")
-        let rightAttr: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 9), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)]
-        let rw = (rightText as NSString).size(withAttributes: rightAttr).width
-        NSAttributedString(string: rightText, attributes: rightAttr)
-            .draw(at: CGPoint(x: pageWidth - margin - rw, y: yPosition + 5))
 
         yPosition += 22
         context.setStrokeColor(PlatformColor(white: 0.8, alpha: 1).cgColor)
@@ -3230,9 +3342,14 @@ struct ProjectExporter {
     }
 
     /// The height a text-only shot row occupies — mirrors `drawShotRow` exactly.
-    func pdfShotRowHeight(_ shot: Shot, textWidth: CGFloat) -> CGFloat {
-        let c = pdfShotContent(shot)
+    /// `offDay` shots (a split scene's shots not shot on the current day) show a
+    /// compact greyed row with a "not scheduled" note instead of the full details.
+    func pdfShotRowHeight(_ shot: Shot, textWidth: CGFloat, offDay: Bool = false) -> CGFloat {
         let contentW = textWidth - Self.pdfRowGutter
+        if offDay {
+            return 16 + pdfTextHeight("Not scheduled for this day", font: Self.pdfSubFont, width: contentW) + 8
+        }
+        let c = pdfShotContent(shot)
         var h: CGFloat = 16                                 // number + nickname + primary specs line
         let secondary = c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) && pdfOptions.includesField($0.0) }
         let coverage = pdfOptions.includesField(PDFExportOptions.coverageLabel) ? c.coverage : []
@@ -3246,9 +3363,12 @@ struct ProjectExporter {
 
     /// Every reference photo in the scene, each with a caption, for the gallery drawn
     /// below a scene's shot list. (The scene map gets its own full page afterwards.)
-    private func pdfGalleryItems(for scene: Scene) -> [(data: Data, caption: String)] {
+    /// `onlyShotUIDs`, when set, limits the gallery to those shots (a split scene's
+    /// shots for the current shooting day).
+    private func pdfGalleryItems(for scene: Scene, onlyShotUIDs: Set<String>? = nil) -> [(data: Data, caption: String)] {
         var items: [(data: Data, caption: String)] = []
         for shot in scene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }) {
+            if let ids = onlyShotUIDs, !ids.contains(shot.uid) { continue }
             // Only the reference photos — the per-shot top-down maps are skipped.
             let refs = shot.orderedReferences.filter { $0.imageData != nil }
             for (i, r) in refs.enumerated() {
@@ -3259,17 +3379,48 @@ struct ProjectExporter {
         return items
     }
 
-    /// Draws one shot card at `yTop`; returns the y just below it.
     /// Draws one text-only shot row (number, nickname, specs, coverage, extra) with
     /// a light separator beneath. Returns the y just below it. Mirrors `pdfShotRowHeight`.
+    /// An `offDay` shot draws a compact greyed row noting it isn't scheduled today.
     private func drawShotRow(_ shot: Shot, in context: CGContext, at yTop: CGFloat,
-                             margin: CGFloat, textWidth: CGFloat) -> CGFloat {
-        let c = pdfShotContent(shot)
+                             margin: CGFloat, textWidth: CGFloat, offDay: Bool = false) -> CGFloat {
         let ink = PlatformColor.black
         let grey = PlatformColor(white: 0.42, alpha: 1)
         let contentX = margin + Self.pdfRowGutter
         let contentW = textWidth - Self.pdfRowGutter
         var cy = yTop
+
+        func separator(_ atY: CGFloat) {
+            context.setStrokeColor(PlatformColor(white: 0.90, alpha: 1).cgColor)
+            context.setLineWidth(0.5)
+            context.move(to: CGPoint(x: margin, y: atY))
+            context.addLine(to: CGPoint(x: margin + textWidth, y: atY))
+            context.strokePath()
+        }
+
+        // A split scene's off-day shot: compact, greyed, with a "not scheduled" note.
+        if offDay {
+            let dim = PlatformColor(white: 0.62, alpha: 1)
+            NSAttributedString(string: shot.displayNumber,
+                               attributes: [.font: PlatformFont.boldSystemFont(ofSize: 11), .foregroundColor: dim])
+                .draw(at: CGPoint(x: margin, y: cy))
+            if !shot.nickname.isEmpty {
+                NSAttributedString(string: shot.nickname,
+                                   attributes: [.font: PlatformFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: dim])
+                    .draw(at: CGPoint(x: contentX, y: cy))
+            }
+            cy += 16
+            let note = "Not scheduled for this day"
+            let h = pdfTextHeight(note, font: Self.pdfSubFont, width: contentW)
+            NSAttributedString(string: note, attributes: [.font: Self.pdfSubFont, .foregroundColor: dim])
+                .draw(in: CGRect(x: contentX, y: cy, width: contentW, height: h))
+            cy += h + 2
+            cy += 4
+            separator(cy)
+            return cy + 4
+        }
+
+        let c = pdfShotContent(shot)
 
         // Line 1: shot number (bold, in the gutter) + nickname, with Size/Type/Focal
         // right-aligned on the same row.
