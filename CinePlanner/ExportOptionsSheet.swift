@@ -15,6 +15,7 @@ struct ExportOptionsSheet: View {
     @State private var showingPublish = false
     @State private var showingPDFSettings = false
     @State private var pdfOptions = PDFExportOptions.loadStored()
+    @State private var editingDetails = false
 
     /// The preset the current PDF options match, e.g. "Full" or "Custom".
     private var pdfPresetName: String {
@@ -160,6 +161,11 @@ struct ExportOptionsSheet: View {
     private var optionsContent: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("DETAILS")
+                detailsCard
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("SHARE ONLINE")
                 publishFeatureCard
             }
@@ -179,6 +185,48 @@ struct ExportOptionsSheet: View {
             }
         }
         .padding(16)
+    }
+
+    /// The production credits in one card: read-only until "Edit", then editable
+    /// text fields plus "Confirm". Values write straight to the project (persisted
+    /// across versions).
+    private var detailsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Production Credits").font(.subheadline.weight(.semibold))
+                Spacer()
+                Button(editingDetails ? "Confirm" : "Edit") { editingDetails.toggle() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            detailRow("Production Company", project.productionCompany) { project.productionCompany = $0 }
+            detailRow("Director", project.director) { project.director = $0 }
+            detailRow("Cinematographer", project.cinematographer) { project.cinematographer = $0 }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+    }
+
+    private func detailRow(_ label: String, _ value: String, set: @escaping (String) -> Void) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 150, alignment: .leading)
+            if editingDetails {
+                TextField(label, text: Binding(get: { value }, set: set))
+                    .textFieldStyle(.roundedBorder)
+            } else {
+                Text(value.isEmpty ? "—" : value)
+                    .font(.subheadline)
+                    .foregroundStyle(value.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {

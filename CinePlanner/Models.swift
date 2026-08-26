@@ -43,6 +43,11 @@ final class Project {
     /// selection and ForEach on. Backfilled for pre-existing rows at launch.
     var uid: String = UUID().uuidString
     var filmName: String = ""
+    // Production credits, shown in exports. Live on the project so they persist
+    // across all its script versions. Defaulted, so adding them migrates cleanly.
+    var productionCompany: String = ""
+    var director: String = ""
+    var cinematographer: String = ""
     var createdDate: Date = Date()
     var lastOpenedDate: Date?   // Updated when the editor opens; drives "last opened" in the project list
     var isSeries: Bool = false  // Series projects have multiple episodes, each with its own script + versions

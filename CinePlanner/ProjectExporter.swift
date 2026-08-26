@@ -684,6 +684,7 @@ struct ProjectExporter {
                 }
             }
             let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+                                      productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
                                       scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
             guard let data = html.data(using: .utf8) else {
                 throw Self.exportError("Failed to encode the web page.")
@@ -774,6 +775,7 @@ struct ProjectExporter {
         }
 
         let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+                                  productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
                                   scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
         guard let data = html.data(using: .utf8) else {
             throw Self.exportError("Failed to encode the web page.")
@@ -874,6 +876,7 @@ struct ProjectExporter {
         }
 
         let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+                                  productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
                                   scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
         // Named after the shot list rather than index.html, so it's identifiable
         // once unzipped alongside other files.
@@ -964,10 +967,21 @@ struct ProjectExporter {
     }
 
     private static func buildHTML(filmName: String, episodeName: String?, versionName: String?,
+                                  productionCompany: String = "", director: String = "", cinematographer: String = "",
                                   scenes: [MediaScene],
                                   media: [String: RenderedMedia],
                                   schedule: [MediaScheduleDay] = []) -> String {
         let totalShots = scenes.reduce(0) { $0 + $1.shots.count }
+        // Production credits, shown under the title when filled in.
+        var creditBits: [String] = []
+        func addCredit(_ label: String, _ value: String) {
+            let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { creditBits.append("<span class=\"credit\"><b>\(esc(label))</b> \(esc(v))</span>") }
+        }
+        addCredit("Production Company", productionCompany)
+        addCredit("Director", director)
+        addCredit("Cinematographer", cinematographer)
+        let creditsHTML = creditBits.isEmpty ? "" : "<div class=\"credits\">\(creditBits.joined())</div>"
         var subtitleBits: [String] = []
         if let episodeName { subtitleBits.append(esc(episodeName)) }
         if let versionName { subtitleBits.append(esc(versionName)) }
@@ -1253,6 +1267,13 @@ struct ProjectExporter {
           .masthead { position: relative; padding: 30px 28px 22px; max-width: 1240px; margin: 0 auto; }
           .masthead h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px; }
           .masthead .sub { color: var(--muted); font-size: 14px; }
+          /* Credits sit side by side, wrapping to stacked lines when the window is
+             too narrow. Each credit keeps its label+value together (nowrap). */
+          .credits { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 8px;
+                     font-size: 13px; color: var(--muted); }
+          .credit { white-space: nowrap; }
+          .credit:not(:last-child)::after { content: "·"; margin: 0 12px; color: var(--faint); }
+          .credit b { color: var(--text); font-weight: 600; }
           .brandline { position: absolute; top: 30px; right: 28px; display: flex; align-items: center;
                        gap: 7px; font-size: 12px; color: var(--muted); }
           .brandline b { color: var(--text); font-weight: 700; }
@@ -1599,6 +1620,7 @@ struct ProjectExporter {
           </div>
           <h1>\(esc(filmName))</h1>
           <div class="sub">\(subtitleBits.joined(separator: " · "))</div>
+          \(creditsHTML)
         </div>
 
         <noscript>
@@ -2055,6 +2077,12 @@ struct ProjectExporter {
         output += "\(project.filmName.uppercased()) — SHOT LIST\n"
         if !textContextLine.isEmpty {
             output += textContextLine + "\n"
+        }
+        for (label, value) in [("Production Company", project.productionCompany),
+                               ("Director", project.director),
+                               ("Cinematographer", project.cinematographer)] {
+            let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { output += "\(label): \(v)\n" }
         }
         output += "Exported \(formatter.string(from: Date()))\n"
         output += rule + "\n\n"
@@ -3113,7 +3141,37 @@ struct ProjectExporter {
     
     private func drawFirstPage(in context: CGContext, pageWidth: CGFloat, pageHeight: CGFloat, margin: CGFloat, textWidth: CGFloat) {
         var yPosition: CGFloat = margin
-        
+
+        // "Made with CinePlanner" badge, top-right (first page only).
+        let badge: CGFloat = 22
+        let logoX = pageWidth - margin - badge
+        let logoY = margin
+        let logoRect = CGRect(x: logoX, y: logoY, width: badge, height: badge)
+        PlatformColor(white: 1, alpha: 1).setFill()
+        PlatformBezierPath.rounded(logoRect, radius: 5).fill()
+        PlatformColor(white: 0.82, alpha: 1).setStroke()
+        let ring = PlatformBezierPath.rounded(logoRect, radius: 5); ring.lineWidth = 0.5; ring.stroke()
+        let s = badge / 100.0
+        PlatformColor(red: 0.16, green: 0.42, blue: 1.0, alpha: 1).setFill()
+        let bars: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (11.6, 15.6, 76.4, 12.2), (11.6, 34.1, 61.9, 12.2),
+            (11.6, 52.6, 70.3, 12.2), (11.6, 71.1, 48.1, 12.2)
+        ]
+        for b in bars {
+            let r = CGRect(x: logoX + b.0 * s, y: logoY + b.1 * s, width: b.2 * s, height: b.3 * s)
+            PlatformBezierPath.rounded(r, radius: b.3 * s / 2).fill()
+        }
+        let reg: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 9, weight: .medium), .foregroundColor: PlatformColor(white: 0.45, alpha: 1)]
+        let bold: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 9, weight: .bold), .foregroundColor: PlatformColor(white: 0.2, alpha: 1)]
+        let t1 = "Made with " as NSString
+        let t2 = "CinePlanner" as NSString
+        let w1 = t1.size(withAttributes: reg).width
+        let w2 = t2.size(withAttributes: bold).width
+        let textStartX = logoX - 8 - (w1 + w2)
+        let ty = logoY + (badge - 11) / 2
+        t1.draw(at: CGPoint(x: textStartX, y: ty), withAttributes: reg)
+        t2.draw(at: CGPoint(x: textStartX + w1, y: ty), withAttributes: bold)
+
         // Title
         let titleFont = PlatformFont.boldSystemFont(ofSize: 24)
         let titleText = "\(project.filmName.uppercased())\nSHOT LIST"
@@ -3143,26 +3201,24 @@ struct ProjectExporter {
         NSAttributedString(string: sectionTitle, attributes: sectionAttr).draw(at: CGPoint(x: margin, y: yPosition))
         yPosition += 25
         
-        let formatter = DateFormatter()
-        formatter.dateStyle = .long
-        formatter.timeStyle = .medium
-        
-        let stats = calculateStatistics()
-        
-        let projectInfo = [
-            "Film Name:        \(project.filmName)",
-            "Exported:         \(formatter.string(from: Date()))",
-            "Total Scenes:     \(exportScenes.count)",
-            "Total Shots:      \(exportScenes.reduce(0) { $0 + $1.shots.count })",
-            "INT/DAY Scenes:   \(stats.intDayCount)",
-            "INT/NIGHT Scenes: \(stats.intNightCount)",
-            "EXT/DAY Scenes:   \(stats.extDayCount)",
-            "EXT/NIGHT Scenes: \(stats.extNightCount)"
-        ]
-        
-        let bodyAttr: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: PlatformColor.platformLabel]
-        for info in projectInfo {
-            NSAttributedString(string: info, attributes: bodyAttr).draw(at: CGPoint(x: margin, y: yPosition))
+        // Label/value rows; values all start at the same column so they line up.
+        var rows: [(String, String)] = [("Project", project.filmName)]
+        func addCredit(_ label: String, _ value: String) {
+            let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { rows.append((label, v)) }
+        }
+        addCredit("Production Company", project.productionCompany)
+        addCredit("Director", project.director)
+        addCredit("Cinematographer", project.cinematographer)
+        rows.append(("Total Scenes", "\(exportScenes.count)"))
+        rows.append(("Total Shots", "\(exportScenes.reduce(0) { $0 + $1.shots.count })"))
+
+        let labelAttr: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: PlatformColor(white: 0.45, alpha: 1)]
+        let valueAttr: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: PlatformColor.platformLabel]
+        let valueX = margin + 150
+        for (label, value) in rows {
+            NSAttributedString(string: label, attributes: labelAttr).draw(at: CGPoint(x: margin, y: yPosition))
+            NSAttributedString(string: value, attributes: valueAttr).draw(at: CGPoint(x: valueX, y: yPosition))
             yPosition += 18
         }
     }
