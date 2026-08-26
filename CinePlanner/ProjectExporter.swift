@@ -1288,7 +1288,7 @@ struct ProjectExporter {
                      border-bottom: 1px solid var(--line); }
           .toolbar-inner { max-width: 1240px; margin: 0 auto; padding: 10px 28px;
                            display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-          .search { position: relative; flex: 1 1 260px; min-width: 200px; }
+          .search { position: relative; flex: 1 1 120px; min-width: 90px; }
           .search input { width: 100%; font: inherit; font-size: 14px; padding: 8px 32px 8px 32px;
                           border-radius: 9px; border: 1px solid var(--line-strong); background: var(--card);
                           color: var(--text); }
@@ -1568,6 +1568,17 @@ struct ProjectExporter {
           }
           /* Shooting-day view */
           .viewtoggle { display: inline-flex; gap: 2px; background: var(--chip); border-radius: 9px; padding: 2px; flex: 0 0 auto; }
+          /* Narrow screens (e.g. iPhone portrait): a zero-height full-width break
+             forces the search + filters onto the row below the view switch, while the
+             switch keeps its natural (non-stretched) width. */
+          .tb-break { display: none; flex-basis: 100%; height: 0; }
+          @media (max-width: 640px) {
+            .tb-break { display: block; }
+            /* Below the switch: search + all four filter chips share one row, so the
+               search shrinks small enough that the chips don't wrap. */
+            .search { flex: 1 1 56px; min-width: 52px; }
+            .search input { padding-left: 28px; padding-right: 10px; }
+          }
           .vt { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
                 padding: 5px 12px; border-radius: 7px; cursor: pointer; }
           .vt.on { background: var(--accent); color: #fff; }
@@ -1640,9 +1651,10 @@ struct ProjectExporter {
               <button class="vt on" id="vt-scenes" type="button">Scenes</button>
               <button class="vt" id="vt-days" type="button">Shooting days</button>
             </div>
+            <div class="tb-break"></div>
             <div class="search">
               <span class="glass">⌕</span>
-              <input id="q" type="search" placeholder="Search scenes, shots, locations, details…" autocomplete="off">
+              <input id="q" type="search" placeholder="Search" autocomplete="off">
               <button class="clear" id="clearq" type="button" aria-label="Clear search" hidden>×</button>
             </div>
             <div class="chips">
@@ -1650,7 +1662,6 @@ struct ProjectExporter {
               <button class="chip" data-group="type" data-value="ext" type="button">EXT</button>
               <button class="chip" data-group="time" data-value="day" type="button">Day</button>
               <button class="chip chip-night" data-group="time" data-value="night" type="button">Night</button>
-              <button class="chip" data-group="media" data-value="media" type="button">Has media</button>
             </div>
             <div class="tools">
               <span class="count" id="count"></span>
