@@ -13,6 +13,8 @@ struct ExportOptionsSheet: View {
 
     @State private var selected: Set<ExportFormat> = []
     @State private var showingPublish = false
+    @State private var showingPDFSettings = false
+    @State private var pdfOptions = PDFExportOptions()
 
     /// Selected formats in the order they're listed.
     private var orderedSelection: [ExportFormat] {
@@ -157,6 +159,10 @@ struct ExportOptionsSheet: View {
         .sheet(isPresented: $showingPublish) {
             GitHubPublishSheet(project: project, version: version)
         }
+        .sheet(isPresented: $showingPDFSettings) {
+            PDFExportSettingsSheet(options: $pdfOptions,
+                                   scenes: exportScenes.sorted { $0.sortOrder < $1.sortOrder })
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -290,6 +296,15 @@ struct ExportOptionsSheet: View {
 
                 Spacer(minLength: 0)
 
+                if option.format == .pdf {
+                    Button { showingPDFSettings = true } label: {
+                        Label("Settings", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Choose what to include in the PDF")
+                }
+
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.title3)
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
@@ -315,7 +330,8 @@ struct ExportOptionsSheet: View {
     }
 
     private func performExport() {
-        let exporter = ProjectExporter(project: project, version: version)
+        var exporter = ProjectExporter(project: project, version: version)
+        exporter.pdfOptions = pdfOptions
         let formats = orderedSelection
         guard !formats.isEmpty else { return }
 

@@ -15,11 +15,19 @@ import UniformTypeIdentifiers
 struct ProjectExporter {
     let project: Project
     var version: ScriptVersion? = nil
+    /// What the PDF export includes; set by the export sheet before a PDF export.
+    var pdfOptions = PDFExportOptions()
 
     /// Scenes to export: the selected script version's scenes, or all project
     /// scenes for legacy projects without versions.
     private var exportScenes: [Scene] {
         version?.scenes ?? project.scenes
+    }
+
+    /// The scenes a PDF export covers — `exportScenes` in order, filtered by the
+    /// PDF options' scene selection.
+    private var pdfExportScenes: [Scene] {
+        exportScenes.sorted { $0.sortOrder < $1.sortOrder }.filter { pdfOptions.includesScene($0) }
     }
 
     enum ExportError: Error { case generationFailed }
@@ -2895,7 +2903,7 @@ struct ProjectExporter {
         // when there's room, only breaking to a new page when it must — but a
         // scene header is never left stranded at the foot of a page without at
         // least its first shot.
-        let orderedScenes = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
+        let orderedScenes = pdfExportScenes
         var yPosition: CGFloat = 0
         var pageOpen = false
 
@@ -2916,34 +2924,77 @@ struct ProjectExporter {
             }
         }
 
-        let headerHeight: CGFloat = 42
+        let bottomLimit = pageHeight - margin
         for scene in orderedScenes {
             let orderedShots = scene.shots.sorted { $0.shotNumber < $1.shotNumber }
-            let firstShotHeight = orderedShots.first.map { shotCardHeight($0, textWidth: textWidth) } ?? 30
-            let needed = headerHeight + min(firstShotHeight, pageHeight - margin * 2 - headerHeight)
 
-            if !pageOpen || yPosition + needed > pageHeight - margin {
-                endContentPage(); beginContentPage()
-            } else {
-                yPosition += 16   // gap before a new scene sharing the page
-            }
+            // Every scene starts on a fresh page.
+            endContentPage(); beginContentPage()
             yPosition = drawSceneHeaderRow(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
 
+            // 1) The scene's shots as a plain text list.
             if orderedShots.isEmpty {
                 NSAttributedString(string: "No shots in this scene.",
                                    attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
                     .draw(at: CGPoint(x: margin, y: yPosition))
                 yPosition += 18
-                continue
+            } else {
+                for shot in orderedShots {
+                    let h = pdfShotRowHeight(shot, textWidth: textWidth)
+                    if yPosition + h > bottomLimit {
+                        endContentPage(); beginContentPage()
+                        yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                    }
+                    yPosition = drawShotRow(shot, in: pdfContext, at: yPosition, margin: margin, textWidth: textWidth)
+                }
             }
 
-            for shot in orderedShots {
-                let h = shotCardHeight(shot, textWidth: textWidth)
-                if yPosition + h > pageHeight - margin {
+            // 2) A gallery of the reference photos, below the shot list.
+            let items = pdfOptions.includeReferenceImages ? pdfGalleryItems(for: scene) : []
+            if !items.isEmpty {
+                let cols = 3
+                let gap: CGFloat = 12
+                let thumbW = (textWidth - gap * CGFloat(cols - 1)) / CGFloat(cols)
+                let thumbH = thumbW * 0.66
+                let rowH = thumbH + 12 + 10          // image + caption + gap
+                let headingH: CGFloat = 22
+
+                if yPosition + headingH + rowH > bottomLimit {
                     endContentPage(); beginContentPage()
                     yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                } else {
+                    yPosition += 8
                 }
-                yPosition = drawShotCard(shot, in: pdfContext, at: yPosition, margin: margin, textWidth: textWidth) + 10
+                NSAttributedString(string: "References",
+                                   attributes: [.font: PlatformFont.boldSystemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.42, alpha: 1)])
+                    .draw(at: CGPoint(x: margin, y: yPosition))
+                yPosition += headingH
+
+                var col = 0
+                for item in items {
+                    if col == 0 && yPosition + rowH > bottomLimit {
+                        endContentPage(); beginContentPage()
+                    }
+                    let x = margin + CGFloat(col) * (thumbW + gap)
+                    drawPDFThumb(item.data, caption: item.caption, in: pdfContext,
+                                 box: CGRect(x: x, y: yPosition, width: thumbW, height: thumbH))
+                    col += 1
+                    if col == cols { col = 0; yPosition += rowH }
+                }
+                if col != 0 { yPosition += rowH }
+            }
+
+            // 3) The scene map on its own page, as large as possible.
+            if pdfOptions.includeSceneMap, let map = renderSceneMap(scene: scene) {
+                endContentPage(); beginContentPage()
+                let title = "Scene \(scene.sceneNumber)\(scene.suffix) — Scene Map"
+                NSAttributedString(string: title,
+                                   attributes: [.font: PlatformFont.boldSystemFont(ofSize: 12), .foregroundColor: PlatformColor.black])
+                    .draw(at: CGPoint(x: margin, y: yPosition))
+                yPosition += 24
+                drawPDFImageFit(map.data, in: pdfContext,
+                                box: CGRect(x: margin, y: yPosition, width: textWidth, height: bottomLimit - yPosition),
+                                border: true)
             }
         }
         endContentPage()
@@ -3038,7 +3089,7 @@ struct ProjectExporter {
     private func drawSceneHeaderRow(_ scene: Scene, in context: CGContext, at y: CGFloat,
                                     margin: CGFloat, pageWidth: CGFloat) -> CGFloat {
         var yPosition = y
-        let titleFont = PlatformFont.boldSystemFont(ofSize: 16)
+        let titleFont = PlatformFont.boldSystemFont(ofSize: 14)
         let title = "Scene \(scene.sceneNumber)\(scene.suffix)"
         NSAttributedString(string: title, attributes: [.font: titleFont, .foregroundColor: PlatformColor.black])
             .draw(at: CGPoint(x: margin, y: yPosition + 2))
@@ -3057,7 +3108,7 @@ struct ProjectExporter {
         let location = scene.nickname.trimmingCharacters(in: .whitespaces)
         if !location.isEmpty {
             NSAttributedString(string: location.uppercased(),
-                               attributes: [.font: PlatformFont.systemFont(ofSize: 12), .foregroundColor: PlatformColor(white: 0.45, alpha: 1)])
+                               attributes: [.font: PlatformFont.systemFont(ofSize: 10), .foregroundColor: PlatformColor(white: 0.45, alpha: 1)])
                 .draw(at: CGPoint(x: cx, y: yPosition + 3))
         }
 
@@ -3070,13 +3121,13 @@ struct ProjectExporter {
         NSAttributedString(string: rightText, attributes: rightAttr)
             .draw(at: CGPoint(x: pageWidth - margin - rw, y: yPosition + 5))
 
-        yPosition += 26
+        yPosition += 22
         context.setStrokeColor(PlatformColor(white: 0.8, alpha: 1).cgColor)
         context.setLineWidth(1)
         context.move(to: CGPoint(x: margin, y: yPosition))
         context.addLine(to: CGPoint(x: pageWidth - margin, y: yPosition))
         context.strokePath()
-        return yPosition + 16
+        return yPosition + 12
     }
 
     /// A light "Scene N — LOCATION (continued)" line at the top of a page whose
@@ -3125,161 +3176,226 @@ struct ProjectExporter {
         return (pairs, extra, coverage, refs)
     }
 
-    // Card layout constants, shared by the height calc and the drawing.
-    private static let pdfCardInnerInset: CGFloat = 12
-    private static let pdfCardRowH: CGFloat = 15
-    private static let pdfCardBodyFont = PlatformFont.systemFont(ofSize: 9.5)
-    /// Vertical space reserved for a reference note line under its image.
-    private static let pdfRefNoteH: CGFloat = 14
+    // Shot-list row + reference-gallery layout for the PDF.
+    private static let pdfRowGutter: CGFloat = 30          // shot-number column width
+    private static let pdfSubFont = PlatformFont.systemFont(ofSize: 9)
 
-    private func pdfFullWidthHeight(_ text: String, width: CGFloat) -> CGFloat {
-        NSAttributedString(string: text, attributes: [.font: Self.pdfCardBodyFont]).boundingRect(
+    private func pdfTextHeight(_ text: String, font: PlatformFont, width: CGFloat) -> CGFloat {
+        NSAttributedString(string: text, attributes: [.font: font]).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).height
     }
 
-    /// The height a shot card will occupy — same formula the drawing uses.
-    func shotCardHeight(_ shot: Shot, textWidth: CGFloat) -> CGFloat {
-        let c = pdfShotContent(shot)
-        let innerWidth = textWidth - Self.pdfCardInnerInset * 2
-        let gridRows = Int(ceil(Double(c.pairs.count) / 2.0))
-        var h: CGFloat = 22 + CGFloat(gridRows) * Self.pdfCardRowH
-        if !c.extra.isEmpty { h += 4 + 12 + pdfFullWidthHeight(c.extra, width: innerWidth) }
-        for line in c.coverage { h += 4 + 12 + pdfFullWidthHeight(line, width: innerWidth) }
-        var photoH: CGFloat = 0
-        let spacing: CGFloat = 12
-        for r in c.refs {
-            let pw = (r.imageData != nil && r.mapData != nil) ? (innerWidth - spacing) / 2 : min(innerWidth * 0.6, 320)
-            photoH += pw * 0.75 + 24
-            if Self.cleanNote(r.note) != nil { photoH += Self.pdfRefNoteH }
+    /// Size, Type and Focal Length ride the shot's name row; everything else drops
+    /// into a muted two-column label/value grid below it.
+    private static let pdfPrimaryLabels: Set<String> = ["Size", "Type", "Focal Length"]
+    private static let pdfMetaRowH: CGFloat = 13
+    private static let pdfMetaBoxPadTop: CGFloat = 5
+    private static let pdfMetaBoxPadBottom: CGFloat = 4
+    private static let pdfMetaBoxPadLeft: CGFloat = 10
+    private static let pdfMetaLabelColW: CGFloat = 66
+    private static let pdfMetaLabelFont = PlatformFont.systemFont(ofSize: 8.5)
+    private static let pdfMetaValueFont = PlatformFont.systemFont(ofSize: 8.5, weight: .medium)
+
+    /// Height of the grey box's inner content (two-column specs grid + full-width
+    /// coverage rows), or nil when there's nothing to box. Shared by the height
+    /// calc and the drawing so they stay in sync.
+    private func pdfMetaBoxContentHeight(secondary: [(String, String)], coverage: [String], contentW: CGFloat) -> CGFloat? {
+        guard !secondary.isEmpty || !coverage.isEmpty else { return nil }
+        let gridRows = Int(ceil(Double(secondary.count) / 2.0))
+        var contentH = CGFloat(gridRows) * Self.pdfMetaRowH
+        if !coverage.isEmpty {
+            if !secondary.isEmpty { contentH += 2 }
+            let valW = contentW - Self.pdfMetaBoxPadLeft * 2 - Self.pdfMetaLabelColW - 8
+            for line in coverage {
+                contentH += max(Self.pdfMetaRowH, pdfTextHeight(line, font: Self.pdfMetaValueFont, width: valW)) + 2
+            }
         }
-        if photoH > 0 { h += 8 + photoH }
-        return h + 22
+        return contentH
+    }
+
+    /// The height a text-only shot row occupies — mirrors `drawShotRow` exactly.
+    func pdfShotRowHeight(_ shot: Shot, textWidth: CGFloat) -> CGFloat {
+        let c = pdfShotContent(shot)
+        let contentW = textWidth - Self.pdfRowGutter
+        var h: CGFloat = 16                                 // number + nickname + primary specs line
+        let secondary = pdfOptions.includeTechnicalSpecs ? c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) } : []
+        let coverage = pdfOptions.includeCoverage ? c.coverage : []
+        let extra = pdfOptions.includeExtraInfo ? c.extra : ""
+        if let contentH = pdfMetaBoxContentHeight(secondary: secondary, coverage: coverage, contentW: contentW) {
+            h += 4 + Self.pdfMetaBoxPadTop + contentH + Self.pdfMetaBoxPadBottom
+        }
+        if !extra.isEmpty { h += pdfTextHeight("Extra:  " + extra, font: Self.pdfSubFont, width: contentW) + 2 }
+        return h + 8                                        // gap + separator
+    }
+
+    /// Every reference photo in the scene, each with a caption, for the gallery drawn
+    /// below a scene's shot list. (The scene map gets its own full page afterwards.)
+    private func pdfGalleryItems(for scene: Scene) -> [(data: Data, caption: String)] {
+        var items: [(data: Data, caption: String)] = []
+        for shot in scene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }) {
+            // Only the reference photos — the per-shot top-down maps are skipped.
+            let refs = shot.orderedReferences.filter { $0.imageData != nil }
+            for (i, r) in refs.enumerated() {
+                let suffix = refs.count > 1 ? " \(i + 1)" : ""
+                if let d = r.imageData { items.append((d, "Shot \(shot.displayNumber) — Ref\(suffix)")) }
+            }
+        }
+        return items
     }
 
     /// Draws one shot card at `yTop`; returns the y just below it.
-    private func drawShotCard(_ shot: Shot, in context: CGContext, at yTop: CGFloat,
-                              margin: CGFloat, textWidth: CGFloat) -> CGFloat {
+    /// Draws one text-only shot row (number, nickname, specs, coverage, extra) with
+    /// a light separator beneath. Returns the y just below it. Mirrors `pdfShotRowHeight`.
+    private func drawShotRow(_ shot: Shot, in context: CGContext, at yTop: CGFloat,
+                             margin: CGFloat, textWidth: CGFloat) -> CGFloat {
         let c = pdfShotContent(shot)
         let ink = PlatformColor.black
-        let grey = PlatformColor(white: 0.45, alpha: 1)
-        let cardFill = PlatformColor(white: 0.97, alpha: 1)
-        let cardStroke = PlatformColor(white: 0.88, alpha: 1)
+        let grey = PlatformColor(white: 0.42, alpha: 1)
+        let contentX = margin + Self.pdfRowGutter
+        let contentW = textWidth - Self.pdfRowGutter
+        var cy = yTop
 
-        let innerX = margin + Self.pdfCardInnerInset
-        let innerWidth = textWidth - Self.pdfCardInnerInset * 2
-        let colGap: CGFloat = 16
-        let colWidth = (innerWidth - colGap) / 2
-        let labelColWidth: CGFloat = 78
-        let rowH = Self.pdfCardRowH
-        let bodyFont = Self.pdfCardBodyFont
-        let bodyBold = PlatformFont.systemFont(ofSize: 9.5, weight: .semibold)
-        let labelFont = PlatformFont.systemFont(ofSize: 9)
-        let gridRows = Int(ceil(Double(c.pairs.count) / 2.0))
-        let cardHeight = shotCardHeight(shot, textWidth: textWidth)
-
-        let cardRect = CGRect(x: margin, y: yTop, width: textWidth, height: cardHeight)
-        cardFill.setFill()
-        PlatformBezierPath.rounded(cardRect, radius: 7).fill()
-        cardStroke.setStroke()
-        let border = PlatformBezierPath.rounded(cardRect, radius: 7)
-        border.lineWidth = 0.5
-        border.stroke()
-
-        var cy = yTop + 11
-        let badgeFont = PlatformFont.boldSystemFont(ofSize: 9)
-        let badgeW = (shot.displayNumber as NSString).size(withAttributes: [.font: badgeFont]).width
-        let badgeRect = CGRect(x: innerX, y: cy, width: badgeW + 12, height: 15)
-        PlatformColor(white: 0.90, alpha: 1).setFill()
-        PlatformBezierPath.rounded(badgeRect, radius: 4).fill()
-        (shot.displayNumber as NSString).draw(at: CGPoint(x: innerX + 6, y: cy + 2),
-                                              withAttributes: [.font: badgeFont, .foregroundColor: ink])
+        // Line 1: shot number (bold, in the gutter) + nickname, with Size/Type/Focal
+        // right-aligned on the same row.
+        NSAttributedString(string: shot.displayNumber,
+                           attributes: [.font: PlatformFont.boldSystemFont(ofSize: 11), .foregroundColor: ink])
+            .draw(at: CGPoint(x: margin, y: cy))
+        var nickW: CGFloat = 0
         if !shot.nickname.isEmpty {
-            NSAttributedString(string: shot.nickname, attributes: [.font: PlatformFont.systemFont(ofSize: 11), .foregroundColor: grey])
-                .draw(at: CGPoint(x: badgeRect.maxX + 8, y: cy + 1))
+            let nickAttr: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: ink]
+            NSAttributedString(string: shot.nickname, attributes: nickAttr)
+                .draw(at: CGPoint(x: contentX, y: cy))
+            nickW = (shot.nickname as NSString).size(withAttributes: nickAttr).width
         }
-        cy += 22
-
-        for (i, pair) in c.pairs.enumerated() {
-            let col = i / gridRows, row = i % gridRows
-            let px = innerX + CGFloat(col) * (colWidth + colGap)
-            let py = cy + CGFloat(row) * rowH
-            NSAttributedString(string: pair.0, attributes: [.font: labelFont, .foregroundColor: grey])
-                .draw(at: CGPoint(x: px, y: py))
-            NSAttributedString(string: pair.1, attributes: [.font: bodyBold, .foregroundColor: ink])
-                .draw(in: CGRect(x: px + labelColWidth, y: py, width: colWidth - labelColWidth, height: rowH))
+        // Size / Type / Focal, left-aligned right after the shot name.
+        let primary = c.pairs.filter { Self.pdfPrimaryLabels.contains($0.0) }
+        let primaryText = primary.map { $0.1 }.joined(separator: "   ·   ")
+        if !primaryText.isEmpty {
+            let px = contentX + (nickW > 0 ? nickW + 14 : 0)
+            NSAttributedString(string: primaryText,
+                               attributes: [.font: PlatformFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: grey])
+                .draw(at: CGPoint(x: px, y: cy + 1))
         }
-        cy += CGFloat(gridRows) * rowH
+        cy += 16
 
-        if !c.extra.isEmpty {
+        // Secondary specs (two-column grid) + coverage, together in a light grey box.
+        let secondary = pdfOptions.includeTechnicalSpecs ? c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) } : []
+        let coverage = pdfOptions.includeCoverage ? c.coverage : []
+        if let contentH = pdfMetaBoxContentHeight(secondary: secondary, coverage: coverage, contentW: contentW) {
             cy += 4
-            NSAttributedString(string: "Extra Info", attributes: [.font: labelFont, .foregroundColor: grey]).draw(at: CGPoint(x: innerX, y: cy))
-            cy += 12
-            let h = pdfFullWidthHeight(c.extra, width: innerWidth)
-            NSAttributedString(string: c.extra, attributes: [.font: bodyFont, .foregroundColor: ink]).draw(in: CGRect(x: innerX, y: cy, width: innerWidth, height: h))
-            cy += h
-        }
-        for (idx, line) in c.coverage.enumerated() {
-            cy += 4
-            if idx == 0 {
-                NSAttributedString(string: "Coverage", attributes: [.font: labelFont, .foregroundColor: grey]).draw(at: CGPoint(x: innerX, y: cy))
-                cy += 12
+            let boxH = Self.pdfMetaBoxPadTop + contentH + Self.pdfMetaBoxPadBottom
+            let boxRect = CGRect(x: contentX, y: cy, width: contentW, height: boxH)
+            PlatformColor(white: 0.95, alpha: 1).setFill()
+            PlatformBezierPath.rounded(boxRect, radius: 6).fill()
+            PlatformColor(white: 0.90, alpha: 1).setStroke()
+            let boxBorder = PlatformBezierPath.rounded(boxRect, radius: 6)
+            boxBorder.lineWidth = 0.5
+            boxBorder.stroke()
+
+            let gridX = contentX + Self.pdfMetaBoxPadLeft
+            let gridW = contentW - Self.pdfMetaBoxPadLeft * 2
+            let colW = gridW / 2
+            let labelColW = Self.pdfMetaLabelColW
+            let labelAttr: [NSAttributedString.Key: Any] = [.font: Self.pdfMetaLabelFont, .foregroundColor: PlatformColor(white: 0.5, alpha: 1)]
+            let valueAttr: [NSAttributedString.Key: Any] = [.font: Self.pdfMetaValueFont, .foregroundColor: PlatformColor(white: 0.2, alpha: 1)]
+
+            let gridRows = Int(ceil(Double(secondary.count) / 2.0))
+            for (i, pair) in secondary.enumerated() {
+                let col = i % 2, row = i / 2
+                let x = gridX + CGFloat(col) * colW
+                let y = cy + Self.pdfMetaBoxPadTop + CGFloat(row) * Self.pdfMetaRowH
+                NSAttributedString(string: pair.0, attributes: labelAttr).draw(at: CGPoint(x: x, y: y))
+                NSAttributedString(string: pair.1, attributes: valueAttr)
+                    .draw(with: CGRect(x: x + labelColW, y: y, width: colW - labelColW - 8, height: Self.pdfMetaRowH),
+                          options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
             }
-            let h = pdfFullWidthHeight(line, width: innerWidth)
-            NSAttributedString(string: line, attributes: [.font: bodyFont, .foregroundColor: ink]).draw(in: CGRect(x: innerX, y: cy, width: innerWidth, height: h))
-            cy += h
+
+            // Coverage rows span the full box width, styled like the grid fields.
+            var innerY = cy + Self.pdfMetaBoxPadTop + CGFloat(gridRows) * Self.pdfMetaRowH
+            if !coverage.isEmpty {
+                if gridRows > 0 { innerY += 2 }
+                let valW = gridW - labelColW - 8
+                for (i, line) in coverage.enumerated() {
+                    if i == 0 {
+                        NSAttributedString(string: "Coverage", attributes: labelAttr).draw(at: CGPoint(x: gridX, y: innerY))
+                    }
+                    let hh = max(Self.pdfMetaRowH, pdfTextHeight(line, font: Self.pdfMetaValueFont, width: valW))
+                    NSAttributedString(string: line, attributes: valueAttr)
+                        .draw(with: CGRect(x: gridX + labelColW, y: innerY, width: valW, height: hh),
+                              options: [.usesLineFragmentOrigin], context: nil)
+                    innerY += hh + 2
+                }
+            }
+            cy += boxH
+        }
+        // Extra info.
+        let extra = pdfOptions.includeExtraInfo ? c.extra : ""
+        if !extra.isEmpty {
+            let text = "Extra:  " + extra
+            let h = pdfTextHeight(text, font: Self.pdfSubFont, width: contentW)
+            NSAttributedString(string: text, attributes: [.font: Self.pdfSubFont, .foregroundColor: ink])
+                .draw(in: CGRect(x: contentX, y: cy, width: contentW, height: h))
+            cy += h + 2
         }
 
-        if !c.refs.isEmpty {
-            cy += 8
-            let spacing: CGFloat = 12
-            func drawFramed(_ data: Data, caption: String, at origin: CGPoint, size: CGSize) {
-                guard let nsImage = PlatformImage(data: data) else { return }
-                NSAttributedString(string: caption, attributes: [.font: PlatformFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey])
-                    .draw(at: CGPoint(x: origin.x, y: origin.y))
-                let boxY = origin.y + 12
-                let s = nsImage.size
-                guard s.width > 0, s.height > 0 else { return }
-                let aspect = s.width / s.height
-                var dw = size.width, dh = size.width / aspect
-                if dh > size.height { dh = size.height; dw = dh * aspect }
-                let imageRect = CGRect(x: origin.x + (size.width - dw) / 2, y: boxY + (size.height - dh) / 2, width: dw, height: dh)
-                context.saveGState()
-                context.translateBy(x: 0, y: imageRect.origin.y + imageRect.size.height)
-                context.scaleBy(x: 1.0, y: -1.0)
-                context.translateBy(x: 0, y: -imageRect.origin.y)
-                if let cg = nsImage.cgImageForDrawing { context.draw(cg, in: imageRect) }
-                context.restoreGState()
-                cardStroke.setStroke()
-                let b = PlatformBezierPath(rect: CGRect(x: origin.x, y: boxY, width: size.width, height: size.height))
-                b.lineWidth = 0.5
-                b.stroke()
-            }
-            for (offset, r) in c.refs.enumerated() {
-                let both = r.imageData != nil && r.mapData != nil
-                let pw = both ? (innerWidth - spacing) / 2 : min(innerWidth * 0.6, 320)
-                let ph = pw * 0.75
-                let suffix = c.refs.count > 1 ? " \(offset + 1)" : ""
-                var px = innerX
-                if let data = r.imageData {
-                    drawFramed(data, caption: "Reference\(suffix)", at: CGPoint(x: px, y: cy), size: CGSize(width: pw, height: ph))
-                    px += pw + spacing
-                }
-                if let data = r.mapData {
-                    drawFramed(data, caption: "Top Down Map\(suffix)", at: CGPoint(x: px, y: cy), size: CGSize(width: pw, height: ph))
-                }
-                // The user's note, on its own line just below the image(s).
-                if let note = Self.cleanNote(r.note) {
-                    NSAttributedString(string: note,
-                                       attributes: [.font: PlatformFont.systemFont(ofSize: 9), .foregroundColor: ink])
-                        .draw(with: CGRect(x: innerX, y: cy + 12 + ph + 3, width: innerWidth, height: Self.pdfRefNoteH),
-                              options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
-                    cy += Self.pdfRefNoteH
-                }
-                cy += ph + 24
-            }
+        // Light separator under the row.
+        cy += 4
+        context.setStrokeColor(PlatformColor(white: 0.90, alpha: 1).cgColor)
+        context.setLineWidth(0.5)
+        context.move(to: CGPoint(x: margin, y: cy))
+        context.addLine(to: CGPoint(x: margin + textWidth, y: cy))
+        context.strokePath()
+        return cy + 4
+    }
+
+    /// Draws one gallery thumbnail (image letterboxed in `box`, thin border, caption
+    /// centered just below).
+    private func drawPDFThumb(_ data: Data, caption: String, in context: CGContext, box: CGRect) {
+        let grey = PlatformColor(white: 0.42, alpha: 1)
+        if let img = PlatformImage(data: data), img.size.width > 0, img.size.height > 0,
+           let cg = img.cgImageForDrawing {
+            let aspect = img.size.width / img.size.height
+            var dw = box.width, dh = box.width / aspect
+            if dh > box.height { dh = box.height; dw = dh * aspect }
+            let r = CGRect(x: box.midX - dw / 2, y: box.minY + (box.height - dh) / 2, width: dw, height: dh)
+            context.saveGState()
+            context.translateBy(x: 0, y: r.origin.y + r.size.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            context.translateBy(x: 0, y: -r.origin.y)
+            context.draw(cg, in: r)
+            context.restoreGState()
         }
-        return yTop + cardHeight
+        PlatformColor(white: 0.85, alpha: 1).setStroke()
+        let b = PlatformBezierPath(rect: box)
+        b.lineWidth = 0.5
+        b.stroke()
+        let attr: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey]
+        let cs = (caption as NSString).size(withAttributes: attr)
+        (caption as NSString).draw(at: CGPoint(x: box.midX - cs.width / 2, y: box.maxY + 2), withAttributes: attr)
+    }
+
+    /// Draws an image letterboxed and centered to fill `box` as large as possible,
+    /// with an optional thin border around the image itself.
+    private func drawPDFImageFit(_ data: Data, in context: CGContext, box: CGRect, border: Bool = false) {
+        guard let img = PlatformImage(data: data), img.size.width > 0, img.size.height > 0,
+              let cg = img.cgImageForDrawing else { return }
+        let aspect = img.size.width / img.size.height
+        var dw = box.width, dh = box.width / aspect
+        if dh > box.height { dh = box.height; dw = dh * aspect }
+        let r = CGRect(x: box.midX - dw / 2, y: box.minY + (box.height - dh) / 2, width: dw, height: dh)
+        context.saveGState()
+        context.translateBy(x: 0, y: r.origin.y + r.size.height)
+        context.scaleBy(x: 1.0, y: -1.0)
+        context.translateBy(x: 0, y: -r.origin.y)
+        context.draw(cg, in: r)
+        context.restoreGState()
+        if border {
+            PlatformColor(white: 0.85, alpha: 1).setStroke()
+            let b = PlatformBezierPath(rect: r)
+            b.lineWidth = 0.5
+            b.stroke()
+        }
     }
     
     private func formatCoverageSummary(_ selection: ScriptTextSelection) -> String {
