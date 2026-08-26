@@ -1250,9 +1250,16 @@ struct ProjectExporter {
                  margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
 
           /* Masthead */
-          .masthead { padding: 30px 28px 22px; max-width: 1240px; margin: 0 auto; }
+          .masthead { position: relative; padding: 30px 28px 22px; max-width: 1240px; margin: 0 auto; }
           .masthead h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px; }
           .masthead .sub { color: var(--muted); font-size: 14px; }
+          .brandline { position: absolute; top: 30px; right: 28px; display: flex; align-items: center;
+                       gap: 7px; font-size: 12px; color: var(--muted); }
+          .brandline b { color: var(--text); font-weight: 700; }
+          .brandlogo { width: 20px; height: 20px; display: block; flex: none;
+                       background: #fff; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0,0,0,0.10); }
+          /* On phones drop it back into the flow above the title so it can't overlap. */
+          @media (max-width: 640px) { .brandline { position: static; margin: 0 0 12px; } }
 
           /* Sticky filter bar */
           .toolbar { position: sticky; top: 0; z-index: 20; background: var(--bar);
@@ -1580,6 +1587,16 @@ struct ProjectExporter {
         </head>
         <body>
         <div class="masthead">
+          <div class="brandline">
+            <svg class="brandlogo" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 100 100" aria-hidden="true">
+              <defs><linearGradient id="cpg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ECFFF"></stop><stop offset="1" stop-color="#1A4AFF"></stop></linearGradient></defs>
+              <rect x="11.6" y="15.6" width="76.4" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
+              <rect x="11.6" y="34.1" width="61.9" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
+              <rect x="11.6" y="52.6" width="70.3" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
+              <rect x="11.6" y="71.1" width="48.1" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
+            </svg>
+            <span>Made with <b>CinePlanner</b></span>
+          </div>
           <h1>\(esc(filmName))</h1>
           <div class="sub">\(subtitleBits.joined(separator: " · "))</div>
         </div>
