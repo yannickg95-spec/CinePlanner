@@ -298,10 +298,14 @@ struct ExportOptionsSheet: View {
 
                 if option.format == .pdf {
                     Button { showingPDFSettings = true } label: {
-                        Label("Settings", systemImage: "slider.horizontal.3")
+                        Image(systemName: "gearshape")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 34, height: 32)
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 9))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .frame(maxHeight: .infinity)
                     .help("Choose what to include in the PDF")
                 }
 

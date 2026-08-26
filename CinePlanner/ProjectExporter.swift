@@ -3219,9 +3219,9 @@ struct ProjectExporter {
         let c = pdfShotContent(shot)
         let contentW = textWidth - Self.pdfRowGutter
         var h: CGFloat = 16                                 // number + nickname + primary specs line
-        let secondary = pdfOptions.includeTechnicalSpecs ? c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) } : []
-        let coverage = pdfOptions.includeCoverage ? c.coverage : []
-        let extra = pdfOptions.includeExtraInfo ? c.extra : ""
+        let secondary = c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) && pdfOptions.includesField($0.0) }
+        let coverage = pdfOptions.includesField(PDFExportOptions.coverageLabel) ? c.coverage : []
+        let extra = pdfOptions.includesField(PDFExportOptions.extraInfoLabel) ? c.extra : ""
         if let contentH = pdfMetaBoxContentHeight(secondary: secondary, coverage: coverage, contentW: contentW) {
             h += 4 + Self.pdfMetaBoxPadTop + contentH + Self.pdfMetaBoxPadBottom
         }
@@ -3269,7 +3269,7 @@ struct ProjectExporter {
             nickW = (shot.nickname as NSString).size(withAttributes: nickAttr).width
         }
         // Size / Type / Focal, left-aligned right after the shot name.
-        let primary = c.pairs.filter { Self.pdfPrimaryLabels.contains($0.0) }
+        let primary = c.pairs.filter { Self.pdfPrimaryLabels.contains($0.0) && pdfOptions.includesField($0.0) }
         let primaryText = primary.map { $0.1 }.joined(separator: "   ·   ")
         if !primaryText.isEmpty {
             let px = contentX + (nickW > 0 ? nickW + 14 : 0)
@@ -3280,8 +3280,8 @@ struct ProjectExporter {
         cy += 16
 
         // Secondary specs (two-column grid) + coverage, together in a light grey box.
-        let secondary = pdfOptions.includeTechnicalSpecs ? c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) } : []
-        let coverage = pdfOptions.includeCoverage ? c.coverage : []
+        let secondary = c.pairs.filter { !Self.pdfPrimaryLabels.contains($0.0) && pdfOptions.includesField($0.0) }
+        let coverage = pdfOptions.includesField(PDFExportOptions.coverageLabel) ? c.coverage : []
         if let contentH = pdfMetaBoxContentHeight(secondary: secondary, coverage: coverage, contentW: contentW) {
             cy += 4
             let boxH = Self.pdfMetaBoxPadTop + contentH + Self.pdfMetaBoxPadBottom
@@ -3330,7 +3330,7 @@ struct ProjectExporter {
             cy += boxH
         }
         // Extra info.
-        let extra = pdfOptions.includeExtraInfo ? c.extra : ""
+        let extra = pdfOptions.includesField(PDFExportOptions.extraInfoLabel) ? c.extra : ""
         if !extra.isEmpty {
             let text = "Extra:  " + extra
             let h = pdfTextHeight(text, font: Self.pdfSubFont, width: contentW)
