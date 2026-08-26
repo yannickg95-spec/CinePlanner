@@ -295,6 +295,13 @@ enum GitHubPublisher {
         return login
     }
 
+    /// The signed-in account's login (e.g. "yannickg"), or nil if not connected /
+    /// the token is no longer valid. Used to show "Connected as @user".
+    static func currentUsername() async -> String? {
+        guard let token = token else { return nil }
+        return try? await fetchLogin(token: token)
+    }
+
     /// A URL-safe, unique-ish repo name from the project title.
     private static func repoName(for projectName: String) -> String {
         let slug = projectName.lowercased()

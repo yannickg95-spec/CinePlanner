@@ -20,6 +20,12 @@ struct GitHubPublishSheet: View {
     @State private var phase: GitHubPublishPhase?
     @State private var result: GitHubPublisher.Result?
     @State private var errorMessage: String?
+    // Device-flow connect state.
+    @State private var deviceCode: GitHubDeviceAuth.DeviceCode?
+    @State private var connecting = false
+    @State private var authError: String?
+    @State private var connectTask: Task<Void, Never>?
+    @State private var connectedUsername: String?
     private var existingRepo: String? { project.publishedRepoFullName }
 
     /// A classic token pre-filled with the scopes we need: public_repo to publish,
@@ -43,7 +49,7 @@ struct GitHubPublishSheet: View {
 
             Group {
                 if !hasToken {
-                    tokenEntry
+                    connectContent
                 } else {
                     publishBody
                 }
@@ -55,7 +61,7 @@ struct GitHubPublishSheet: View {
 
             HStack {
                 if hasToken {
-                    Button("Change Token") { clearToken() }
+                    Button("Disconnect") { clearToken() }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                         .font(.caption)
@@ -67,6 +73,10 @@ struct GitHubPublishSheet: View {
             .padding(16)
         }
         .adaptiveSheetFrame(width: 500, height: 460)
+        .task {
+            if hasToken, connectedUsername == nil { connectedUsername = await GitHubPublisher.currentUsername() }
+        }
+        .onDisappear { connectTask?.cancel() }
         #if os(iOS)
         // iPhone: open as a compact half-height sheet (draggable up) rather than
         // filling the whole screen for a handful of controls.
@@ -74,32 +84,92 @@ struct GitHubPublishSheet: View {
         #endif
     }
 
-    // MARK: - Token entry
+    // MARK: - Connect (device flow)
 
-    private var tokenEntry: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Connect your GitHub account")
-                .font(.headline)
-            Text("GitHub Pages hosts the page for free on your own account. Create a personal access token once, then paste it here — it's stored securely in your Keychain.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private var connectContent: some View {
+        if GitHubDeviceAuth.isConfigured {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Connect your GitHub account").font(.headline)
+                Text("Publishing puts your shot list on your own GitHub for free. Connect once — no token to create or copy.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
+                if let code = deviceCode {
+                    deviceCodeSteps(code)
+                } else {
+                    Button { startConnect() } label: {
+                        Label("Connect GitHub", systemImage: "link").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(connecting)
+                    if connecting {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Starting…").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+
+                if let authError {
+                    Text(authError).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                }
+
+                DisclosureGroup("Paste a token instead") { manualTokenEntry.padding(.top, 6) }
+                    .font(.caption)
+
+                Spacer(minLength: 0)
+            }
+        } else {
+            // No OAuth App configured in this build — manual token entry only.
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Connect your GitHub account").font(.headline)
+                manualTokenEntry
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// The code + "open GitHub" step shown while waiting for authorization.
+    private func deviceCodeSteps(_ code: GitHubDeviceAuth.DeviceCode) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("1.  Copy this code").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text(code.userCode)
+                    .font(.title2.monospaced().weight(.bold))
+                    .textSelection(.enabled)
+                    .padding(.vertical, 6).padding(.horizontal, 12)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button { PlatformPasteboard.copy(code.userCode) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    .buttonStyle(.bordered)
+            }
+            Text("2.  Open GitHub and paste it").font(.caption).foregroundStyle(.secondary)
+            Button {
+                PlatformPasteboard.copy(code.userCode)
+                if let u = URL(string: code.verificationURI) { PlatformURLOpener.open(u) }
+            } label: {
+                Label("Open GitHub & enter code", systemImage: "safari").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Waiting for you to authorize on GitHub…").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// Fallback: paste a personal access token (kept behind a disclosure).
+    private var manualTokenEntry: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Link("Create a token on GitHub ↗", destination: tokenURL)
                 .font(.subheadline)
-            Text("The link pre-selects the only permission needed (**public_repo**). Scroll down and click “Generate token,” then copy it here.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Text("The link pre-selects the permissions needed. Scroll down, click “Generate token,” then paste it here.")
+                .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
             SecureField("Paste your GitHub token", text: $tokenInput)
                 .textFieldStyle(.roundedBorder)
-
             Button("Save Token") { saveToken() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .disabled(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            Spacer(minLength: 0)
         }
     }
 
@@ -107,6 +177,11 @@ struct GitHubPublishSheet: View {
 
     private var publishBody: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if let connectedUsername {
+                Label("Connected as @\(connectedUsername)", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            }
             if let result {
                 // Just published this session.
                 Label(result.isLive ? "Published" : "Building on GitHub…",
@@ -239,17 +314,45 @@ struct GitHubPublishSheet: View {
 
     // MARK: - Actions
 
+    /// Runs the device-flow handshake: get a code, then poll until authorized.
+    private func startConnect() {
+        authError = nil
+        connecting = true
+        connectTask = Task { @MainActor in
+            do {
+                let code = try await GitHubDeviceAuth.requestDeviceCode()
+                deviceCode = code
+                let token = try await GitHubDeviceAuth.pollForToken(code)
+                GitHubPublisher.token = token
+                connectedUsername = await GitHubPublisher.currentUsername()
+                hasToken = true
+                deviceCode = nil
+            } catch is CancellationError {
+                // Sheet dismissed mid-flow — nothing to report.
+            } catch {
+                authError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                deviceCode = nil
+            }
+            connecting = false
+        }
+    }
+
     private func saveToken() {
         GitHubPublisher.token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
         hasToken = GitHubPublisher.hasToken
         tokenInput = ""
+        Task { connectedUsername = await GitHubPublisher.currentUsername() }
     }
 
     private func clearToken() {
+        connectTask?.cancel()
         GitHubPublisher.token = nil
         hasToken = false
         result = nil
         errorMessage = nil
+        deviceCode = nil
+        connecting = false
+        connectedUsername = nil
     }
 
     private func publish() {
