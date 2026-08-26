@@ -1259,7 +1259,8 @@ struct ProjectExporter {
             }
           }
           * { box-sizing: border-box; }
-          html { scroll-behavior: smooth; }
+          /* Pin text at 100% so mobile Safari doesn't inflate shot/body text in landscape. */
+          html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                  margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
 
@@ -1587,8 +1588,13 @@ struct ProjectExporter {
           .day-group > .scene, .day-group > .empty { margin-left: 24px; }
           /* Narrow / portrait phone: no indent — scenes start flush with the day header. */
           @media (max-width: 640px) { .day-group > .scene, .day-group > .empty { margin-left: 0; } }
+          /* The day header sticks below the toolbar while its day scrolls, until the
+             next day's header pushes it up (sticky within each .day-group). */
           .day-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; font-size: 20px; font-weight: 800;
-                margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+                margin: 0 0 8px; padding: 8px 0 6px; border-bottom: 2px solid var(--accent);
+                position: sticky; top: var(--sticky); z-index: 10; background: var(--bg);
+                /* Fill the sliver between the toolbar and the header while stuck. */
+                box-shadow: 0 -12px 0 var(--bg); }
           .day-date { font-size: 13px; font-weight: 600; color: var(--muted); }
           .day-title .sun-tags { margin: 0 0 0 auto; }
           /* text-size-adjust:100% stops mobile Safari inflating these text blocks
@@ -1703,7 +1709,19 @@ struct ProjectExporter {
           var active = { type: null, time: null, media: false };
 
           // Reveal the filter bar only now that we know scripting is available.
-          document.getElementById('toolbar').hidden = false;
+          var toolbarEl = document.getElementById('toolbar');
+          toolbarEl.hidden = false;
+
+          // Keep --sticky in step with the real toolbar height. On narrow phones the
+          // toolbar wraps to two rows and grows past its 60px default; without this
+          // the stuck "Day N" header tucks under it and its top text is clipped.
+          function syncSticky() {
+            var h = toolbarEl.offsetHeight;
+            if (h > 0) document.documentElement.style.setProperty('--sticky', h + 'px');
+          }
+          syncSticky();
+          window.addEventListener('resize', syncSticky);
+          window.addEventListener('orientationchange', function () { setTimeout(syncSticky, 200); });
 
           // Shooting-day view: built on demand by cloning scene cards per CP_SCHEDULE,
           // so scenes split across days show whole (with off-day shots greyed out).
