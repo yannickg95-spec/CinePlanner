@@ -1100,9 +1100,26 @@ struct ProjectEditorView: View {
         }
     }
 
-    /// The episode menu (series) and "Script Version:" label stay put; only the
-    /// version chips scroll.
+    /// iPhone header. For a series the episode switch gets its own row (it and the
+    /// version row don't fit together in portrait); the "Version:" label stays put
+    /// and only the version chips scroll.
+    @ViewBuilder
     private var headerVersions: some View {
+        if project.isSeries {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    episodeMenu
+                    Spacer(minLength: 0)
+                }
+                versionRow
+            }
+        } else {
+            versionRow
+        }
+    }
+
+    /// The "Version:" label with the horizontally scrolling version chips + New.
+    private var versionRow: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.secondary)
@@ -1110,10 +1127,6 @@ struct ProjectEditorView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1).fixedSize()
-            if project.isSeries {
-                episodeMenu
-                Divider().frame(height: 18)
-            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(currentVersions, id: \.uid) { versionTab(for: $0) }
