@@ -1771,9 +1771,16 @@ struct ProjectExporter {
           .strip-note { font-size: 13px; color: var(--muted); font-style: italic; margin: 2px 0 8px; }
           .shot.shot-off { opacity: 0.4; }
           .shot-off-msg { font-size: 11px; font-style: italic; color: var(--muted); margin-left: 8px; }
-          .days-mode .layout { grid-template-columns: minmax(0,1fr); }
+          /* Tighten the top of the day view: less space under the switch and above
+             the first day header (the space scrolls away once the header pins). */
+          .days-mode .layout { grid-template-columns: minmax(0,1fr); padding-top: 10px; }
+          .days-mode .toolbar-inner { padding-top: 8px; padding-bottom: 8px; }
+          .view-days .day-group:first-child { margin-top: 0; }
           .days-mode .toc { display: none; }
           .days-mode .search, .days-mode .chips, .days-mode #reset, .days-mode #toggleall, .days-mode .count { display: none; }
+          /* With the search/chips hidden in day view, the phone-portrait line break
+             would leave an empty wrapped row (and its row-gap) under the switch. */
+          .days-mode .tb-break { display: none; }
         \(coverageStyles)</style>
         </head>
         <body>
@@ -1974,7 +1981,14 @@ struct ProjectExporter {
           }
           function scrollToToday(epEl) {
             var el = epEl.querySelector('.view-days [data-date="' + todayISO() + '"]');
-            if (el) requestAnimationFrame(function () { el.scrollIntoView({ block: 'start' }); });
+            if (!el) return;
+            // Land the day header flush under the sticky toolbar (scrollIntoView would
+            // add the day-group's scroll-margin, stopping short of the header).
+            requestAnimationFrame(function () {
+              var sticky = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky')) || 0;
+              var y = window.scrollY + el.getBoundingClientRect().top - sticky;
+              window.scrollTo({ top: Math.max(0, y) });
+            });
           }
 
           var vtScenes = document.getElementById('vt-scenes');
@@ -1991,6 +2005,9 @@ struct ProjectExporter {
             epEl.querySelector('.view-scenes').hidden = days;
             epEl.querySelector('.view-days').hidden = !days;
             document.body.classList.toggle('days-mode', days);
+            // The toolbar shrinks in day view (search/chips hidden) — re-measure so
+            // --sticky (the sticky day-header offset and the scroll target) is right.
+            syncSticky();
             if (vtScenes) vtScenes.classList.toggle('on', !days);
             if (vtDays) vtDays.classList.toggle('on', days);
             if (days) scrollToToday(epEl);
