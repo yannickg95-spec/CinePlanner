@@ -683,14 +683,26 @@ struct ProjectExporter {
                     }
                 }
             }
-            let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+            let episode = WebEpisode(title: episodeName, versionName: versionName,
+                                     scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
+            let html = Self.buildHTML(filmName: filmName,
                                       productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
-                                      scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
+                                      episodes: [episode])
             guard let data = html.data(using: .utf8) else {
                 throw Self.exportError("Failed to encode the web page.")
             }
             try data.write(to: destination)
         }
+    }
+
+    /// Shared, mutable transcode-progress counter so a multi-episode publish shows
+    /// one continuous bar across every episode's videos.
+    private final class CompressProgress {
+        var done = 0
+        let total: Int
+        let report: (Int, Int) -> Void
+        init(total: Int, report: @escaping (Int, Int) -> Void) { self.total = total; self.report = report }
+        func bump() { done += 1; report(done, total) }
     }
 
     /// Builds a self-contained website folder — index.html at the root plus a
@@ -699,26 +711,73 @@ struct ProjectExporter {
     /// over GitHub's file limit are transcoded down so publishing can't fail on an
     /// oversized file. The caller is responsible for removing the returned directory.
     /// `onCompress(done, total)` fires as each over-limit video is transcoded.
+    ///
+    /// Single-page publish (feature film, or a series episode viewed on its own):
+    /// one `index.html` built from `self.version`.
     @MainActor
     func buildSiteDirectory(onCompress: @escaping (Int, Int) -> Void = { _, _ in }) async throws -> URL {
-        let filmName = project.filmName
-        let versionName = version?.name
-        let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("web-publish-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         let scenes = snapshotScenesForMedia()
+        let progress = CompressProgress(total: Self.oversizedVideoCount(in: scenes), report: onCompress)
+        let media = try await buildPublishMedia(scenes: scenes, mediaSubdir: "media", into: staging, progress: progress)
+        let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
+        let episode = WebEpisode(title: episodeName, versionName: version?.name,
+                                 scenes: scenes, media: media, schedule: snapshotSchedule())
+        try writeIndex(Self.buildHTML(filmName: project.filmName,
+                                      productionCompany: project.productionCompany, director: project.director,
+                                      cinematographer: project.cinematographer, episodes: [episode]), into: staging)
+        return staging
+    }
+
+    /// Series publish: all selected episodes go into one `index.html` with an in-page
+    /// episode switch. Each episode uses its latest version and its own
+    /// `media/ep-<n>/` folder (so shot slugs can't collide across episodes).
+    @MainActor
+    func buildSiteDirectory(episodes: [Episode],
+                            onCompress: @escaping (Int, Int) -> Void = { _, _ in }) async throws -> URL {
+        let ordered = episodes.sorted { $0.episodeNumber < $1.episodeNumber }
+        // A single episode is just the normal one-page site (no switch).
+        guard ordered.count > 1 else {
+            var ex = self
+            ex.version = ordered.first?.orderedVersions.last ?? version
+            return try await ex.buildSiteDirectory(onCompress: onCompress)
+        }
 
         let fm = FileManager.default
         let staging = fm.temporaryDirectory.appendingPathComponent("web-publish-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
 
-        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
-        if hasVideo {
-            try fm.createDirectory(at: staging.appendingPathComponent("media", isDirectory: true),
-                                   withIntermediateDirectories: true)
+        // Snapshot each episode's scenes once, then a single progress total across all.
+        let epScenes: [(Episode, ProjectExporter, [MediaScene])] = ordered.map { ep in
+            var ex = self; ex.version = ep.orderedVersions.last
+            return (ep, ex, ex.snapshotScenesForMedia())
         }
+        let progress = CompressProgress(total: epScenes.reduce(0) { $0 + Self.oversizedVideoCount(in: $1.2) },
+                                        report: onCompress)
 
-        // How many videos will need transcoding — for accurate progress. Counts
-        // both the reference video and a map video.
-        let oversizedTotal = scenes.reduce(0) { acc, scene in
+        var webEpisodes: [WebEpisode] = []
+        for (ep, ex, scenes) in epScenes {
+            let media = try await ex.buildPublishMedia(scenes: scenes, mediaSubdir: "media/ep-\(ep.episodeNumber)",
+                                                       into: staging, progress: progress)
+            webEpisodes.append(WebEpisode(title: ep.title, versionName: ex.version?.name,
+                                          scenes: scenes, media: media, schedule: ex.snapshotSchedule()))
+        }
+        try writeIndex(Self.buildHTML(filmName: project.filmName,
+                                      productionCompany: project.productionCompany, director: project.director,
+                                      cinematographer: project.cinematographer, episodes: webEpisodes), into: staging)
+        return staging
+    }
+
+    private func writeIndex(_ html: String, into staging: URL) throws {
+        guard let data = html.data(using: .utf8) else { throw Self.exportError("Failed to encode the web page.") }
+        try data.write(to: staging.appendingPathComponent("index.html"))
+    }
+
+    /// How many reference/map clips exceed GitHub's size limit and will be transcoded.
+    private static func oversizedVideoCount(in scenes: [MediaScene]) -> Int {
+        scenes.reduce(0) { acc, scene in
             acc + scene.shots.reduce(0) { a, shot in
                 a + shot.references.reduce(0) { c, ref in
                     c + (((ref.videoData?.count ?? 0) > Self.gitHubVideoLimit) ? 1 : 0)
@@ -726,19 +785,30 @@ struct ProjectExporter {
                 }
             }
         }
-        var compressedDone = 0
+    }
 
-        // Compresses an oversized clip, writes it into media/, and returns its path
-        // and a poster frame.
+    /// Writes an episode's videos into `staging/<mediaSubdir>/` (transcoding any that
+    /// exceed GitHub's size limit) and returns the media map for `buildHTML`. Photos
+    /// stay embedded as data URIs; only videos become sibling files.
+    private func buildPublishMedia(scenes: [MediaScene], mediaSubdir: String, into staging: URL,
+                                   progress: CompressProgress) async throws -> [String: RenderedMedia] {
+        let fm = FileManager.default
+        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
+        if hasVideo {
+            try fm.createDirectory(at: staging.appendingPathComponent(mediaSubdir, isDirectory: true),
+                                   withIntermediateDirectories: true)
+        }
+
+        // Compresses an oversized clip, writes it into the episode's media folder,
+        // and returns its (page-relative) path and a poster frame.
         func writeWebVideo(_ data: Data, ext: String, name: String) async throws -> (path: String, poster: String?) {
             var outData = data, outExt = ext
             if data.count > Self.gitHubVideoLimit {
-                compressedDone += 1
-                onCompress(compressedDone, oversizedTotal)
+                progress.bump()
                 let result = await Self.videoForWeb(data: data, ext: ext, maxBytes: Self.gitHubVideoLimit)
                 outData = result.data; outExt = result.ext
             }
-            let file = "media/\(name).\(outExt)"
+            let file = "\(mediaSubdir)/\(name).\(outExt)"
             try outData.write(to: staging.appendingPathComponent(file))
             return (file, Self.posterFrame(fromVideoData: outData, ext: outExt).map { Self.dataURI($0) })
         }
@@ -774,14 +844,7 @@ struct ProjectExporter {
             }
         }
 
-        let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
-                                  productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
-                                  scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
-        guard let data = html.data(using: .utf8) else {
-            throw Self.exportError("Failed to encode the web page.")
-        }
-        try data.write(to: staging.appendingPathComponent("index.html"))
-        return staging
+        return rendered
     }
 
     // MARK: - Web video compression
@@ -875,9 +938,11 @@ struct ProjectExporter {
             }
         }
 
-        let html = Self.buildHTML(filmName: filmName, episodeName: episodeName, versionName: versionName,
+        let episode = WebEpisode(title: episodeName, versionName: versionName,
+                                 scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
+        let html = Self.buildHTML(filmName: filmName,
                                   productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
-                                  scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
+                                  episodes: [episode])
         // Named after the shot list rather than index.html, so it's identifiable
         // once unzipped alongside other files.
         try html.data(using: .utf8)?.write(to: staging.appendingPathComponent("\(bundleName).html"))
@@ -966,12 +1031,19 @@ struct ProjectExporter {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    private static func buildHTML(filmName: String, episodeName: String?, versionName: String?,
+    /// One episode's rendered content for the web page. A feature film is a single
+    /// episode; a series publishes several, switched between in-page.
+    private struct WebEpisode {
+        let title: String?        // episode label (switch button + subtitle); nil for a lone feature
+        let versionName: String?
+        let scenes: [MediaScene]
+        let media: [String: RenderedMedia]
+        let schedule: [MediaScheduleDay]
+    }
+
+    private static func buildHTML(filmName: String,
                                   productionCompany: String = "", director: String = "", cinematographer: String = "",
-                                  scenes: [MediaScene],
-                                  media: [String: RenderedMedia],
-                                  schedule: [MediaScheduleDay] = []) -> String {
-        let totalShots = scenes.reduce(0) { $0 + $1.shots.count }
+                                  episodes: [WebEpisode]) -> String {
         // Production credits, shown under the title when filled in.
         var creditBits: [String] = []
         func addCredit(_ label: String, _ value: String) {
@@ -982,58 +1054,52 @@ struct ProjectExporter {
         addCredit("Director", director)
         addCredit("Cinematographer", cinematographer)
         let creditsHTML = creditBits.isEmpty ? "" : "<div class=\"credits\">\(creditBits.joined())</div>"
-        var subtitleBits: [String] = []
-        if let episodeName { subtitleBits.append(esc(episodeName)) }
-        if let versionName { subtitleBits.append(esc(versionName)) }
-        subtitleBits.append("\(scenes.count) scene\(scenes.count == 1 ? "" : "s")")
-        subtitleBits.append("\(totalShots) shot\(totalShots == 1 ? "" : "s")")
 
         // The shooting-day view is built in the browser by cloning scene cards per
-        // this manifest, so the page carries the schedule as JSON rather than a second
-        // rendered copy of every scene.
-        let hasSchedule = !schedule.isEmpty
-        var scheduleJSON = "[]"
-        if hasSchedule {
+        // this manifest, so each episode carries its schedule as JSON rather than a
+        // second rendered copy of every scene.
+        func scheduleJSON(_ schedule: [MediaScheduleDay]) -> String {
+            guard !schedule.isEmpty else { return "[]" }
             let days: [[String: Any]] = schedule.map { day in
-                ["n": day.number,
-                 "notes": day.notes,
-                 "date": day.dateLabel,
-                 "iso": day.isoDate,
-                 "setups": day.setups,
-                 "shots": day.shots,
-                 "sunrise": day.sunrise,
-                 "sunset": day.sunset,
-                 "goldenAM": day.goldenAM,
-                 "goldenPM": day.goldenPM,
+                ["n": day.number, "notes": day.notes, "date": day.dateLabel, "iso": day.isoDate,
+                 "setups": day.setups, "shots": day.shots, "sunrise": day.sunrise, "sunset": day.sunset,
+                 "goldenAM": day.goldenAM, "goldenPM": day.goldenPM,
                  "entries": day.entries.map { e -> [String: Any] in
-                    ["s": e.sceneIndex, "all": e.allShots,
-                     "shots": Array(e.scheduledShotNumbers), "note": e.note]
-                 }]
+                    ["s": e.sceneIndex, "all": e.allShots, "shots": Array(e.scheduledShotNumbers), "note": e.note] }]
             }
             if let data = try? JSONSerialization.data(withJSONObject: days),
-               let str = String(data: data, encoding: .utf8) {
-                scheduleJSON = str
-            }
+               let str = String(data: data, encoding: .utf8) { return str }
+            return "[]"
         }
 
-        var body = ""
-        var toc = ""
-        var coverageStyles = ""   // one background-image rule per scene, so the JPEG isn't inlined per shot
-        var shotSeq = 0           // unique id per shot, for its expand checkbox
+        let showEpisodeSwitch = episodes.count > 1
+        var coverageStyles = ""        // background-image rules; class names are ep-prefixed so episodes can't collide
+        var shotSeq = 0                // globally unique id per shot, for its expand checkbox
+        var episodeBlocks: [String] = []
+        var switchButtons = ""
+        var scheduleJSONs: [String] = []
+        var mastheadSub = ""           // single-episode subtitle stays under the title (as before)
+
+        for (e, ep) in episodes.enumerated() {
+            let scenes = ep.scenes
+            let media = ep.media
+            let totalShots = scenes.reduce(0) { $0 + $1.shots.count }
+            var body = ""
+            var toc = ""
         for (index, scene) in scenes.enumerated() {
-            let anchor = "scene-\(index)"
+            let anchor = "ep\(e)-scene-\(index)"
             // The scene's coverage image is embedded once as a CSS background and
             // shared by every covered shot's thumbnail, rather than inlined N times.
             var coverageClass: String? = nil
             if let cov = scene.coverage {
-                let cls = "cov-\(index)"
+                let cls = "cov-\(e)-\(index)"
                 coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(cov.data))); aspect-ratio: \(Int(cov.width)) / \(Int(cov.height)); }\n"
                 coverageClass = cls
             }
             // The scene map, embedded once per scene as its own background rule.
             var mapClass: String? = nil
             if let map = scene.map {
-                let cls = "map-\(index)"
+                let cls = "map-\(e)-\(index)"
                 coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(map.data))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); }\n"
                 mapClass = cls
             }
@@ -1230,6 +1296,51 @@ struct ProjectExporter {
             body += "</details>\n"
         }
 
+            // Per-episode subtitle: episode/version name, then scene & shot counts.
+            var subtitleBits: [String] = []
+            if let t = ep.title { subtitleBits.append(esc(t)) }
+            if let v = ep.versionName { subtitleBits.append(esc(v)) }
+            subtitleBits.append("\(scenes.count) scene\(scenes.count == 1 ? "" : "s")")
+            subtitleBits.append("\(totalShots) shot\(totalShots == 1 ? "" : "s")")
+
+            scheduleJSONs.append(scheduleJSON(ep.schedule))
+            let hasSchedule = !ep.schedule.isEmpty
+            let subtitle = subtitleBits.joined(separator: " · ")
+            if showEpisodeSwitch {
+                switchButtons += "<button class=\"ep-btn\(e == 0 ? " on" : "")\" data-ep=\"\(e)\" type=\"button\">\(esc(ep.title ?? "Episode \(e + 1)"))</button>"
+            } else {
+                mastheadSub = subtitle
+            }
+            // For a series, each episode shows its own subtitle above its scenes.
+            let epSubHTML = showEpisodeSwitch ? "<div class=\"ep-sub\">\(subtitle)</div>\n                      " : ""
+
+            episodeBlocks.append("""
+                    <section class="episode" data-ep="\(e)" data-has-days="\(hasSchedule ? 1 : 0)"\(e == 0 ? "" : " hidden")>
+                      \(epSubHTML)<div class="layout">
+                        <nav class="toc">
+                          <div class="toc-title">Scenes</div>
+                    \(toc)      </nav>
+                        <main>
+                          <div class="view-scenes">
+                    \(body)        <div class="noresults" hidden>
+                              <p><b>No matching shots.</b></p>
+                              <p>Try a different search or clear the filters.</p>
+                            </div>
+                          </div>
+                          <div class="view-days" hidden></div>
+                        </main>
+                      </div>
+                    </section>
+                    """)
+        }
+
+        let episodesHTML = episodeBlocks.joined(separator: "\n")
+        let episodeStripHTML = showEpisodeSwitch
+            ? "<div class=\"epstrip\" id=\"epstrip\">\(switchButtons)</div>"
+            : ""
+        let mastheadSubHTML = mastheadSub.isEmpty ? "" : "<div class=\"sub\">\(mastheadSub)</div>"
+        let episodesScheduleJSON = "[" + scheduleJSONs.joined(separator: ",") + "]"
+
         return """
         <!DOCTYPE html>
         <html lang="en">
@@ -1282,6 +1393,18 @@ struct ProjectExporter {
                        background: #fff; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0,0,0,0.10); }
           /* On phones drop it back into the flow above the title so it can't overlap. */
           @media (max-width: 640px) { .brandline { position: static; margin: 0 0 12px; } }
+
+          /* Episode switcher (series only): individual pills under the credits that
+             swap which episode is shown, in-page. Pills wrap cleanly on narrow phones
+             (a wrapping segmented block looked bulky). */
+          .epstrip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+          .ep-btn { border: 1px solid var(--line-strong); background: var(--card); color: var(--muted);
+                    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 999px;
+                    cursor: pointer; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+          .ep-btn:hover { color: var(--text); border-color: var(--muted); }
+          .ep-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+          /* The per-episode subtitle (episode/version name · scene/shot counts). */
+          .ep-sub { max-width: 1240px; margin: 0 auto; padding: 0 28px; color: var(--muted); font-size: 14px; }
 
           /* Sticky filter bar */
           .toolbar { position: sticky; top: 0; z-index: 20; background: var(--bar);
@@ -1619,7 +1742,7 @@ struct ProjectExporter {
           .shot.shot-off { opacity: 0.4; }
           .shot-off-msg { font-size: 11px; font-style: italic; color: var(--muted); margin-left: 8px; }
           .days-mode .layout { grid-template-columns: minmax(0,1fr); }
-          .days-mode #toc { display: none; }
+          .days-mode .toc { display: none; }
           .days-mode .search, .days-mode .chips, .days-mode #reset, .days-mode #toggleall, .days-mode .count { display: none; }
         \(coverageStyles)</style>
         </head>
@@ -1636,8 +1759,9 @@ struct ProjectExporter {
             <span>Made with <b>CinePlanner</b></span>
           </div>
           <h1>\(esc(filmName))</h1>
-          <div class="sub">\(subtitleBits.joined(separator: " · "))</div>
+          \(mastheadSubHTML)
           \(creditsHTML)
+          \(episodeStripHTML)
         </div>
 
         <noscript>
@@ -1653,7 +1777,7 @@ struct ProjectExporter {
              worse than none. -->
         <div class="toolbar" id="toolbar" hidden>
           <div class="toolbar-inner">
-            <div class="viewtoggle"\(hasSchedule ? "" : " hidden")>
+            <div class="viewtoggle" id="viewtoggle">
               <button class="vt on" id="vt-scenes" type="button">Scenes</button>
               <button class="vt" id="vt-days" type="button">Shooting days</button>
             </div>
@@ -1677,36 +1801,28 @@ struct ProjectExporter {
           </div>
         </div>
 
-        <div class="layout">
-          <nav class="toc" id="toc">
-            <div class="toc-title">Scenes</div>
-        \(toc)  </nav>
-          <main id="main">
-            <div id="view-scenes">
-        \(body)    <div class="noresults" id="noresults" hidden>
-              <p><b>No matching shots.</b></p>
-              <p>Try a different search or clear the filters.</p>
-            </div>
-            </div>
-            <div id="view-days" hidden></div>
-          </main>
+        <div class="episodes">
+        \(episodesHTML)
         </div>
 
         <button class="totop" id="totop" type="button" aria-label="Back to top" hidden>↑</button>
 
-        <script>var CP_SCHEDULE = \(scheduleJSON);</script>
+        <script>var CP_EPISODES = \(episodesScheduleJSON).map(function (s) { return { schedule: s }; });</script>
         <script>
         (function () {
-          var scenes = Array.prototype.slice.call(document.querySelectorAll('#view-scenes .scene'));
-          var tocItems = Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
+          function qsa(sel, ctx) { return Array.prototype.slice.call((ctx || document).querySelectorAll(sel)); }
           var q = document.getElementById('q');
           var clearq = document.getElementById('clearq');
           var countEl = document.getElementById('count');
           var resetEl = document.getElementById('reset');
           var toggleAll = document.getElementById('toggleall');
-          var noresults = document.getElementById('noresults');
-          var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+          var chips = qsa('.chip');
           var active = { type: null, time: null, media: false };
+          // Episodes live in one page; a series switches which is shown (feature = 1).
+          var episodeEls = qsa('.episode');
+          var current = 0;
+          var daysView = false;
+          function ep() { return episodeEls[current]; }
 
           // Reveal the filter bar only now that we know scripting is available.
           var toolbarEl = document.getElementById('toolbar');
@@ -1723,16 +1839,17 @@ struct ProjectExporter {
           window.addEventListener('resize', syncSticky);
           window.addEventListener('orientationchange', function () { setTimeout(syncSticky, 200); });
 
-          // Shooting-day view: built on demand by cloning scene cards per CP_SCHEDULE,
-          // so scenes split across days show whole (with off-day shots greyed out).
-          var daysBuilt = false;
-          function buildDays() {
-            if (daysBuilt) return;
-            daysBuilt = true;
-            var container = document.getElementById('view-days');
-            var sceneNodes = Array.prototype.slice.call(document.querySelectorAll('#view-scenes .scene'));
-            var uid = 0;
-            CP_SCHEDULE.forEach(function (day) {
+          // Shooting-day view: built on demand by cloning scene cards per the episode's
+          // schedule, so scenes split across days show whole (off-day shots greyed out).
+          var uid = 0;
+          // Shooting-day view for one episode: clone its scene cards per its schedule.
+          function buildDays(epEl, idx) {
+            if (epEl.dataset.daysBuilt) return;
+            epEl.dataset.daysBuilt = '1';
+            var container = epEl.querySelector('.view-days');
+            var sceneNodes = qsa('.view-scenes .scene', epEl);
+            var schedule = (CP_EPISODES[idx] && CP_EPISODES[idx].schedule) || [];
+            schedule.forEach(function (day) {
               var sec = document.createElement('section');
               sec.className = 'day-group';
               sec.id = 'day-' + day.n;
@@ -1825,28 +1942,37 @@ struct ProjectExporter {
             function p(n) { return (n < 10 ? '0' : '') + n; }
             return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
           }
-          function scrollToToday() {
-            var el = document.querySelector('#view-days [data-date="' + todayISO() + '"]');
+          function scrollToToday(epEl) {
+            var el = epEl.querySelector('.view-days [data-date="' + todayISO() + '"]');
             if (el) requestAnimationFrame(function () { el.scrollIntoView({ block: 'start' }); });
           }
 
           var vtScenes = document.getElementById('vt-scenes');
           var vtDays = document.getElementById('vt-days');
-          function setView(days) {
-            if (days) buildDays();
-            document.getElementById('view-scenes').hidden = days;
-            document.getElementById('view-days').hidden = !days;
+          var viewtoggle = document.getElementById('viewtoggle');
+          // Show the active episode in the chosen view; hide the day switch for an
+          // episode that has no shooting schedule.
+          function applyView() {
+            var epEl = ep();
+            var hasDays = epEl.getAttribute('data-has-days') === '1';
+            if (viewtoggle) viewtoggle.hidden = !hasDays;
+            var days = daysView && hasDays;
+            if (days) buildDays(epEl, current);
+            epEl.querySelector('.view-scenes').hidden = days;
+            epEl.querySelector('.view-days').hidden = !days;
             document.body.classList.toggle('days-mode', days);
             if (vtScenes) vtScenes.classList.toggle('on', !days);
             if (vtDays) vtDays.classList.toggle('on', days);
-            if (days) scrollToToday();
+            if (days) scrollToToday(epEl);
           }
+          function setView(days) { daysView = days; applyView(); }
           if (vtDays) vtDays.addEventListener('click', function () { setView(true); });
           if (vtScenes) vtScenes.addEventListener('click', function () { setView(false); });
 
           function tocFor(id) {
-            for (var i = 0; i < tocItems.length; i++) {
-              if (tocItems[i].getAttribute('data-for') === id) return tocItems[i];
+            var items = qsa('.toc-item');
+            for (var i = 0; i < items.length; i++) {
+              if (items[i].getAttribute('data-for') === id) return items[i];
             }
             return null;
           }
@@ -1854,6 +1980,7 @@ struct ProjectExporter {
           function apply() {
             var term = q.value.trim().toLowerCase();
             var shownScenes = 0, shownShots = 0, totalShots = 0;
+            var scenes = qsa('.view-scenes .scene', ep());
 
             scenes.forEach(function (scene) {
               var isInt = scene.getAttribute('data-int') === '1';
@@ -1903,7 +2030,8 @@ struct ProjectExporter {
               : scenes.length + ' scenes · ' + totalShots + ' shots';
             resetEl.hidden = !filtering;
             clearq.hidden = term === '';
-            noresults.hidden = shownScenes !== 0;
+            var nr = ep().querySelector('.noresults');
+            if (nr) nr.hidden = shownScenes !== 0;
           }
 
           q.addEventListener('input', apply);
@@ -1936,17 +2064,35 @@ struct ProjectExporter {
           });
 
           // Individual scenes collapse natively via <details>; this only does all
-          // of them at once.
+          // of them at once, within the active episode.
           toggleAll.addEventListener('click', function () {
             var collapse = toggleAll.textContent.indexOf('Collapse') === 0;
-            scenes.forEach(function (s) { s.open = !collapse; });
+            qsa('.view-scenes .scene', ep()).forEach(function (s) { s.open = !collapse; });
             toggleAll.textContent = collapse ? 'Expand all' : 'Collapse all';
+          });
+
+          // Episode switch: swap which episode is shown, keeping search/filters/view.
+          var epButtons = qsa('.ep-btn');
+          function setEpisode(i) {
+            if (i === current || !episodeEls[i]) return;
+            current = i;
+            episodeEls.forEach(function (el, idx) { el.hidden = idx !== i; });
+            epButtons.forEach(function (b) {
+              b.classList.toggle('on', parseInt(b.getAttribute('data-ep'), 10) === i);
+            });
+            toggleAll.textContent = 'Collapse all';
+            applyView();
+            apply();
+            window.scrollTo({ top: 0 });
+          }
+          epButtons.forEach(function (b) {
+            b.addEventListener('click', function () { setEpisode(parseInt(b.getAttribute('data-ep'), 10)); });
           });
 
           // Enlarging a thumbnail is pure <details> — no script involved, so it
           // works in previews with JavaScript disabled. Script only adds the
           // niceties: one open at a time, and stopping a video when it closes.
-          var mediaItems = Array.prototype.slice.call(document.querySelectorAll('.mi'));
+          var mediaItems = qsa('.mi');
           mediaItems.forEach(function (item) {
             item.addEventListener('toggle', function () {
               if (item.open) {
@@ -1965,12 +2111,12 @@ struct ProjectExporter {
                 var item = tocFor(entry.target.id);
                 if (!item) return;
                 if (entry.isIntersecting) {
-                  tocItems.forEach(function (i) { i.classList.remove('active'); });
+                  qsa('.toc-item').forEach(function (i) { i.classList.remove('active'); });
                   item.classList.add('active');
                 }
               });
             }, { rootMargin: '-70px 0px -70% 0px' });
-            scenes.forEach(function (s) { observer.observe(s); });
+            qsa('.view-scenes .scene').forEach(function (s) { observer.observe(s); });
           }
 
           var totop = document.getElementById('totop');
@@ -1986,6 +2132,7 @@ struct ProjectExporter {
             }
           });
 
+          applyView();
           apply();
         })();
         </script>

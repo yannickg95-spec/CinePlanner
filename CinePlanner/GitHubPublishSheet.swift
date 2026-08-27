@@ -14,6 +14,16 @@ struct GitHubPublishSheet: View {
     let version: ScriptVersion?
     @Environment(\.dismiss) private var dismiss
 
+    init(project: Project, version: ScriptVersion?) {
+        self.project = project
+        self.version = version
+        // Default to publishing every episode of a series.
+        let eps = project.isSeries ? project.orderedEpisodes.map(\.uid) : []
+        _selectedEpisodeUIDs = State(initialValue: Set(eps))
+    }
+
+    /// Which episodes to publish (series only). All selected by default.
+    @State private var selectedEpisodeUIDs: Set<String>
     @State private var tokenInput = ""
     @State private var hasToken = GitHubPublisher.hasToken
     @State private var isPublishing = false
@@ -27,6 +37,13 @@ struct GitHubPublishSheet: View {
     @State private var connectTask: Task<Void, Never>?
     @State private var connectedUsername: String?
     private var existingRepo: String? { project.publishedRepoFullName }
+
+    /// Episodes offered for selection — only when this is a series with more than one.
+    private var seriesEpisodes: [Episode] { project.isSeries ? project.orderedEpisodes : [] }
+    private var showsEpisodePicker: Bool { seriesEpisodes.count > 1 }
+    private var episodesToPublish: [Episode] { seriesEpisodes.filter { selectedEpisodeUIDs.contains($0.uid) } }
+    /// True when the picker is shown but nothing is ticked (publishing is blocked).
+    private var noEpisodesChosen: Bool { showsEpisodePicker && episodesToPublish.isEmpty }
 
     /// A classic token pre-filled with the scopes we need: public_repo to publish,
     /// delete_repo so "Delete Published Page" can fully remove the repository.
@@ -72,7 +89,7 @@ struct GitHubPublishSheet: View {
             }
             .padding(16)
         }
-        .adaptiveSheetFrame(width: 500, height: 460)
+        .adaptiveSheetFrame(width: 500, height: showsEpisodePicker ? 580 : 460)
         .task {
             if hasToken, connectedUsername == nil { connectedUsername = await GitHubPublisher.currentUsername() }
         }
@@ -182,7 +199,15 @@ struct GitHubPublishSheet: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .labelStyle(.titleAndIcon)
             }
-            if let result {
+            if showsEpisodePicker && !isPublishing {
+                episodePicker
+                Divider()
+            }
+            if isPublishing {
+                // A single compact progress state — showing it instead of the hero
+                // (or the link box) keeps the sheet from overflowing while uploading.
+                publishingState
+            } else if let result {
                 // Just published this session.
                 Label(result.isLive ? "Published" : "Building on GitHub…",
                       systemImage: result.isLive ? "checkmark.circle.fill" : "clock.badge.checkmark")
@@ -202,45 +227,38 @@ struct GitHubPublishSheet: View {
                 linkAndActions(url: existingURL, repoURL: existingRepoURL)
                 newRepoButton
             } else {
-                // First publish — a hero, then the action.
+                // First publish — a hero, then the action. For a series the episode
+                // picker already fills the top, so the hero stays compact.
                 VStack(spacing: 14) {
-                    ZStack {
-                        Circle().fill(Color.accentColor.opacity(0.12)).frame(width: 76, height: 76)
-                        Image("GitHubLogo")
-                            .resizable().scaledToFit()
-                            .frame(width: 36, height: 36)
-                            .foregroundStyle(Color.accentColor)
+                    if !showsEpisodePicker {
+                        ZStack {
+                            Circle().fill(Color.accentColor.opacity(0.12)).frame(width: 76, height: 76)
+                            Image("GitHubLogo")
+                                .resizable().scaledToFit()
+                                .frame(width: 36, height: 36)
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        Text("Ready to publish")
+                            .font(.headline)
+                        Text("One click puts your shot list on your GitHub and gives you a link to share.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("Ready to publish")
-                        .font(.headline)
-                    Text("One click puts your shot list on your GitHub and gives you a link to share.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
 
                     Button { publish() } label: {
-                        Label("Publish", systemImage: "globe").frame(maxWidth: .infinity)
+                        Label(publishButtonTitle, systemImage: "globe").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(isPublishing)
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(isPublishing || noEpisodesChosen)
                     .padding(.top, 4)
 
                     Label("Building the page takes about a minute.", systemImage: "clock")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-            }
-
-            if isPublishing {
-                VStack(alignment: .leading, spacing: 6) {
-                    ProgressView(value: phase?.fraction ?? 0)
-                        .progressViewStyle(.linear)
-                        .animation(.easeInOut(duration: 0.3), value: phase?.fraction ?? 0)
-                    Text(phase?.label ?? "Publishing…")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                .padding(.top, showsEpisodePicker ? 0 : 10)
             }
 
             if let errorMessage {
@@ -251,6 +269,76 @@ struct GitHubPublishSheet: View {
 
             Spacer(minLength: 0)
         }
+    }
+
+    /// The compact state shown while an upload/build is in progress.
+    private var publishingState: some View {
+        VStack(spacing: 16) {
+            ProgressView(value: phase?.fraction ?? 0)
+                .progressViewStyle(.linear)
+                .animation(.easeInOut(duration: 0.3), value: phase?.fraction ?? 0)
+            Text(phase?.label ?? "Publishing…")
+                .font(.callout).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Label("Building the page on GitHub takes about a minute.", systemImage: "clock")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 20)
+    }
+
+    /// Series only: choose which episodes go into the published site. When more than
+    /// one is chosen the page gets an episode switcher at the top.
+    private var episodePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("EPISODES TO PUBLISH")
+                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary).kerning(0.5)
+                Spacer()
+                Button(selectedEpisodeUIDs.count == seriesEpisodes.count ? "Deselect All" : "Select All") {
+                    selectedEpisodeUIDs = selectedEpisodeUIDs.count == seriesEpisodes.count
+                        ? [] : Set(seriesEpisodes.map(\.uid))
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(Color.accentColor)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(seriesEpisodes, id: \.uid) { ep in episodeRow(ep) }
+                }
+            }
+            .frame(maxHeight: 150)
+            if episodesToPublish.count > 1 {
+                Text("Published with an episode switcher at the top of the page.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            } else if noEpisodesChosen {
+                Text("Pick at least one episode to publish.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func episodeRow(_ ep: Episode) -> some View {
+        let on = selectedEpisodeUIDs.contains(ep.uid)
+        return Button {
+            if on { selectedEpisodeUIDs.remove(ep.uid) } else { selectedEpisodeUIDs.insert(ep.uid) }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                Text(ep.title).font(.subheadline).foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var publishButtonTitle: String {
+        guard showsEpisodePicker else { return "Publish" }
+        let n = episodesToPublish.count
+        return n <= 1 ? "Publish" : "Publish \(n) Episodes"
     }
 
     /// The published link in a box, with Open/Copy/Repository and a prominent
@@ -286,7 +374,7 @@ struct GitHubPublishSheet: View {
                 Label("Update", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isPublishing)
+            .disabled(isPublishing || noEpisodesChosen)
         }
     }
 
@@ -365,9 +453,13 @@ struct GitHubPublishSheet: View {
             await Task.yield()
             do {
                 let exporter = ProjectExporter(project: project, version: version)
-                let siteDir = try await exporter.buildSiteDirectory(onCompress: { done, total in
-                    phase = .compressing(done: done, total: total)
-                })
+                let onCompress: (Int, Int) -> Void = { done, total in phase = .compressing(done: done, total: total) }
+                let siteDir: URL
+                if showsEpisodePicker {
+                    siteDir = try await exporter.buildSiteDirectory(episodes: episodesToPublish, onCompress: onCompress)
+                } else {
+                    siteDir = try await exporter.buildSiteDirectory(onCompress: onCompress)
+                }
                 defer { try? FileManager.default.removeItem(at: siteDir) }
                 let published = try await GitHubPublisher.publish(
                     siteDirectory: siteDir,

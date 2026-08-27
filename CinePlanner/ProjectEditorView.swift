@@ -493,7 +493,15 @@ struct ProjectEditorView: View {
             await Task.yield()   // let the spinner paint before the main-actor build
             do {
                 let exporter = ProjectExporter(project: project, version: selectedVersion)
-                let siteDir = try await exporter.buildSiteDirectory()
+                // A series page carries every episode (with the in-page switch); a
+                // feature is a single page. Without this, a quick update would rebuild
+                // a series as one episode and drop the switch.
+                let siteDir: URL
+                if project.isSeries && project.orderedEpisodes.count > 1 {
+                    siteDir = try await exporter.buildSiteDirectory(episodes: project.orderedEpisodes)
+                } else {
+                    siteDir = try await exporter.buildSiteDirectory()
+                }
                 defer { try? FileManager.default.removeItem(at: siteDir) }
                 let result = try await GitHubPublisher.publish(
                     siteDirectory: siteDir,
