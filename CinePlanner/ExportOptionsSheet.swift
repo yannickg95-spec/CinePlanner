@@ -16,6 +16,11 @@ struct ExportOptionsSheet: View {
     @State private var showingPDFSettings = false
     @State private var pdfOptions = PDFExportOptions.loadStored()
     @State private var editingDetails = false
+    /// Which episode's Director/Cinematographer the credits card is editing (series).
+    @State private var creditEpisodeIndex = 0
+    /// Natural height of the options content — lets the Mac/iPad sheet size to its
+    /// content yet scroll when it grows too tall (e.g. while editing credits).
+    @State private var optionsHeight: CGFloat = 640
 
     /// The preset the current PDF options match, e.g. "Full" or "Custom".
     private var pdfPresetName: String {
@@ -119,11 +124,19 @@ struct ExportOptionsSheet: View {
             Divider()
 
             // Format options. iPhone (full-screen sheet) scrolls; iPad/Mac size the
-            // sheet to the content so it's only as tall as needed.
+            // sheet to the content, but scroll once it grows past a cap so nothing
+            // clips (e.g. while editing the production credits).
             if DeviceLayout.isPhone {
                 ScrollView { optionsContent }
             } else {
-                optionsContent
+                ScrollView {
+                    optionsContent
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(key: OptionsHeightKey.self, value: geo.size.height)
+                        })
+                }
+                .frame(height: min(optionsHeight, 660))
+                .onPreferenceChange(OptionsHeightKey.self) { optionsHeight = $0 }
             }
 
             Divider()
@@ -200,14 +213,57 @@ struct ExportOptionsSheet: View {
                     .controlSize(.small)
             }
             detailRow("Production Company", project.productionCompany) { project.productionCompany = $0 }
-            detailRow("Director", project.director) { project.director = $0 }
-            detailRow("Cinematographer", project.cinematographer) { project.cinematographer = $0 }
+            if creditEpisodes.count > 1 {
+                // Series: Director & Cinematographer are per episode. Pick an episode,
+                // then edit that episode's names (Production Company stays shared).
+                Divider().padding(.vertical, 2)
+                episodeCreditPicker
+                let ep = creditEpisodes[min(creditEpisodeIndex, creditEpisodes.count - 1)]
+                detailRow("Director", ep.director) { ep.director = $0 }
+                detailRow("Cinematographer", ep.cinematographer) { ep.cinematographer = $0 }
+                if editingDetails {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            let d = ep.director, c = ep.cinematographer
+                            for other in creditEpisodes { other.director = d; other.cinematographer = c }
+                        } label: {
+                            Label("Apply to all episodes", systemImage: "square.on.square")
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .font(.caption)
+                    }
+                }
+            } else {
+                detailRow("Director", project.director) { project.director = $0 }
+                detailRow("Cinematographer", project.cinematographer) { project.cinematographer = $0 }
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+    }
+
+    /// Episodes offered in the credits card (series only).
+    private var creditEpisodes: [Episode] { project.isSeries ? project.orderedEpisodes : [] }
+
+    /// Picks which episode's Director/Cinematographer the card is editing.
+    private var episodeCreditPicker: some View {
+        HStack(spacing: 10) {
+            Text("Episode")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .frame(width: 150, alignment: .leading)
+            Picker("", selection: $creditEpisodeIndex) {
+                ForEach(Array(creditEpisodes.enumerated()), id: \.element.uid) { index, ep in
+                    Text(ep.title).tag(index)
+                }
+            }
+            .labelsHidden()
+            Spacer(minLength: 0)
+        }
     }
 
     private func detailRow(_ label: String, _ value: String, set: @escaping (String) -> Void) -> some View {
@@ -454,4 +510,11 @@ struct ExportOptionsSheet: View {
         }
         #endif
     }
+}
+
+/// Reports the options content's natural height so the sheet can size to it (and
+/// scroll past a cap).
+private struct OptionsHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

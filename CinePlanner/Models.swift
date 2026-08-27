@@ -225,6 +225,11 @@ final class Episode {
     var episodeNumber: Int = 1
     var title: String = ""
     var createdDate: Date = Date()
+    // Per-episode production credits (a series can have a different director /
+    // cinematographer per episode). Production Company stays on the project.
+    // Empty falls back to the project-level value in exports.
+    var director: String = ""
+    var cinematographer: String = ""
 
     var project: Project?
 

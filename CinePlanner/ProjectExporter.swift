@@ -684,9 +684,11 @@ struct ProjectExporter {
                 }
             }
             let episode = WebEpisode(title: episodeName, versionName: versionName,
+                                     director: resolvedDirector(version?.episode),
+                                     cinematographer: resolvedCinematographer(version?.episode),
                                      scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
             let html = Self.buildHTML(filmName: filmName,
-                                      productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
+                                      productionCompany: project.productionCompany,
                                       episodes: [episode])
             guard let data = html.data(using: .utf8) else {
                 throw Self.exportError("Failed to encode the web page.")
@@ -724,10 +726,11 @@ struct ProjectExporter {
         let media = try await buildPublishMedia(scenes: scenes, mediaSubdir: "media", into: staging, progress: progress)
         let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
         let episode = WebEpisode(title: episodeName, versionName: version?.name,
+                                 director: resolvedDirector(version?.episode),
+                                 cinematographer: resolvedCinematographer(version?.episode),
                                  scenes: scenes, media: media, schedule: snapshotSchedule())
         try writeIndex(Self.buildHTML(filmName: project.filmName,
-                                      productionCompany: project.productionCompany, director: project.director,
-                                      cinematographer: project.cinematographer, episodes: [episode]), into: staging)
+                                      productionCompany: project.productionCompany, episodes: [episode]), into: staging)
         return staging
     }
 
@@ -762,11 +765,11 @@ struct ProjectExporter {
             let media = try await ex.buildPublishMedia(scenes: scenes, mediaSubdir: "media/ep-\(ep.episodeNumber)",
                                                        into: staging, progress: progress)
             webEpisodes.append(WebEpisode(title: ep.title, versionName: ex.version?.name,
+                                          director: resolvedDirector(ep), cinematographer: resolvedCinematographer(ep),
                                           scenes: scenes, media: media, schedule: ex.snapshotSchedule()))
         }
         try writeIndex(Self.buildHTML(filmName: project.filmName,
-                                      productionCompany: project.productionCompany, director: project.director,
-                                      cinematographer: project.cinematographer, episodes: webEpisodes), into: staging)
+                                      productionCompany: project.productionCompany, episodes: webEpisodes), into: staging)
         return staging
     }
 
@@ -939,9 +942,11 @@ struct ProjectExporter {
         }
 
         let episode = WebEpisode(title: episodeName, versionName: versionName,
+                                 director: resolvedDirector(version?.episode),
+                                 cinematographer: resolvedCinematographer(version?.episode),
                                  scenes: scenes, media: rendered, schedule: self.snapshotSchedule())
         let html = Self.buildHTML(filmName: filmName,
-                                  productionCompany: project.productionCompany, director: project.director, cinematographer: project.cinematographer,
+                                  productionCompany: project.productionCompany,
                                   episodes: [episode])
         // Named after the shot list rather than index.html, so it's identifiable
         // once unzipped alongside other files.
@@ -1036,24 +1041,45 @@ struct ProjectExporter {
     private struct WebEpisode {
         let title: String?        // episode label (switch button + subtitle); nil for a lone feature
         let versionName: String?
+        let director: String      // per-episode credit (already resolved, project fallback applied)
+        let cinematographer: String
         let scenes: [MediaScene]
         let media: [String: RenderedMedia]
         let schedule: [MediaScheduleDay]
     }
 
+    /// Resolve an episode's Director / Cinematographer, falling back to the
+    /// project-level value when the episode leaves one blank.
+    private func resolvedDirector(_ ep: Episode?) -> String {
+        let d = ep?.director ?? ""
+        return d.isEmpty ? project.director : d
+    }
+    private func resolvedCinematographer(_ ep: Episode?) -> String {
+        let c = ep?.cinematographer ?? ""
+        return c.isEmpty ? project.cinematographer : c
+    }
+
     private static func buildHTML(filmName: String,
-                                  productionCompany: String = "", director: String = "", cinematographer: String = "",
+                                  productionCompany: String = "",
                                   episodes: [WebEpisode]) -> String {
-        // Production credits, shown under the title when filled in.
-        var creditBits: [String] = []
-        func addCredit(_ label: String, _ value: String) {
+        // Production credits. Production Company is project-level; Director and
+        // Cinematographer can vary per episode, so for a series they're rebuilt in
+        // the browser when the episode changes (from per-episode data attributes).
+        func creditSpan(_ label: String, _ value: String) -> String {
             let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !v.isEmpty { creditBits.append("<span class=\"credit\"><b>\(esc(label))</b> \(esc(v))</span>") }
+            return v.isEmpty ? "" : "<span class=\"credit\"><b>\(esc(label))</b> \(esc(v))</span>"
         }
-        addCredit("Production Company", productionCompany)
-        addCredit("Director", director)
-        addCredit("Cinematographer", cinematographer)
-        let creditsHTML = creditBits.isEmpty ? "" : "<div class=\"credits\">\(creditBits.joined())</div>"
+        func creditsInner(_ ep: WebEpisode?) -> String {
+            creditSpan("Production Company", productionCompany)
+            + creditSpan("Director", ep?.director ?? "")
+            + creditSpan("Cinematographer", ep?.cinematographer ?? "")
+        }
+        let anyCredits = !productionCompany.trimmingCharacters(in: .whitespaces).isEmpty
+            || episodes.contains { !$0.director.trimmingCharacters(in: .whitespaces).isEmpty
+                                || !$0.cinematographer.trimmingCharacters(in: .whitespaces).isEmpty }
+        let creditsHTML = anyCredits
+            ? "<div class=\"credits\" id=\"credits\" data-company=\"\(esc(productionCompany))\">\(creditsInner(episodes.first))</div>"
+            : ""
 
         // The shooting-day view is built in the browser by cloning scene cards per
         // this manifest, so each episode carries its schedule as JSON rather than a
@@ -1078,7 +1104,7 @@ struct ProjectExporter {
         var episodeBlocks: [String] = []
         var switchButtons = ""
         var scheduleJSONs: [String] = []
-        var mastheadSub = ""           // single-episode subtitle stays under the title (as before)
+        var episodeSubs: [String] = []   // per-episode "Episode · Version · N scenes · M shots"
 
         for (e, ep) in episodes.enumerated() {
             let scenes = ep.scenes
@@ -1306,17 +1332,14 @@ struct ProjectExporter {
             scheduleJSONs.append(scheduleJSON(ep.schedule))
             let hasSchedule = !ep.schedule.isEmpty
             let subtitle = subtitleBits.joined(separator: " · ")
+            episodeSubs.append(subtitle)
             if showEpisodeSwitch {
                 switchButtons += "<button class=\"ep-btn\(e == 0 ? " on" : "")\" data-ep=\"\(e)\" type=\"button\">\(esc(ep.title ?? "Episode \(e + 1)"))</button>"
-            } else {
-                mastheadSub = subtitle
             }
-            // For a series, each episode shows its own subtitle above its scenes.
-            let epSubHTML = showEpisodeSwitch ? "<div class=\"ep-sub\">\(subtitle)</div>\n                      " : ""
 
             episodeBlocks.append("""
-                    <section class="episode" data-ep="\(e)" data-has-days="\(hasSchedule ? 1 : 0)"\(e == 0 ? "" : " hidden")>
-                      \(epSubHTML)<div class="layout">
+                    <section class="episode" data-ep="\(e)" data-has-days="\(hasSchedule ? 1 : 0)" data-sub="\(subtitle)" data-director="\(esc(ep.director))" data-cinematographer="\(esc(ep.cinematographer))"\(e == 0 ? "" : " hidden")>
+                      <div class="layout">
                         <nav class="toc">
                           <div class="toc-title">Scenes</div>
                     \(toc)      </nav>
@@ -1338,7 +1361,10 @@ struct ProjectExporter {
         let episodeStripHTML = showEpisodeSwitch
             ? "<div class=\"epstrip\" id=\"epstrip\">\(switchButtons)</div>"
             : ""
-        let mastheadSubHTML = mastheadSub.isEmpty ? "" : "<div class=\"sub\">\(mastheadSub)</div>"
+        // The subtitle sits under the credits (and, for a series, under the episode
+        // pills). For a series it's updated in-browser to the active episode.
+        let mastheadSub = episodeSubs.first ?? ""
+        let mastheadSubHTML = mastheadSub.isEmpty ? "" : "<div class=\"sub\" id=\"masthead-sub\">\(mastheadSub)</div>"
         let episodesScheduleJSON = "[" + scheduleJSONs.joined(separator: ",") + "]"
 
         return """
@@ -1377,8 +1403,11 @@ struct ProjectExporter {
 
           /* Masthead */
           .masthead { position: relative; padding: 30px 28px 22px; max-width: 1240px; margin: 0 auto; }
-          .masthead h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px; }
-          .masthead .sub { color: var(--muted); font-size: 14px; }
+          .masthead h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.4px;
+                         display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 2px; }
+          /* "Shot List" beside the title, smaller; drops under it when there's no room. */
+          .title-tag { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; white-space: nowrap; }
+          .masthead .sub { color: var(--muted); font-size: 14px; margin-top: 12px; }
           /* Credits sit side by side, wrapping to stacked lines when the window is
              too narrow. Each credit keeps its label+value together (nowrap). */
           .credits { display: flex; flex-wrap: wrap; align-items: baseline; margin-top: 8px;
@@ -1395,16 +1424,17 @@ struct ProjectExporter {
           @media (max-width: 640px) { .brandline { position: static; margin: 0 0 12px; } }
 
           /* Episode switcher (series only): individual pills under the credits that
-             swap which episode is shown, in-page. Pills wrap cleanly on narrow phones
-             (a wrapping segmented block looked bulky). */
-          .epstrip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-          .ep-btn { border: 1px solid var(--line-strong); background: var(--card); color: var(--muted);
+             swap which episode is shown, in-page. The row stays on one line and scrolls
+             horizontally when it overflows (e.g. iPhone portrait) rather than wrapping. */
+          .epstrip { display: flex; flex-wrap: nowrap; gap: 8px; margin-top: 16px;
+                     overflow-x: auto; -webkit-overflow-scrolling: touch;
+                     scrollbar-width: none; padding-bottom: 2px; }
+          .epstrip::-webkit-scrollbar { display: none; }
+          .ep-btn { flex: 0 0 auto; border: 1px solid var(--line-strong); background: var(--card); color: var(--muted);
                     font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 999px;
                     cursor: pointer; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
           .ep-btn:hover { color: var(--text); border-color: var(--muted); }
           .ep-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-          /* The per-episode subtitle (episode/version name · scene/shot counts). */
-          .ep-sub { max-width: 1240px; margin: 0 auto; padding: 0 28px; color: var(--muted); font-size: 14px; }
 
           /* Sticky filter bar */
           .toolbar { position: sticky; top: 0; z-index: 20; background: var(--bar);
@@ -1758,10 +1788,10 @@ struct ProjectExporter {
             </svg>
             <span>Made with <b>CinePlanner</b></span>
           </div>
-          <h1>\(esc(filmName))</h1>
-          \(mastheadSubHTML)
+          <h1>\(esc(filmName)) <span class="title-tag">Shot List</span></h1>
           \(creditsHTML)
           \(episodeStripHTML)
+          \(mastheadSubHTML)
         </div>
 
         <noscript>
@@ -2071,6 +2101,26 @@ struct ProjectExporter {
             toggleAll.textContent = collapse ? 'Expand all' : 'Collapse all';
           });
 
+          // Update the subtitle and Director/Cinematographer credits to the active
+          // episode (Production Company stays put). Only used when there's a switch.
+          function esch(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+          function updateMasthead() {
+            var el = ep();
+            var subEl = document.getElementById('masthead-sub');
+            if (subEl) subEl.textContent = el.getAttribute('data-sub') || '';
+            var creditsEl = document.getElementById('credits');
+            if (creditsEl) {
+              var html = '';
+              function span(label, val) {
+                if (val && val.trim()) html += '<span class="credit"><b>' + label + '</b> ' + esch(val) + '</span>';
+              }
+              span('Production Company', creditsEl.getAttribute('data-company') || '');
+              span('Director', el.getAttribute('data-director') || '');
+              span('Cinematographer', el.getAttribute('data-cinematographer') || '');
+              creditsEl.innerHTML = html;
+            }
+          }
+
           // Episode switch: swap which episode is shown, keeping search/filters/view.
           var epButtons = qsa('.ep-btn');
           function setEpisode(i) {
@@ -2081,6 +2131,7 @@ struct ProjectExporter {
               b.classList.toggle('on', parseInt(b.getAttribute('data-ep'), 10) === i);
             });
             toggleAll.textContent = 'Collapse all';
+            updateMasthead();
             applyView();
             apply();
             window.scrollTo({ top: 0 });
