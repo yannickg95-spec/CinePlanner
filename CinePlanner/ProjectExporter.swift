@@ -2055,9 +2055,11 @@ struct ProjectExporter {
             });
 
             var filtering = term !== '' || active.type || active.media || active.time;
+            // The unfiltered total lives in the masthead subtitle; here we only show
+            // the match count while filtering.
             countEl.textContent = filtering
               ? shownScenes + ' of ' + scenes.length + ' scenes · ' + shownShots + ' of ' + totalShots + ' shots'
-              : scenes.length + ' scenes · ' + totalShots + ' shots';
+              : '';
             resetEl.hidden = !filtering;
             clearq.hidden = term === '';
             var nr = ep().querySelector('.noresults');
