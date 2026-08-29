@@ -194,17 +194,36 @@ struct ProjectEditorView: View {
                 actionButtons
             }
 
-            // iOS/iPadOS group the schedule button with GitHub/Export (see
-            // headerButtons / exportToolbarGroup) so it sits an even 8pt from them.
+            // macOS: each control is its own toolbar item for uniform system
+            // spacing. On macOS 26, hide the OS "Liquid Glass" per-item background —
+            // otherwise it merges the two adjacent plain circle buttons into one
+            // touching segmented pair — so only our own circle backgrounds show.
             #if os(macOS)
-            ToolbarItem(placement: .primaryAction) { onSetButton }
-            ToolbarItem(placement: .primaryAction) { scheduleButton }
+            if #available(macOS 26.0, *) {
+                ToolbarItem(placement: .primaryAction) { onSetButton }
+                    .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .primaryAction) { scheduleButton }
+                    .sharedBackgroundVisibility(.hidden)
+                if let url = publishedURL {
+                    ToolbarItem(placement: .primaryAction) { publishedPageMenu(url: url) }
+                        .sharedBackgroundVisibility(.hidden)
+                }
+                ToolbarItem(placement: .primaryAction) { exportButton }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .primaryAction) { onSetButton }
+                ToolbarItem(placement: .primaryAction) { scheduleButton }
+                if let url = publishedURL {
+                    ToolbarItem(placement: .primaryAction) { publishedPageMenu(url: url) }
+                }
+                ToolbarItem(placement: .primaryAction) { exportButton }
+            }
             #endif
 
             // GitHub + Export share the toolbar row with the project name. iPhone
             // keeps its always-visible GitHub button (publish when unpublished, the
             // page menu once live) plus Export; the Script button and version chips
-            // stay in the content header below. iPad/Mac use their export group.
+            // stay in the content header below. iPad uses its export group.
             // Hide the OS 26 "Liquid Glass" pill so the badges keep their own look.
             #if os(iOS)
             if isPhoneLayout {
@@ -214,16 +233,15 @@ struct ProjectEditorView: View {
                 } else {
                     ToolbarItem(placement: .primaryAction) { headerButtons }
                 }
-            }
-            #endif
-            if !isPhoneLayout {
-                if #available(iOS 26.0, macOS 26.0, *) {
+            } else {
+                if #available(iOS 26.0, *) {
                     ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
                         .sharedBackgroundVisibility(.hidden)
                 } else {
                     ToolbarItem(placement: .primaryAction) { exportToolbarGroup }
                 }
             }
+            #endif
         }
         // In On-Set Mode the full-window overlay takes over, so hide the editor's
         // toolbar — including the navigation back button to the project list.
@@ -1619,14 +1637,12 @@ struct ProjectEditorView: View {
     
     /// The GitHub published-page indicator (when published) plus the Export button.
     @ViewBuilder
+    /// iPad's toolbar group — all four controls at an even 8pt. (macOS uses separate
+    /// toolbar items instead; see the `.toolbar` block.)
     private var exportToolbarGroup: some View {
         HStack(spacing: 8) {
-            // iPad groups the schedule button here for even spacing; macOS keeps its
-            // own separate toolbar item, so it's excluded on that platform.
-            #if os(iOS)
             onSetButton
             scheduleButton
-            #endif
             if let url = publishedURL {
                 publishedPageMenu(url: url)
             }
