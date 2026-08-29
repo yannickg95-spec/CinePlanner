@@ -316,11 +316,7 @@ private struct OnSetShotRow: View {
                     .fill(isNext ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)))
                 .foregroundStyle(isNext ? Color.accentColor : Color.primary)
 
-            Text(shot.shortSpec.isEmpty ? "—" : shot.shortSpec)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(shot.shortSpec.isEmpty ? .tertiary : .primary)
-                .lineLimit(1)
-                .strikethrough(shot.isShot, color: .secondary.opacity(0.5))
+            infoLine
 
             Spacer(minLength: 6)
 
@@ -331,33 +327,6 @@ private struct OnSetShotRow: View {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Capsule().fill(Color.accentColor))
             }
-
-            // Circle-take star
-            Button { shot.circledTake.toggle(); onChange() } label: {
-                Image(systemName: shot.circledTake ? "star.fill" : "star")
-                    .font(.system(size: 15))
-                    .foregroundStyle(shot.circledTake ? Color.orange : Color.secondary.opacity(0.5))
-            }
-            .buttonStyle(.plain).disabled(locked)
-
-            // Take count — tap to add a take; long-press for more.
-            Button { shot.takeCount += 1; onChange() } label: {
-                HStack(spacing: 1) {
-                    Text("\(shot.takeCount)").fontWeight(.bold)
-                        .foregroundStyle(shot.takeCount == 0 ? Color.secondary.opacity(0.5) : Color.primary)
-                    Text("T").foregroundStyle(Color.secondary)
-                }
-                .font(.system(size: 12.5)).monospacedDigit()
-                .frame(minWidth: 30)
-            }
-            .buttonStyle(.plain).disabled(locked)
-            .contextMenu {
-                Button("Add take") { shot.takeCount += 1; onChange() }
-                Button("Remove take") { if shot.takeCount > 0 { shot.takeCount -= 1; onChange() } }
-                    .disabled(shot.takeCount == 0)
-                Button("Reset takes", role: .destructive) { shot.takeCount = 0; onChange() }
-                    .disabled(shot.takeCount == 0)
-            }
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.platformTextBackground)
@@ -367,6 +336,29 @@ private struct OnSetShotRow: View {
         .opacity(shot.isShot ? 0.6 : 1)
         .contentShape(Rectangle())
         .onTapGesture { toggleDone() }
+    }
+
+    /// Nickname first, then the spec (same font), both on one line.
+    private var infoLine: some View {
+        let hasNick = !shot.nickname.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasSpec = !shot.shortSpec.isEmpty
+        return HStack(spacing: 8) {
+            if hasNick {
+                Text(shot.nickname)
+                    .foregroundStyle(.primary)
+                    .layoutPriority(1)
+            }
+            if hasSpec {
+                Text(shot.shortSpec)
+                    .foregroundStyle(hasNick ? .secondary : .primary)
+            }
+            if !hasNick && !hasSpec {
+                Text("—").foregroundStyle(.tertiary)
+            }
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .lineLimit(1)
+        .strikethrough(shot.isShot, color: .secondary.opacity(0.5))
     }
 
     private var checkCircle: some View {
@@ -387,7 +379,6 @@ private struct OnSetShotRow: View {
     private func toggleDone() {
         guard !locked else { return }
         shot.isShot.toggle()
-        if shot.isShot && shot.takeCount == 0 { shot.takeCount = 1 }
         onChange()
     }
 }
