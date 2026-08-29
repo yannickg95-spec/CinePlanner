@@ -30,6 +30,8 @@ struct ProjectEditorView: View {
     @State private var isLandscapeSplit = false
     /// The shooting-schedule board sheet.
     @State private var showScheduleSheet = false
+    /// On-Set Mode — a full-window viewing mode, driven from the app root.
+    @Environment(OnSetController.self) private var onSet
 
     // Live column widths. Dragging updates these (cheap, local); the value is
     // written back to the project only when the drag ends, so we're not saving
@@ -195,6 +197,7 @@ struct ProjectEditorView: View {
             // iOS/iPadOS group the schedule button with GitHub/Export (see
             // headerButtons / exportToolbarGroup) so it sits an even 8pt from them.
             #if os(macOS)
+            ToolbarItem(placement: .primaryAction) { onSetButton }
             ToolbarItem(placement: .primaryAction) { scheduleButton }
             #endif
 
@@ -222,6 +225,14 @@ struct ProjectEditorView: View {
                 }
             }
         }
+        // In On-Set Mode the full-window overlay takes over, so hide the editor's
+        // toolbar — including the navigation back button to the project list.
+        #if os(iOS)
+        .toolbar(onSet.version != nil ? .hidden : .automatic, for: .navigationBar)
+        .navigationBarBackButtonHidden(onSet.version != nil)
+        #else
+        .toolbar(onSet.version != nil ? .hidden : .automatic, for: .windowToolbar)
+        #endif
         .onAppear {
             // Ensure the project has the episode → version structure (migrates legacy projects)
             project.migrateStructureIfNeeded()
@@ -1094,6 +1105,7 @@ struct ProjectEditorView: View {
     /// Schedule + GitHub + Export, shown in the iPhone toolbar row.
     private var headerButtons: some View {
         HStack(spacing: 8) {
+            onSetButton
             scheduleButton
             gitHubHeaderButton
             exportButton
@@ -1530,6 +1542,7 @@ struct ProjectEditorView: View {
             // iPad groups the schedule button here for even spacing; macOS keeps its
             // own separate toolbar item, so it's excluded on that platform.
             #if os(iOS)
+            onSetButton
             scheduleButton
             #endif
             if let url = publishedURL {
@@ -1587,6 +1600,22 @@ struct ProjectEditorView: View {
         }
         .buttonStyle(.plain)
         .help("Plan shooting days and arrange scenes in shoot order")
+        .disabled(selectedVersion == nil)
+    }
+
+    /// Opens On-Set Mode — today's shooting day as a live check-off list. Matches
+    /// the schedule/GitHub buttons (36pt circle, secondary glyph).
+    private var onSetButton: some View {
+        Button { onSet.version = selectedVersion } label: {
+            Image(systemName: "film")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("On-Set Mode — shoot today's day and check off setups as you go")
         .disabled(selectedVersion == nil)
     }
 
@@ -2080,5 +2109,6 @@ struct ResizableDivider: View {
     NavigationStack {
         ProjectEditorView(project: project)
     }
+    .environment(OnSetController())
     .modelContainer(for: Project.self, inMemory: true)
 }

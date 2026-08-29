@@ -220,6 +220,16 @@ extension Color {
         return Color(nsColor: .textBackgroundColor)
         #endif
     }
+
+    /// A grouped-list page background (`systemGroupedBackground` on iOS), the ground
+    /// used behind cards on the scenes screen and in On-Set Mode.
+    static var platformGroupedBackground: Color {
+        #if canImport(UIKit)
+        return Color(uiColor: .systemGroupedBackground)
+        #else
+        return Color(nsColor: .windowBackgroundColor)
+        #endif
+    }
 }
 
 // MARK: - Color components

@@ -982,7 +982,14 @@ final class Shot {
     /// scene-map FOV wedge; nil → the Super-35 default is used.
     var sensorWidthMM: Double?
     var extraInfo: String = ""
-    
+
+    // On-set execution state (On-Set Mode): whether the setup is in the can, how
+    // many takes were shot, and whether the director circled one. Defaulted so
+    // adding them migrates existing projects cleanly (and syncs via CloudKit).
+    var isShot: Bool = false
+    var takeCount: Int = 0
+    var circledTake: Bool = false
+
     // Auto-filled from metadata. `camera` is the single combined camera value
     // ("Arri Alexa 35 · 4.6K 16:9"); `format` is legacy — its old contents were
     // folded into `camera` by a one-time migration and it's no longer written or
@@ -1192,6 +1199,16 @@ final class Shot {
     }
     
     var displayNumber: String { formattedNumber(style: numberingStyle) }
+
+    /// A compact "WS · Single · 50mm" line (size · type · focal) for glanceable
+    /// lists like On-Set Mode. Empty parts are dropped.
+    var shortSpec: String {
+        var parts: [String] = []
+        if hasSize { parts.append(sizeShort) }
+        if hasType { parts.append(typeShort) }
+        if lensfocal > 0 { parts.append(lensIsPrime ? "\(lensfocal)mm" : "\(lensfocal)–\(lensfocalEnd)mm") }
+        return parts.joined(separator: " · ")
+    }
 
     /// This shot's number rendered in a given style — used both for `displayNumber`
     /// and to preview the other styles in the Edit Shot sheet.

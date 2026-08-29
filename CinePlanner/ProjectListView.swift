@@ -44,6 +44,8 @@ struct ProjectListView: View {
     @State private var showingManageRepos = false
     @State private var showingProjectImporter = false
     @StateObject private var syncMonitor = CloudSyncMonitor()
+    /// Drives On-Set Mode as a full-window, top-level viewing mode.
+    @State private var onSet = OnSetController()
     @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
 
@@ -88,6 +90,7 @@ struct ProjectListView: View {
     }
 
     var body: some View {
+        ZStack {
         NavigationStack(path: $navigationPath) {
             Group {
                 if projects.isEmpty {
@@ -160,6 +163,16 @@ struct ProjectListView: View {
         #if os(macOS)
         .frame(minWidth: 900, minHeight: 600)   // macOS window minimum; iPad sizes to the screen
         #endif
+
+            // On-Set Mode takes over the whole window as its own viewing mode.
+            if let onSetVersion = onSet.version {
+                OnSetModeView(version: onSetVersion) { onSet.version = nil }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
+        .environment(onSet)
+        .animation(.easeInOut(duration: 0.22), value: onSet.version?.uid)
     }
 
     /// Presents the system file picker to choose a .cineplan file to import.
