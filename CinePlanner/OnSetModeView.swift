@@ -349,21 +349,25 @@ private struct OnSetShotRow: View {
         .onTapGesture { toggleDone() }
     }
 
-    /// Nickname first, then the spec (same font), both on one line.
+    /// Nickname first, then the spec (same font), both on one line. The grip joins
+    /// the spec with the same " · " separator as size/type/lens.
     private var infoLine: some View {
         let hasNick = !shot.nickname.trimmingCharacters(in: .whitespaces).isEmpty
-        let hasSpec = !shot.shortSpec.isEmpty
+        // Size · type · lens · grip.
+        let spec = [shot.shortSpec, shot.hasGrip ? shot.gripName : ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
         return HStack(spacing: 8) {
             if hasNick {
                 Text(shot.nickname)
                     .foregroundStyle(.primary)
                     .layoutPriority(1)
             }
-            if hasSpec {
-                Text(shot.shortSpec)
+            if !spec.isEmpty {
+                Text(spec)
                     .foregroundStyle(hasNick ? .secondary : .primary)
             }
-            if !hasNick && !hasSpec {
+            if !hasNick && spec.isEmpty {
                 Text("—").foregroundStyle(.tertiary)
             }
         }
