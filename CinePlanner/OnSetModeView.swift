@@ -404,6 +404,9 @@ private struct SceneMapViewerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private let mapPadding: CGFloat = 16
+    /// The sheet's own width, measured on iOS so the map can fit it exactly (iPad's
+    /// form sheet is much narrower than a Mac window; a fixed width would clip).
+    @State private var sheetWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -422,16 +425,27 @@ private struct SceneMapViewerSheet: View {
             }
             .padding(16)
             Divider()
-            mapArea
+            mapArea(size: displayMapSize)
         }
-        // Pin the window to the map's own width (+ padding) so the map is never
-        // clipped, and let the height follow its content.
-        .frame(width: mapSize.width + mapPadding * 2)
+        #if os(macOS)
+        // Mac: pin the window to the map's own width (+ padding); height follows.
+        .frame(width: displayMapSize.width + mapPadding * 2)
         .frame(minHeight: 300)
+        #else
+        // iOS/iPadOS: measure the sheet width so the map fits it, and use a
+        // content-sized detent so the sheet is no taller than header + map.
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { sheetWidth = geo.size.width }
+                .onChange(of: geo.size.width) { _, w in sheetWidth = w }
+        })
+        .presentationDetents([.height(headerHeight + displayMapSize.height + mapPadding * 2)])
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     @ViewBuilder
-    private var mapArea: some View {
+    private func mapArea(size: CGSize) -> some View {
         let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
         let plan = FloorPlan.load(from: scene.sceneFloorPlanJSON)
         let background = scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
@@ -446,11 +460,11 @@ private struct SceneMapViewerSheet: View {
         } else {
             SceneMapExportView(
                 doc: doc, plan: plan, background: background,
-                labels: cameraLabels(doc), size: mapSize,
+                labels: cameraLabels(doc), size: size,
                 metersWide: scene.sceneMapMetersWide,
                 cameraMeters: scene.sceneMapCameraSizeMeters,
                 viewableMarkers: scene.sceneMapViewableMarkerSize)
-            .frame(width: mapSize.width, height: mapSize.height)
+            .frame(width: size.width, height: size.height)
             // View-only: kill the markers' drag gestures so nothing can be moved
             // (their onMove is a no-op, so a drag would just snap back).
             .allowsHitTesting(false)
@@ -461,23 +475,43 @@ private struct SceneMapViewerSheet: View {
         }
     }
 
-    /// A concrete size for the map: the largest box matching the map's aspect that
-    /// fits within sensible bounds. Drives both the map frame and the window width,
-    /// so the two always agree (no clipping, no dead space).
-    private var mapSize: CGSize {
+    /// The map's aspect (background aspect, or square for floor-plan/grid maps).
+    private var mapAspect: CGFloat {
         let background = scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
-        let aspect: CGFloat
         if let bg = background, bg.size.width > 0, bg.size.height > 0 {
-            aspect = bg.size.width / bg.size.height
-        } else {
-            aspect = 1 // floor-plan / grid maps render square
+            return bg.size.width / bg.size.height
         }
-        let maxW: CGFloat = DeviceLayout.isPhone ? 340 : 760
-        let maxH: CGFloat = DeviceLayout.isPhone ? 460 : 620
+        return 1
+    }
+
+    /// Estimated header height (title, optional nickname, padding + divider) — used
+    /// to size the iOS content detent.
+    private var headerHeight: CGFloat {
+        scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty ? 55 : 76
+    }
+
+    /// The concrete size to render the map at. Mac uses a fixed max box; iOS fits
+    /// the measured sheet width (capped in height so tall maps don't overflow).
+    private var displayMapSize: CGSize {
+        let aspect = mapAspect
+        #if os(macOS)
+        let maxW: CGFloat = 760
+        let maxH: CGFloat = 620
         var w = maxW
         var h = maxW / aspect
         if h > maxH { h = maxH; w = maxH * aspect }
         return CGSize(width: w.rounded(), height: h.rounded())
+        #else
+        // Fit the measured sheet width; before the first measurement fall back to a
+        // sensible width so the initial detent isn't tiny.
+        let available = (sheetWidth > 0 ? sheetWidth : 380) - mapPadding * 2
+        var w = max(available, 120)
+        var h = w / aspect
+        let maxH: CGFloat = 560   // keep the sheet from running the full screen height
+        if h > maxH { h = maxH; w = maxH * aspect }
+        if w > available { w = available; h = available / aspect }
+        return CGSize(width: w.rounded(), height: h.rounded())
+        #endif
     }
 
     /// Camera markers show their shot's current number; characters stay blank —
