@@ -26,6 +26,8 @@ struct OnSetModeView: View {
     @State private var selectedDayUID: String?
     @State private var locked = false
     @State private var showSchedule = false
+    /// Scene whose map is shown in a sheet (via the scene header's MAP tag).
+    @State private var sceneForMap: Scene?
 
     private var project: Project? { version.episode?.project }
     private var isSeries: Bool { project?.isSeries == true }
@@ -67,6 +69,9 @@ struct OnSetModeView: View {
         }
         .sheet(isPresented: $showSchedule) {
             if let project { ShootingScheduleView(project: project, version: version) }
+        }
+        .sheet(item: $sceneForMap) { scene in
+            SceneMapViewerSheet(scene: scene)
         }
     }
 
@@ -253,6 +258,12 @@ struct OnSetModeView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
+                    // A MAP tag — same size as INT/DAY — but tappable: opens the map
+                    // for viewing (read-only). Sits by the shot counter on the right.
+                    Button { sceneForMap = scene } label: {
+                        tag("MAP", tint: Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
                     Text("\(done)/\(shots.count)")
                         .font(.caption).foregroundStyle(.tertiary).monospacedDigit()
                 }
@@ -380,5 +391,106 @@ private struct OnSetShotRow: View {
         guard !locked else { return }
         shot.isShot.toggle()
         onChange()
+    }
+}
+
+// MARK: - Read-only map viewer
+
+/// Shows a scene's map for viewing only — no editing. Reuses the static
+/// `SceneMapExportView` (the same non-interactive rendering used by the web/PDF
+/// export) so On-Set Mode can glance at a map without risk of changing it.
+private struct SceneMapViewerSheet: View {
+    let scene: Scene
+    @Environment(\.dismiss) private var dismiss
+
+    private let mapPadding: CGFloat = 16
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Scene \(scene.sceneNumber)\(scene.suffix)")
+                        .font(.headline)
+                    if !scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(scene.nickname)
+                            .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+            Divider()
+            mapArea
+        }
+        // Pin the window to the map's own width (+ padding) so the map is never
+        // clipped, and let the height follow its content.
+        .frame(width: mapSize.width + mapPadding * 2)
+        .frame(minHeight: 300)
+    }
+
+    @ViewBuilder
+    private var mapArea: some View {
+        let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        let plan = FloorPlan.load(from: scene.sceneFloorPlanJSON)
+        let background = scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
+        let isEmpty = doc.elements.isEmpty && doc.furniture.isEmpty && plan.isEmpty && background == nil
+
+        if isEmpty {
+            ContentUnavailableView(
+                "No Map",
+                systemImage: "map",
+                description: Text("This scene doesn't have a map yet."))
+            .frame(maxWidth: .infinity, minHeight: 220)
+        } else {
+            SceneMapExportView(
+                doc: doc, plan: plan, background: background,
+                labels: cameraLabels(doc), size: mapSize,
+                metersWide: scene.sceneMapMetersWide,
+                cameraMeters: scene.sceneMapCameraSizeMeters,
+                viewableMarkers: scene.sceneMapViewableMarkerSize)
+            .frame(width: mapSize.width, height: mapSize.height)
+            // View-only: kill the markers' drag gestures so nothing can be moved
+            // (their onMove is a no-op, so a drag would just snap back).
+            .allowsHitTesting(false)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(mapPadding)
+            .frame(maxWidth: .infinity)
+            .background(Color.platformGroupedBackground)
+        }
+    }
+
+    /// A concrete size for the map: the largest box matching the map's aspect that
+    /// fits within sensible bounds. Drives both the map frame and the window width,
+    /// so the two always agree (no clipping, no dead space).
+    private var mapSize: CGSize {
+        let background = scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:))
+        let aspect: CGFloat
+        if let bg = background, bg.size.width > 0, bg.size.height > 0 {
+            aspect = bg.size.width / bg.size.height
+        } else {
+            aspect = 1 // floor-plan / grid maps render square
+        }
+        let maxW: CGFloat = DeviceLayout.isPhone ? 340 : 760
+        let maxH: CGFloat = DeviceLayout.isPhone ? 460 : 620
+        var w = maxW
+        var h = maxW / aspect
+        if h > maxH { h = maxH; w = maxH * aspect }
+        return CGSize(width: w.rounded(), height: h.rounded())
+    }
+
+    /// Camera markers show their shot's current number; characters stay blank —
+    /// mirrors the exporter's label logic.
+    private func cameraLabels(_ doc: SceneMapDoc) -> [UUID: String] {
+        var labels: [UUID: String] = [:]
+        for element in doc.elements where element.kind == .camera {
+            if let uid = element.shotUID, let shot = scene.shots.first(where: { $0.uid == uid }) {
+                labels[element.id] = shot.displayNumber
+            } else if !element.label.isEmpty {
+                labels[element.id] = element.label
+            }
+        }
+        return labels
     }
 }
