@@ -491,6 +491,28 @@ struct ProjectEditorView: View {
         .task(id: url) { await checkPageLive(url) }
     }
 
+    /// Native menu rows for the live published page — reused inside the iPhone
+    /// portrait overflow menu (`headerOverflowMenu`), which can't host `ChipMenu`.
+    @ViewBuilder
+    private func publishedPageMenuItems(url: String) -> some View {
+        Button {
+            if let u = URL(string: url) { PlatformURLOpener.open(u) }
+        } label: {
+            Label("Open Published Page", systemImage: "safari")
+        }
+        Button {
+            updatePublishedPage()
+        } label: {
+            Label("Update Page", systemImage: "arrow.clockwise")
+        }
+        Divider()
+        Button(role: .destructive) {
+            showingDeletePageConfirm = true
+        } label: {
+            Label("Delete Published Page", systemImage: "trash")
+        }
+    }
+
     /// Re-publishes the web page in place using the saved repo + token — no sheet.
     /// Falls back to the publish sheet if the token or repo isn't available.
     private func updatePublishedPage() {
@@ -1103,13 +1125,73 @@ struct ProjectEditorView: View {
     }
 
     /// Schedule + GitHub + Export, shown in the iPhone toolbar row.
+    @ViewBuilder
     private var headerButtons: some View {
-        HStack(spacing: 8) {
-            onSetButton
-            scheduleButton
-            gitHubHeaderButton
-            exportButton
+        // Landscape has room for the four individual circles. Portrait doesn't, so
+        // rather than let iOS collapse them into its own overflow control (whose menu
+        // can't render our custom .plain buttons, so tapping it does nothing), we
+        // supply a real Menu that lists the same four actions.
+        if isLandscapeSplit {
+            HStack(spacing: 8) {
+                onSetButton
+                scheduleButton
+                gitHubHeaderButton
+                exportButton
+            }
+        } else {
+            headerOverflowMenu
         }
+    }
+
+    /// iPhone portrait: the four toolbar actions folded into one tappable circle.
+    private var headerOverflowMenu: some View {
+        Menu {
+            Button {
+                onSet.version = selectedVersion
+            } label: {
+                Label("On-Set Mode", systemImage: "film")
+            }
+            .disabled(selectedVersion == nil)
+
+            Button {
+                showScheduleSheet = true
+            } label: {
+                Label("Shooting Schedule", systemImage: "calendar")
+            }
+            .disabled(selectedVersion == nil)
+
+            Divider()
+
+            if let url = publishedURL {
+                // The live-page actions (open, copy link, update, unpublish) as a submenu.
+                Menu {
+                    publishedPageMenuItems(url: url)
+                } label: {
+                    Label("Published Page", image: "GitHubLogo")
+                }
+            } else {
+                Button {
+                    showPublishSheet = true
+                } label: {
+                    Label("Publish to GitHub", image: "GitHubLogo")
+                }
+            }
+
+            Button {
+                showExportSheet = true
+            } label: {
+                Label("Export…", systemImage: "square.and.arrow.up")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
     }
 
     /// iPhone header. For a series the episode switch gets its own row (it and the
