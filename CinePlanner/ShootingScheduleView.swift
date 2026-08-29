@@ -345,7 +345,7 @@ struct ShootingScheduleView: View {
                     if !scene.nickname.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(scene.nickname).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if entry.isPartialScene {
+                    if showsShotList(entry) {
                         partialShotList(entry)
                     }
                     if !entry.note.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -514,7 +514,7 @@ struct ShootingScheduleView: View {
                     } else if !scene.nickname.isEmpty {
                         Text(scene.nickname).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if entry.isPartialScene {
+                    if showsShotList(entry) {
                         partialShotList(entry)
                     }
                     sunWarningTag(for: entry)
@@ -581,8 +581,14 @@ struct ShootingScheduleView: View {
 
     // MARK: - Shared bits
 
-    /// The shots this strip covers when it's a partial scene, stacked one per line —
-    /// shot number plus nickname · size · type — inside the scene card.
+    /// Show the per-shot list inside a scene card when it's a partial scene or when
+    /// the day has a custom shoot order — so the order is visible on the board.
+    private func showsShotList(_ entry: ScheduleEntry) -> Bool {
+        entry.isPartialScene || !entry.shotShootOrderUIDs.isEmpty
+    }
+
+    /// The shots this strip covers, stacked one per line — shot number plus
+    /// nickname · size · type — inside the scene card, in this day's shoot order.
     @ViewBuilder
     private func partialShotList(_ entry: ScheduleEntry) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -886,38 +892,78 @@ private struct ScheduleShotPicker: View {
     var onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String>
+    @State private var dropTargetUID: String?
+    /// All the scene's shots in this sheet's display order (this day's shoot order for
+    /// the selected ones). Reordering here is stored on the entry — it doesn't change
+    /// the scene's shot list or numbering.
+    @State private var order: [String]
 
     init(entry: ScheduleEntry, scene: Scene, onDone: @escaping () -> Void) {
         self.entry = entry
         self.scene = scene
         self.onDone = onDone
-        let all = Set(scene.orderedShots.map { $0.uid })
-        _selected = State(initialValue: entry.selectedShotUIDs.isEmpty ? all : Set(entry.selectedShotUIDs))
+        let sceneOrder = scene.orderedShots.map { $0.uid }
+        // Which shots are on the day (selection) and the film order are stored
+        // separately, so reordering never changes the set of shots.
+        _selected = State(initialValue: entry.selectedShotUIDs.isEmpty ? Set(sceneOrder) : Set(entry.selectedShotUIDs))
+        if entry.shotShootOrderUIDs.isEmpty {
+            _order = State(initialValue: sceneOrder)
+        } else {
+            let ord = entry.shotShootOrderUIDs.filter { sceneOrder.contains($0) }
+            _order = State(initialValue: ord + sceneOrder.filter { !ord.contains($0) })
+        }
     }
 
     private var allUIDs: [String] { scene.orderedShots.map { $0.uid } }
 
     var body: some View {
         NavigationStack {
+            let byUID = Dictionary(scene.shots.map { ($0.uid, $0) }, uniquingKeysWith: { a, _ in a })
             List {
                 Section {
-                    ForEach(scene.orderedShots, id: \.uid) { shot in
-                        Button { toggle(shot.uid) } label: {
-                            HStack(spacing: 10) {
+                    ForEach(order, id: \.self) { uid in
+                        if let shot = byUID[uid] {
+                        HStack(spacing: 10) {
+                            // Only the checkmark is a button (toggles selection); the
+                            // rest of the row is left free so the drag can start —
+                            // a row-wide tap gesture was swallowing the drag.
+                            Button { toggle(shot.uid) } label: {
                                 Image(systemName: selected.contains(shot.uid) ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(selected.contains(shot.uid) ? Color.accentColor : .secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("Shot \(shot.displayNumber)").font(.body)
-                                    let sub = shotSubtitle(shot)
-                                    if !sub.isEmpty {
-                                        Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                }
-                                Spacer()
+                                    .contentShape(Circle())
                             }
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Shot \(shot.displayNumber)").font(.body)
+                                let sub = shotSubtitle(shot)
+                                if !sub.isEmpty {
+                                    Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "line.3.horizontal")
+                                .font(.caption).foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        // Drag a row and drop it on another to reorder; explicit
+                        // draggable + dropDestination (List.onMove doesn't reorder
+                        // reliably on macOS).
+                        .draggable(shot.uid)
+                        .overlay(alignment: .top) {
+                            if dropTargetUID == shot.uid {
+                                Rectangle().fill(Color.accentColor).frame(height: 2)
+                            }
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let dragged = items.first else { return false }
+                            moveShot(dragged, before: shot.uid)
+                            return true
+                        } isTargeted: { on in
+                            if on { dropTargetUID = shot.uid }
+                            else if dropTargetUID == shot.uid { dropTargetUID = nil }
+                        }
+                        }
                     }
                 } header: {
                     HStack {
@@ -928,7 +974,7 @@ private struct ScheduleShotPicker: View {
                             .disabled(selected.count == allUIDs.count)
                     }
                 } footer: {
-                    Text("Leave every shot selected to shoot the whole scene on this day.")
+                    Text("Leave every shot selected to shoot the whole scene on this day. Drag to set the order they're filmed on this day — this doesn't change the shot list or numbering.")
                 }
             }
             .navigationTitle("Scene \(scene.sceneNumber)\(scene.suffix) Shots")
@@ -944,6 +990,16 @@ private struct ScheduleShotPicker: View {
         .frame(minWidth: 340, minHeight: 420)
     }
 
+    /// Move the dragged shot to sit just before `targetUID` in this day's shoot order.
+    /// Only the local order changes; it's written to the entry on Done. Shot numbering
+    /// and the scene's shot-list order are untouched.
+    private func moveShot(_ draggedUID: String, before targetUID: String) {
+        guard draggedUID != targetUID, let from = order.firstIndex(of: draggedUID) else { return }
+        order.remove(at: from)
+        let insertAt = order.firstIndex(of: targetUID) ?? order.count
+        order.insert(draggedUID, at: insertAt)
+    }
+
     private func shotSubtitle(_ shot: Shot) -> String {
         var parts: [String] = []
         if !shot.nickname.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(shot.nickname) }
@@ -957,13 +1013,11 @@ private struct ScheduleShotPicker: View {
     }
 
     private func commit() {
-        // Whole scene (all, or accidentally none) → store empty; otherwise the
-        // subset in scene order.
-        if selected.isEmpty || selected.count == allUIDs.count {
-            entry.selectedShotUIDs = []
-        } else {
-            entry.selectedShotUIDs = allUIDs.filter { selected.contains($0) }
-        }
+        // Selection and film order stored separately. Each stays empty for its
+        // untouched default (all shots / scene order) so unchanged strips stay lean.
+        let sel = allUIDs.filter { selected.contains($0) }
+        entry.selectedShotUIDs = (sel == allUIDs) ? [] : sel
+        entry.shotShootOrderUIDs = (order == allUIDs) ? [] : order
         onDone()
     }
 }

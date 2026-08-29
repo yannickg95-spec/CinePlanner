@@ -1558,6 +1558,10 @@ final class ScheduleEntry {
     /// Which of the scene's shots are shot on this day, by Shot.uid. Empty means the
     /// whole scene (all shots) — the default, so existing strips keep meaning "all".
     var selectedShotUIDs: [String] = []
+    /// The order the day's shots are filmed in, by Shot.uid — a per-day shoot order
+    /// that's separate from the scene's shot-list order and numbering. Empty means the
+    /// scene's own order; shots not listed here (e.g. added later) keep scene order.
+    var shotShootOrderUIDs: [String] = []
 
     var scene: Scene?
     var day: ShootingDay?
@@ -1568,14 +1572,25 @@ final class ScheduleEntry {
         self.note = note
     }
 
-    /// The shots this strip covers, in scene order. Empty selection = the whole
-    /// scene. Deleted shots are dropped automatically.
+    /// The shots this strip covers, in this day's shoot order. `selectedShotUIDs`
+    /// chooses which shots (empty = the whole scene); `shotShootOrderUIDs` then sets
+    /// the film order (empty = scene order). Neither touches shot numbering. Shots
+    /// added after an order was set keep scene order at the end. Deleted shots drop.
     var resolvedShots: [Shot] {
         guard let scene else { return [] }
         let ordered = scene.orderedShots
-        guard !selectedShotUIDs.isEmpty else { return ordered }
-        let set = Set(selectedShotUIDs)
-        return ordered.filter { set.contains($0.uid) }
+        let onDay: [Shot]
+        if selectedShotUIDs.isEmpty {
+            onDay = ordered
+        } else {
+            let set = Set(selectedShotUIDs)
+            onDay = ordered.filter { set.contains($0.uid) }
+        }
+        guard !shotShootOrderUIDs.isEmpty else { return onDay }
+        let rank = Dictionary(uniqueKeysWithValues: shotShootOrderUIDs.enumerated().map { ($0.element, $0.offset) })
+        return onDay.enumerated()
+            .sorted { (rank[$0.element.uid] ?? Int.max, $0.offset) < (rank[$1.element.uid] ?? Int.max, $1.offset) }
+            .map { $0.element }
     }
 
     /// True when this strip is a subset (not the whole scene).
