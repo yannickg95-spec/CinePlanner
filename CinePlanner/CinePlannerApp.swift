@@ -164,6 +164,9 @@ struct CinePlannerApp: App {
                 #endif
                 .task { registerForCloudKitPush() }
                 .task { CreditDefaultsSync.shared.start() }
+                #if os(iOS)
+                .task { OnSetLiveActivityController.shared.registerBridge() }
+                #endif
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)

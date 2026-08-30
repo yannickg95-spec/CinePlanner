@@ -6,10 +6,49 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		DEADBEEFDEADBEEFDEAD000C /* OnSetWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DEADBEEFDEADBEEFDEAD000E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C819A822EF043DF009E48CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DEADBEEFDEADBEEFDEAD0001;
+			remoteInfo = OnSetWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DEADBEEFDEADBEEFDEAD000B /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				DEADBEEFDEADBEEFDEAD000C /* OnSetWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		8C46A16730165D7500A99C96 /* CineStager 2.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CineStager 2.entitlements"; sourceTree = "<group>"; };
 		8C819A8A2EF043DF009E48CD /* CinePlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OnSetWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DEADBEEFDEADBEEFDEAD0010 /* Exceptions for "OnSetWidget" folder in "OnSetWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8C819A8C2EF043DF009E48CD /* CinePlanner */ = {
@@ -17,10 +56,30 @@
 			path = CinePlanner;
 			sourceTree = "<group>";
 		};
+		DEADBEEFDEADBEEFDEAD0003 /* OnSetWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DEADBEEFDEADBEEFDEAD0010 /* Exceptions for "OnSetWidget" folder in "OnSetWidgetExtension" target */,
+			);
+			path = OnSetWidget;
+			sourceTree = "<group>";
+		};
+		DEADBEEFDEADBEEFDEAD0004 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		8C819A872EF043DF009E48CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DEADBEEFDEADBEEFDEAD0006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -35,6 +94,8 @@
 			children = (
 				8C46A16730165D7500A99C96 /* CineStager 2.entitlements */,
 				8C819A8C2EF043DF009E48CD /* CinePlanner */,
+				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
+				DEADBEEFDEADBEEFDEAD0003 /* OnSetWidget */,
 				8C819A8B2EF043DF009E48CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -43,6 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				8C819A8A2EF043DF009E48CD /* CinePlanner.app */,
+				DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -57,13 +119,16 @@
 				8C819A862EF043DF009E48CD /* Sources */,
 				8C819A872EF043DF009E48CD /* Frameworks */,
 				8C819A882EF043DF009E48CD /* Resources */,
+				DEADBEEFDEADBEEFDEAD000B /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				DEADBEEFDEADBEEFDEAD000D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8C819A8C2EF043DF009E48CD /* CinePlanner */,
+				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
 			);
 			name = "CineStager 2";
 			packageProductDependencies = (
@@ -71,6 +136,29 @@
 			productName = "CineStager 2";
 			productReference = 8C819A8A2EF043DF009E48CD /* CinePlanner.app */;
 			productType = "com.apple.product-type.application";
+		};
+		DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DEADBEEFDEADBEEFDEAD0008 /* Build configuration list for PBXNativeTarget "OnSetWidgetExtension" */;
+			buildPhases = (
+				DEADBEEFDEADBEEFDEAD0005 /* Sources */,
+				DEADBEEFDEADBEEFDEAD0006 /* Frameworks */,
+				DEADBEEFDEADBEEFDEAD0007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DEADBEEFDEADBEEFDEAD0003 /* OnSetWidget */,
+				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
+			);
+			name = OnSetWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = OnSetWidgetExtension;
+			productReference = DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -83,6 +171,9 @@
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					8C819A892EF043DF009E48CD = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					DEADBEEFDEADBEEFDEAD0001 = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
 				};
@@ -102,12 +193,20 @@
 			projectRoot = "";
 			targets = (
 				8C819A892EF043DF009E48CD /* CineStager 2 */,
+				DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		8C819A882EF043DF009E48CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DEADBEEFDEADBEEFDEAD0007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -124,7 +223,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DEADBEEFDEADBEEFDEAD0005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DEADBEEFDEADBEEFDEAD000D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilters = (ios, );
+			target = DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */;
+			targetProxy = DEADBEEFDEADBEEFDEAD000E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		8C819A932EF043E0009E48CD /* Debug */ = {
@@ -250,7 +365,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 65W863L6A3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -276,7 +391,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2";
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner;
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.YannickGiraud.CinePlanner;
@@ -304,7 +419,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 65W863L6A3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -330,7 +445,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2";
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner;
 				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.YannickGiraud.CinePlanner;
@@ -351,6 +466,64 @@
 			};
 			name = Release;
 		};
+		DEADBEEFDEADBEEFDEAD0009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65W863L6A3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OnSetWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "On Set";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2.OnSetWidget";
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = "com.YannickGiraud.CinePlanner.OnSetWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DEADBEEFDEADBEEFDEAD000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65W863L6A3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OnSetWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "On Set";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2.OnSetWidget";
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = "com.YannickGiraud.CinePlanner.OnSetWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -368,6 +541,15 @@
 			buildConfigurations = (
 				8C819A962EF043E0009E48CD /* Debug */,
 				8C819A972EF043E0009E48CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DEADBEEFDEADBEEFDEAD0008 /* Build configuration list for PBXNativeTarget "OnSetWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DEADBEEFDEADBEEFDEAD0009 /* Debug */,
+				DEADBEEFDEADBEEFDEAD000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

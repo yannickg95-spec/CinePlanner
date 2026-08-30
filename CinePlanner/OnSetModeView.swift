@@ -79,6 +79,12 @@ struct OnSetModeView: View {
         .sheet(item: $sceneForMap) { scene in
             SceneMapViewerSheet(scene: scene)
         }
+        #if os(iOS)
+        // Mirror the day onto a Lock Screen / Dynamic Island Live Activity while
+        // On-Set Mode is open; end it when leaving.
+        .onAppear { OnSetLiveActivityController.shared.start(version: version) }
+        .onDisappear { OnSetLiveActivityController.shared.end() }
+        #endif
     }
 
     // MARK: - Top bar
@@ -315,7 +321,12 @@ struct OnSetModeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func save() { try? modelContext.save() }
+    private func save() {
+        try? modelContext.save()
+        #if os(iOS)
+        OnSetLiveActivityController.shared.update()
+        #endif
+    }
 }
 
 // MARK: - Shot row
