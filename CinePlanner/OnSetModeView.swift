@@ -627,8 +627,9 @@ private struct FramingViewerSheet: View {
                 .onAppear { sheetWidth = geo.size.width }
                 .onChange(of: geo.size.width) { _, w in sheetWidth = w }
         })
-        .presentationDetents([.height(headerHeight + displaySize.height + pad * 2)])
         .presentationDragIndicator(.visible)
+        .applyRefSheetSizing(isPhone: DeviceLayout.isPhone,
+                             phoneHeight: headerHeight + displaySize.height + pad * 2)
         #endif
     }
 
@@ -639,24 +640,50 @@ private struct FramingViewerSheet: View {
 
     private var headerHeight: CGFloat { 55 }
 
-    /// The size to render the image at — Mac uses a fixed max box, iOS fits the
-    /// measured sheet width (capped in height so tall stills don't overflow).
+    /// The size to render the image at. Mac and iPad use a fixed max box (the sheet
+    /// is sized to fit it); iPhone fits the measured sheet width.
     private var displaySize: CGSize {
         #if os(macOS)
-        let maxW: CGFloat = 760, maxH: CGFloat = 620
+        return fitted(maxW: 760, maxH: 620)
+        #else
+        if DeviceLayout.isPhone {
+            let available = (sheetWidth > 0 ? sheetWidth : 380) - pad * 2
+            var w = max(available, 120), h = w / aspect
+            let maxH: CGFloat = 560
+            if h > maxH { h = maxH; w = maxH * aspect }
+            if w > available { w = available; h = available / aspect }
+            return CGSize(width: w.rounded(), height: h.rounded())
+        } else {
+            // iPad: a large box; the sheet grows to fit it (see applyRefSheetSizing).
+            return fitted(maxW: 900, maxH: 720)
+        }
+        #endif
+    }
+
+    /// Largest w×h with the image's aspect that fits inside maxW×maxH.
+    private func fitted(maxW: CGFloat, maxH: CGFloat) -> CGSize {
         var w = maxW, h = maxW / aspect
         if h > maxH { h = maxH; w = maxH * aspect }
         return CGSize(width: w.rounded(), height: h.rounded())
-        #else
-        let available = (sheetWidth > 0 ? sheetWidth : 380) - pad * 2
-        var w = max(available, 120), h = w / aspect
-        let maxH: CGFloat = 560
-        if h > maxH { h = maxH; w = maxH * aspect }
-        if w > available { w = available; h = available / aspect }
-        return CGSize(width: w.rounded(), height: h.rounded())
-        #endif
     }
 }
+
+#if os(iOS)
+private extension View {
+    /// iPhone: a content-height detent. iPad: size the sheet to fit its content
+    /// (so a large reference image gets a large popup, not a fixed form sheet).
+    @ViewBuilder
+    func applyRefSheetSizing(isPhone: Bool, phoneHeight: CGFloat) -> some View {
+        if isPhone {
+            self.presentationDetents([.height(phoneHeight)])
+        } else if #available(iOS 18.0, *) {
+            self.presentationSizing(.fitted)
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 // MARK: - Read-only map viewer
 
