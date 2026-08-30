@@ -10,11 +10,15 @@
 
 import SwiftUI
 
-/// The app-wide default credit names, stored in UserDefaults so they persist
-/// across projects and launches. Read at project/episode creation to pre-fill.
+/// The app-wide default credit names. Synced across the user's devices via
+/// iCloud's key-value store, and mirrored into UserDefaults so the app's
+/// `@AppStorage`-backed UI and reads stay reactive/local-fast. Read at
+/// project/episode creation to pre-fill.
 enum CreditDefaults {
     static let directorKey = "defaultDirector"
     static let cinematographerKey = "defaultCinematographer"
+    private static var allKeys: [String] { [directorKey, cinematographerKey] }
+    private static var cloud: NSUbiquitousKeyValueStore { .default }
 
     static var director: String {
         UserDefaults.standard.string(forKey: directorKey) ?? ""
@@ -28,6 +32,57 @@ enum CreditDefaults {
     static var hasAny: Bool {
         !director.trimmingCharacters(in: .whitespaces).isEmpty
         || !cinematographer.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Push a locally-edited value up to iCloud. (It's already in UserDefaults via
+    /// the editing @AppStorage binding; this mirrors it to the cloud store.)
+    static func push(_ value: String, forKey key: String) {
+        cloud.set(value, forKey: key)
+        cloud.synchronize()
+    }
+
+    /// Copy the iCloud values down into UserDefaults, so @AppStorage-backed views
+    /// reflect them. Only overwrites when the cloud actually holds a value.
+    static func pullFromCloud() {
+        for key in allKeys {
+            if let remote = cloud.string(forKey: key),
+               UserDefaults.standard.string(forKey: key) != remote {
+                UserDefaults.standard.set(remote, forKey: key)
+            }
+        }
+    }
+}
+
+/// Keeps `CreditDefaults` in sync with iCloud. Started once at launch: seeds the
+/// cloud from any pre-iCloud local values, pulls the latest down, and listens for
+/// changes made on other devices.
+final class CreditDefaultsSync {
+    static let shared = CreditDefaultsSync()
+    private init() {}
+    private var started = false
+
+    func start() {
+        guard !started else { return }
+        started = true
+        let cloud = NSUbiquitousKeyValueStore.default
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(cloudChangedExternally),
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud)
+
+        // First run: if the cloud has no value yet but this device has one from
+        // before iCloud sync existed, seed the cloud so it isn't lost.
+        for key in [CreditDefaults.directorKey, CreditDefaults.cinematographerKey] {
+            let local = UserDefaults.standard.string(forKey: key) ?? ""
+            if cloud.string(forKey: key) == nil && !local.isEmpty {
+                cloud.set(local, forKey: key)
+            }
+        }
+        cloud.synchronize()
+        CreditDefaults.pullFromCloud()
+    }
+
+    @objc private func cloudChangedExternally() {
+        CreditDefaults.pullFromCloud()
     }
 }
 
@@ -60,6 +115,14 @@ struct DefaultCreditsSheet: View {
             .padding(16)
         }
         .adaptiveSheetFrame(width: 460, height: 320)
+        // Mirror edits up to iCloud (the @AppStorage bindings already saved them
+        // locally to UserDefaults).
+        .onChange(of: director) { _, value in
+            CreditDefaults.push(value, forKey: CreditDefaults.directorKey)
+        }
+        .onChange(of: cinematographer) { _, value in
+            CreditDefaults.push(value, forKey: CreditDefaults.cinematographerKey)
+        }
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {

@@ -163,6 +163,7 @@ struct CinePlannerApp: App {
                 .frame(minWidth: 1100, minHeight: 700)
                 #endif
                 .task { registerForCloudKitPush() }
+                .task { CreditDefaultsSync.shared.start() }
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
