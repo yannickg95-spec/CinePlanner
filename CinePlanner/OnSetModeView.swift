@@ -28,6 +28,10 @@ struct OnSetModeView: View {
     @State private var showSchedule = false
     /// Scene whose map is shown in a sheet (via the scene header's MAP tag).
     @State private var sceneForMap: Scene?
+    #if os(iOS)
+    /// Drives the Live Activity Start/Stop control.
+    @State private var live = OnSetLiveActivityController.shared
+    #endif
 
     private var project: Project? { version.episode?.project }
     private var isSeries: Bool { project?.isSeries == true }
@@ -80,10 +84,11 @@ struct OnSetModeView: View {
             SceneMapViewerSheet(scene: scene)
         }
         #if os(iOS)
-        // Mirror the day onto a Lock Screen / Dynamic Island Live Activity while
-        // On-Set Mode is open; end it when leaving.
-        .onAppear { OnSetLiveActivityController.shared.start(version: version) }
-        .onDisappear { OnSetLiveActivityController.shared.end() }
+        // Starting/stopping the Live Activity is explicit (the broadcast button in
+        // the top bar). Here we just adopt an already-running one so the control
+        // reflects it, and keep a running activity pointed at the viewed day.
+        .onAppear { live.reconnect(versionUID: version.uid) }
+        .onChange(of: selectedDayUID) { _, _ in if let day = selectedDay { live.setDay(day) } }
         #endif
     }
 
@@ -105,6 +110,24 @@ struct OnSetModeView: View {
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
+                #if os(iOS)
+                // Start/Stop the Lock Screen + Dynamic Island Live Activity for the
+                // day currently shown. Hidden where Live Activities aren't available
+                // (iPad, or turned off for the app).
+                if live.isAvailable {
+                    Button { toggleLive() } label: {
+                        Image(systemName: live.isRunning ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(live.isRunning ? Color.red : Color.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(live.isRunning ? Color.red.opacity(0.14) : Color.secondary.opacity(0.12)))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedDay == nil)
+                    .help(live.isRunning ? "Stop the Live Activity" : "Show this day on the Lock Screen (Live Activity)")
+                }
+                #endif
                 if project != nil {
                     Button { showSchedule = true } label: {
                         Image(systemName: "calendar")
@@ -327,6 +350,16 @@ struct OnSetModeView: View {
         OnSetLiveActivityController.shared.update()
         #endif
     }
+
+    #if os(iOS)
+    private func toggleLive() {
+        if live.isRunning {
+            live.end()
+        } else if let day = selectedDay {
+            live.start(version: version, day: day)
+        }
+    }
+    #endif
 }
 
 // MARK: - Shot row

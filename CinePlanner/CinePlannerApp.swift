@@ -78,6 +78,13 @@ struct CinePlannerApp: App {
         // Upgrade a pre-existing local-only GitHub token to the synced Keychain so
         // it becomes available on the user's other devices via iCloud Keychain.
         GitHubPublisher.migrateTokenToSyncIfNeeded()
+
+        #if os(iOS)
+        // Wire the On-Set Live Activity to the store + its button handler here (not
+        // from a view), so it's ready even when iOS wakes the app in the background
+        // to run a Live Activity step.
+        OnSetLiveActivityController.shared.configure(container: sharedModelContainer)
+        #endif
     }
 
     private static func setRecoveryMessage(_ message: String) {
@@ -164,9 +171,6 @@ struct CinePlannerApp: App {
                 #endif
                 .task { registerForCloudKitPush() }
                 .task { CreditDefaultsSync.shared.start() }
-                #if os(iOS)
-                .task { OnSetLiveActivityController.shared.registerBridge() }
-                #endif
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)

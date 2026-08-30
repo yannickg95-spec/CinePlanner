@@ -13,7 +13,8 @@ struct OnSetLiveActivityWidget: Widget {
         ActivityConfiguration(for: OnSetActivityAttributes.self) { context in
             // Lock Screen / banner presentation.
             OnSetLockScreenView(state: context.state)
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
                 .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let s = context.state
@@ -66,31 +67,32 @@ private struct OnSetLockScreenView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Project · day, then progress line.
             Text("\(state.projectName) · \(state.dayLabel)")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .lineLimit(1)
             Text("\(state.doneCount) / \(state.total) setups · \(state.scenesCleared) of \(state.totalScenes) scenes")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.top, 2)
+                .lineLimit(1)
+                .padding(.top, 1)
 
             // Progress bar flanked by step controls.
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 StepButton(forward: false, disabled: state.doneCount == 0)
                 ProgressBar(progress: state.progress)
                 StepButton(forward: true, disabled: state.wrapped)
             }
-            .padding(.top, 11)
+            .padding(.top, 8)
 
             if let current = state.current {
                 SetupRow(setup: current, eyebrow: "Now · \(current.scene)", accent: true)
-                    .padding(.top, 12)
+                    .padding(.top, 8)
                 ForEach(Array(state.upcoming.enumerated()), id: \.offset) { idx, s in
                     SetupRow(setup: s, eyebrow: idx == 0 ? "Next" : "Then", accent: false)
-                        .padding(.top, 7)
+                        .padding(.top, 5)
                 }
             } else {
                 SetupRow.wrapped
-                    .padding(.top, 12)
+                    .padding(.top, 8)
             }
         }
     }
@@ -161,8 +163,8 @@ private struct StepButton: View {
     var body: some View {
         Button(intent: OnSetStepIntent(forward: forward)) {
             Image(systemName: forward ? "chevron.right" : "chevron.left")
-                .font(.system(size: 12, weight: .heavy))
-                .frame(width: 24, height: 24)
+                .font(.system(size: 11, weight: .heavy))
+                .frame(width: 22, height: 22)
                 .foregroundStyle(.tint)
                 .background(Color.accentColor.opacity(0.16), in: Circle())
         }

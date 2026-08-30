@@ -25,6 +25,7 @@ struct OnSetActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var projectName: String
         var dayLabel: String        // "Day 1"
+        var dayUID: String          // which day, so the step buttons can resolve it
         var setups: [OnSetSetup]    // the day's shots, in shoot order
         var totalScenes: Int
     }
