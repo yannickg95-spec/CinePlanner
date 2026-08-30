@@ -28,6 +28,8 @@ struct OnSetModeView: View {
     @State private var showSchedule = false
     /// Scene whose map is shown in a sheet (via the scene header's MAP tag).
     @State private var sceneForMap: Scene?
+    /// The shot row a drag is hovering over — draws the insertion line.
+    @State private var dropTargetShotUID: String?
     #if os(iOS)
     /// Drives the Live Activity Start/Stop control.
     @State private var live = OnSetLiveActivityController.shared
@@ -301,10 +303,45 @@ struct OnSetModeView: View {
                 VStack(spacing: 8) {
                     ForEach(shots, id: \.uid) { shot in
                         OnSetShotRow(shot: shot, locked: locked, isNext: shot.uid == nextShotUID) { save() }
+                            // Drag a shot onto another to set the day's shoot order.
+                            // On-Set is a ScrollView (not a List), so draggable +
+                            // dropDestination reorders reliably on iOS and macOS.
+                            .draggable(shot.uid)
+                            .overlay(alignment: .top) {
+                                if dropTargetShotUID == shot.uid {
+                                    Capsule().fill(Color.accentColor)
+                                        .frame(height: 3)
+                                        .offset(y: -5)
+                                }
+                            }
+                            .dropDestination(for: String.self) { items, _ in
+                                dropTargetShotUID = nil
+                                guard let dragged = items.first else { return false }
+                                return moveShot(dragged, before: shot.uid, in: entry)
+                            } isTargeted: { on in
+                                if on { dropTargetShotUID = shot.uid }
+                                else if dropTargetShotUID == shot.uid { dropTargetShotUID = nil }
+                            }
                     }
                 }
             }
         }
+    }
+
+    /// Reorder a shot within its scene strip's shoot order (On-Set drag). Writes the
+    /// entry's shoot order and saves; shot numbering and the scene's shot list are
+    /// untouched. No-op (rejected) when the shot isn't in this strip.
+    @discardableResult
+    private func moveShot(_ draggedUID: String, before targetUID: String, in entry: ScheduleEntry) -> Bool {
+        guard draggedUID != targetUID else { return false }
+        var order = entry.resolvedShots.map { $0.uid }
+        guard let from = order.firstIndex(of: draggedUID) else { return false }
+        order.remove(at: from)
+        let insertAt = order.firstIndex(of: targetUID) ?? order.count
+        order.insert(draggedUID, at: insertAt)
+        entry.shotShootOrderUIDs = order
+        save()
+        return true
     }
 
     private func tag(_ text: String, tint: Color?) -> some View {
