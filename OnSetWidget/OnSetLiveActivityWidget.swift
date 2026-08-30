@@ -87,7 +87,7 @@ private struct OnSetLockScreenView: View {
                 SetupRow(setup: current, eyebrow: "Now · \(current.scene)", accent: true)
                     .padding(.top, 8)
                 if let next = state.upcoming.first {
-                    CompactRow(setup: next, eyebrow: "Next")
+                    CompactRow(setup: next)
                         .padding(.top, 6)
                 }
             } else {
@@ -125,6 +125,7 @@ private struct SetupRow: View {
             Text(num)
                 .font(.system(size: 10.5, weight: .heavy)).monospacedDigit()
                 .padding(.horizontal, 6).padding(.vertical, 2)
+                .frame(minWidth: 26)
                 .background((accent ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.16)),
                             in: RoundedRectangle(cornerRadius: 6))
                 .foregroundStyle(accent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
@@ -161,18 +162,17 @@ private struct SetupRow: View {
 /// two of them stack without pushing the banner past its height limit.
 private struct CompactRow: View {
     let setup: OnSetSetup
-    let eyebrow: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        // Badge styling + spacing match SetupRow's, so the text after it lines up
+        // horizontally with the "Now" row's text.
+        HStack(spacing: 9) {
             Text(setup.num)
-                .font(.system(size: 10, weight: .heavy)).monospacedDigit()
-                .padding(.horizontal, 5).padding(.vertical, 1.5)
-                .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 5))
+                .font(.system(size: 10.5, weight: .heavy)).monospacedDigit()
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .frame(minWidth: 26)
+                .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
                 .foregroundStyle(.secondary)
-            Text(eyebrow)
-                .font(.system(size: 9, weight: .heavy)).textCase(.uppercase)
-                .foregroundStyle(.tertiary)
             Text(line)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
