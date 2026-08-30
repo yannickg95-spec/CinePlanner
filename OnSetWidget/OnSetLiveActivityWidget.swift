@@ -14,7 +14,7 @@ struct OnSetLiveActivityWidget: Widget {
             // Lock Screen / banner presentation.
             OnSetLockScreenView(state: context.state)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 11)
+                .padding(.vertical, 16)
                 .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let s = context.state
