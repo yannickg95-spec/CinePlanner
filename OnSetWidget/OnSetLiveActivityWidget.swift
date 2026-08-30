@@ -14,7 +14,7 @@ struct OnSetLiveActivityWidget: Widget {
             // Lock Screen / banner presentation.
             OnSetLockScreenView(state: context.state)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 22)
+                .padding(.vertical, 18)
                 .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let s = context.state
@@ -67,7 +67,7 @@ private struct OnSetLockScreenView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Project · day, then progress line.
             Text("\(state.projectName) · \(state.dayLabel)")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .lineLimit(1)
             Text("\(state.doneCount) / \(state.total) setups · \(state.scenesCleared) of \(state.totalScenes) scenes")
                 .font(.system(size: 11, weight: .semibold))
@@ -86,8 +86,8 @@ private struct OnSetLockScreenView: View {
             if let current = state.current {
                 SetupRow(setup: current, eyebrow: "Now · \(current.scene)", accent: true)
                     .padding(.top, 8)
-                ForEach(Array(state.upcoming.enumerated()), id: \.offset) { idx, s in
-                    CompactRow(setup: s, eyebrow: idx == 0 ? "Next" : "Then")
+                if let next = state.upcoming.first {
+                    CompactRow(setup: next, eyebrow: "Next")
                         .padding(.top, 6)
                 }
             } else {
@@ -193,8 +193,8 @@ private struct StepButton: View {
     var body: some View {
         Button(intent: OnSetStepIntent(forward: forward)) {
             Image(systemName: forward ? "chevron.right" : "chevron.left")
-                .font(.system(size: 11, weight: .heavy))
-                .frame(width: 22, height: 22)
+                .font(.system(size: 14, weight: .heavy))
+                .frame(width: 34, height: 34)
                 .foregroundStyle(.tint)
                 .background(Color.accentColor.opacity(0.16), in: Circle())
         }
