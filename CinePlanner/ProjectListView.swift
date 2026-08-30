@@ -49,6 +49,13 @@ struct ProjectListView: View {
     @State private var onSet = OnSetController()
     @AppStorage("didShowWalkthrough_v1") private var didShowWalkthrough = false
     @AppStorage("projectSort") private var sortRaw = ProjectSort.recent.rawValue
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// iPhone portrait (regular height, compact width) has no room for the search
+    /// box in the action row; it returns in landscape. iPad/Mac always show it.
+    private var hideSearchBox: Bool {
+        DeviceLayout.isPhone && verticalSizeClass == .regular
+    }
 
     enum ProjectSort: String, CaseIterable, Identifiable {
         case recent, name
@@ -210,23 +217,26 @@ struct ProjectListView: View {
         VStack(spacing: 0) {
             // Search + sort
             HStack(spacing: 12) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search projects", text: $searchText)
-                        .textFieldStyle(.plain)
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                // Hidden on iPhone portrait (no room); shown again in landscape.
+                if !hideSearchBox {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search projects", text: $searchText)
+                            .textFieldStyle(.plain)
+                        if !searchText.isEmpty {
+                            Button { searchText = "" } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.secondary.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: 320)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.secondary.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .frame(maxWidth: 320)
 
                 Spacer()
 
@@ -335,6 +345,11 @@ struct ProjectListView: View {
                     .padding(24)
                 }
             }
+        }
+        // Clear any active search when the box hides (iPhone → portrait), so the
+        // grid isn't left filtered with no visible way to reset it.
+        .onChange(of: hideSearchBox) { _, hidden in
+            if hidden { searchText = "" }
         }
     }
 
