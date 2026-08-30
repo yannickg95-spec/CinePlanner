@@ -98,16 +98,9 @@ struct OnSetModeView: View {
         HStack(spacing: 12) {
             Button { onClose() } label: {
                 Label("Done", systemImage: "xmark")
-                    .labelStyle(.titleAndIcon)
+                    .labelStyle(.iconOnly)
             }
             .fontWeight(.semibold)
-            Spacer(minLength: 0)
-            HStack(spacing: 6) {
-                Text("On Set").font(.headline)
-                Text("LIVE")
-                    .font(.system(size: 10, weight: .heavy)).kerning(0.6)
-                    .foregroundStyle(Color.orange)
-            }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 #if os(iOS)
@@ -140,17 +133,13 @@ struct OnSetModeView: View {
                     .buttonStyle(.plain)
                     .help("Open the shooting schedule")
                 }
-                Button { locked.toggle() } label: {
-                    Image(systemName: locked ? "lock.fill" : "lock.open")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(locked ? Color.secondary : Color.accentColor)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.secondary.opacity(0.12)))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(locked ? "Plan locked — tap to allow changes" : "Editing unlocked — tap to lock the plan")
             }
+        }
+        // Centered as an overlay so "On Set" sits at the true horizontal middle,
+        // independent of the differing widths of the leading/trailing controls.
+        .overlay {
+            Text("On Set").font(.headline)
+                .allowsHitTesting(false)
         }
         .padding(.horizontal, 16)
         #if os(macOS)
