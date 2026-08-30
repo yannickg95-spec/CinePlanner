@@ -946,9 +946,11 @@ private struct ScheduleShotPicker: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
-                        // Drag a row and drop it on another to reorder; explicit
-                        // draggable + dropDestination (List.onMove doesn't reorder
-                        // reliably on macOS).
+                        // macOS: List.onMove doesn't reorder reliably, so reorder via
+                        // explicit draggable + dropDestination. iOS/iPadOS uses the
+                        // List's native .onMove (below) instead — a .draggable here
+                        // would start its own drag session and defeat that reorder.
+                        #if os(macOS)
                         .draggable(shot.uid)
                         .overlay(alignment: .top) {
                             if dropTargetUID == shot.uid {
@@ -963,8 +965,13 @@ private struct ScheduleShotPicker: View {
                             if on { dropTargetUID = shot.uid }
                             else if dropTargetUID == shot.uid { dropTargetUID = nil }
                         }
+                        #endif
                         }
                     }
+                    #if os(iOS)
+                    // iOS/iPadOS: native long-press drag-to-reorder.
+                    .onMove { from, to in order.move(fromOffsets: from, toOffset: to) }
+                    #endif
                 } header: {
                     HStack {
                         Text("Shot on this day")
