@@ -359,11 +359,37 @@ private struct OnSetShotRow: View {
     let isNext: Bool
     var onChange: () -> Void
 
+    /// Presents the framing reference in a popup viewer.
+    @State private var showFramingSheet = false
+
     var body: some View {
-        if isNext {
-            expandedCard
-        } else {
-            compactRow
+        Group {
+            if isNext {
+                expandedCard
+            } else {
+                compactRow
+            }
+        }
+        .sheet(isPresented: $showFramingSheet) {
+            if let framing = framingImage {
+                FramingViewerSheet(image: framing, title: "Shot \(shot.displayNumber)")
+            }
+        }
+    }
+
+    /// A tappable REF pill — same look as the scene header's MAP pill — shown when
+    /// the shot has a reference still; opens it in the popup viewer.
+    @ViewBuilder
+    private var refPill: some View {
+        if framingImage != nil {
+            Button { showFramingSheet = true } label: {
+                Text("REF")
+                    .font(.system(size: 10.5, weight: .bold)).kerning(0.3)
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.14)))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -384,6 +410,8 @@ private struct OnSetShotRow: View {
             infoLine
 
             Spacer(minLength: 6)
+
+            refPill
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.platformTextBackground)
@@ -413,6 +441,7 @@ private struct OnSetShotRow: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 6)
+                refPill
                 Text("NOW")
                     .font(.system(size: 9.5, weight: .heavy)).kerning(0.5)
                     .foregroundStyle(.white)
@@ -461,6 +490,15 @@ private struct OnSetShotRow: View {
     private var hasNick: Bool { !trimmed(shot.nickname).isEmpty }
     private func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// The framing reference to preview: the first reference with an image, else
+    /// the legacy shot photo. Nil when the shot has no still.
+    private var framingImage: PlatformImage? {
+        if let data = shot.orderedReferences.first(where: { $0.imageData != nil })?.imageData,
+           let img = PlatformImage(data: data) { return img }
+        if let data = shot.photo1Data, let img = PlatformImage(data: data) { return img }
+        return nil
+    }
+
     private var lensText: String {
         guard shot.lensfocal > 0 else { return "" }
         return shot.lensIsPrime ? "\(shot.lensfocal)mm" : "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"
@@ -475,13 +513,7 @@ private struct OnSetShotRow: View {
             .filter { !$0.isEmpty }.joined(separator: " · ")
         if !type.isEmpty { out.append(("TYPE", type)) }
         if !lensText.isEmpty { out.append(("LENS", lensText)) }
-        if !trimmed(shot.lensPreset).isEmpty { out.append(("LENS KIT", shot.lensPreset)) }
         if shot.hasGrip { out.append(("GRIP", shot.gripName)) }
-        if !trimmed(shot.camera).isEmpty { out.append(("CAMERA", shot.camera)) }
-        if !trimmed(shot.framelines).isEmpty { out.append(("FRAMELINES", shot.framelines)) }
-        if shot.takeCount > 0 {
-            out.append(("TAKES", "\(shot.takeCount)\(shot.circledTake ? "  ◎ circled" : "")"))
-        }
         return out
     }
 
@@ -538,12 +570,91 @@ private struct OnSetShotRow: View {
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
             }
         }
+        // A clear-filled circle isn't reliably hit-testable; give the whole 26pt
+        // area (plus a little slop) an explicit tap shape so the circle can be
+        // tapped directly — the current-shot card has no other check-off control.
+        .padding(6)
+        .contentShape(Circle())
+        .padding(-6)
     }
 
     private func toggleDone() {
         guard !locked else { return }
         shot.isShot.toggle()
         onChange()
+    }
+}
+
+// MARK: - Framing reference viewer
+
+/// Shows a shot's framing reference still in a popup, sized to the image — mirrors
+/// `SceneMapViewerSheet`: on macOS the window pins to the image's width; on iOS the
+/// sheet uses a content-height detent so it's no taller than header + image.
+private struct FramingViewerSheet: View {
+    let image: PlatformImage
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    private let pad: CGFloat = 16
+    /// Measured on iOS so the image fits the sheet's actual width.
+    @State private var sheetWidth: CGFloat = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(pad)
+            Divider()
+            Image(platformImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: displaySize.width, height: displaySize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(pad)
+                .frame(maxWidth: .infinity)
+                .background(Color.platformGroupedBackground)
+        }
+        #if os(macOS)
+        .frame(width: displaySize.width + pad * 2)
+        .frame(minHeight: 300)
+        #else
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { sheetWidth = geo.size.width }
+                .onChange(of: geo.size.width) { _, w in sheetWidth = w }
+        })
+        .presentationDetents([.height(headerHeight + displaySize.height + pad * 2)])
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+
+    /// The image's aspect ratio (falls back to square if unknown).
+    private var aspect: CGFloat {
+        image.size.width > 0 && image.size.height > 0 ? image.size.width / image.size.height : 1
+    }
+
+    private var headerHeight: CGFloat { 55 }
+
+    /// The size to render the image at — Mac uses a fixed max box, iOS fits the
+    /// measured sheet width (capped in height so tall stills don't overflow).
+    private var displaySize: CGSize {
+        #if os(macOS)
+        let maxW: CGFloat = 760, maxH: CGFloat = 620
+        var w = maxW, h = maxW / aspect
+        if h > maxH { h = maxH; w = maxH * aspect }
+        return CGSize(width: w.rounded(), height: h.rounded())
+        #else
+        let available = (sheetWidth > 0 ? sheetWidth : 380) - pad * 2
+        var w = max(available, 120), h = w / aspect
+        let maxH: CGFloat = 560
+        if h > maxH { h = maxH; w = maxH * aspect }
+        if w > available { w = available; h = available / aspect }
+        return CGSize(width: w.rounded(), height: h.rounded())
+        #endif
     }
 }
 
