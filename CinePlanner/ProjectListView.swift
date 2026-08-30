@@ -173,6 +173,11 @@ struct ProjectListView: View {
         }
         .environment(onSet)
         .animation(.easeInOut(duration: 0.22), value: onSet.version?.uid)
+        #if os(macOS)
+        // While On-Set Mode is up, let the window content fill under the title bar so
+        // the mode reaches the very top; restored when it closes.
+        .background(OnSetWindowFiller(active: onSet.version != nil))
+        #endif
     }
 
     /// Presents the system file picker to choose a .cineplan file to import.

@@ -66,6 +66,12 @@ struct OnSetModeView: View {
                     ScrollView { content }
                 }
             }
+            // macOS: the title bar is hidden here, so let the top row ride up into
+            // that space instead of leaving a gap. iOS keeps the safe area so the
+            // top bar clears the notch/status bar.
+            #if os(macOS)
+            .ignoresSafeArea(.container, edges: .top)
+            #endif
         }
         .sheet(isPresented: $showSchedule) {
             if let project { ShootingScheduleView(project: project, version: version) }
@@ -118,7 +124,14 @@ struct OnSetModeView: View {
             }
         }
         .padding(.horizontal, 16)
+        #if os(macOS)
+        // The title bar is hidden and content rides to the top, so add a little top
+        // breathing room; the traffic lights are hidden here, so no leading inset.
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        #else
         .padding(.vertical, 10)
+        #endif
     }
 
     // MARK: - Content
@@ -532,3 +545,53 @@ private struct SceneMapViewerSheet: View {
         return labels
     }
 }
+
+#if os(macOS)
+import AppKit
+
+/// When `active`, makes the host window's content run the full height under a
+/// transparent title bar, so On-Set Mode fills the window to the very top; the
+/// standard title bar is restored when `active` goes false. Attached to the
+/// always-present root (ProjectListView) so it reliably holds a window reference —
+/// the traffic-light buttons stay visible and functional over the top bar.
+struct OnSetWindowFiller: NSViewRepresentable {
+    let active: Bool
+
+    final class Coordinator {
+        weak var window: NSWindow?
+        var savedTransparent: Bool?
+        var savedTitleVisibility: NSWindow.TitleVisibility?
+        var hadFullSizeContent: Bool?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let active = self.active
+        DispatchQueue.main.async {
+            let c = context.coordinator
+            guard let window = nsView.window else { return }
+            c.window = window
+            if active {
+                // Capture the originals once, on the way in.
+                if c.savedTransparent == nil {
+                    c.savedTransparent = window.titlebarAppearsTransparent
+                    c.savedTitleVisibility = window.titleVisibility
+                    c.hadFullSizeContent = window.styleMask.contains(.fullSizeContentView)
+                }
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                window.styleMask.insert(.fullSizeContentView)
+            } else {
+                if let t = c.savedTransparent { window.titlebarAppearsTransparent = t }
+                if let v = c.savedTitleVisibility { window.titleVisibility = v }
+                if c.hadFullSizeContent == false { window.styleMask.remove(.fullSizeContentView) }
+                c.savedTransparent = nil
+                c.savedTitleVisibility = nil
+                c.hadFullSizeContent = nil
+            }
+        }
+    }
+}
+#endif
