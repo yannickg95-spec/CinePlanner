@@ -14,7 +14,7 @@ struct OnSetLiveActivityWidget: Widget {
             // Lock Screen / banner presentation.
             OnSetLockScreenView(state: context.state)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 16)
+                .padding(.vertical, 22)
                 .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let s = context.state
@@ -87,8 +87,8 @@ private struct OnSetLockScreenView: View {
                 SetupRow(setup: current, eyebrow: "Now · \(current.scene)", accent: true)
                     .padding(.top, 8)
                 ForEach(Array(state.upcoming.enumerated()), id: \.offset) { idx, s in
-                    SetupRow(setup: s, eyebrow: idx == 0 ? "Next" : "Then", accent: false)
-                        .padding(.top, 5)
+                    CompactRow(setup: s, eyebrow: idx == 0 ? "Next" : "Then")
+                        .padding(.top, 6)
                 }
             } else {
                 SetupRow.wrapped
@@ -154,6 +154,36 @@ private struct SetupRow: View {
         }
         .font(.system(size: 12.5, weight: accent ? .bold : .semibold))
         .lineLimit(1)
+    }
+}
+
+/// A single-line upcoming setup: badge · eyebrow · name/spec, all on one row so
+/// two of them stack without pushing the banner past its height limit.
+private struct CompactRow: View {
+    let setup: OnSetSetup
+    let eyebrow: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(setup.num)
+                .font(.system(size: 10, weight: .heavy)).monospacedDigit()
+                .padding(.horizontal, 5).padding(.vertical, 1.5)
+                .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 5))
+                .foregroundStyle(.secondary)
+            Text(eyebrow)
+                .font(.system(size: 9, weight: .heavy)).textCase(.uppercase)
+                .foregroundStyle(.tertiary)
+            Text(line)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var line: String {
+        let parts = [setup.name, setup.spec].filter { !$0.isEmpty }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 }
 
