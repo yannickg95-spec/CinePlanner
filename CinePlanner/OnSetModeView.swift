@@ -360,8 +360,17 @@ private struct OnSetShotRow: View {
     var onChange: () -> Void
 
     var body: some View {
+        if isNext {
+            expandedCard
+        } else {
+            compactRow
+        }
+    }
+
+    // MARK: Compact row — every shot except the one being shot now.
+
+    private var compactRow: some View {
         HStack(spacing: 10) {
-            // Check / rolling circle
             Button { toggleDone() } label: { checkCircle }
                 .buttonStyle(.plain).disabled(locked)
 
@@ -369,30 +378,124 @@ private struct OnSetShotRow: View {
                 .font(.system(size: 15, weight: .bold)).monospacedDigit()
                 .padding(.horizontal, 8).padding(.vertical, 4)
                 .frame(minWidth: 44)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .fill(isNext ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08)))
-                .foregroundStyle(isNext ? Color.accentColor : Color.primary)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+                .foregroundStyle(Color.primary)
 
             infoLine
 
             Spacer(minLength: 6)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.platformTextBackground)
+            .shadow(color: .black.opacity(0.06), radius: 5, y: 1))
+        .opacity(shot.isShot ? 0.6 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { toggleDone() }
+    }
 
-            if isNext {
-                Text("NEXT")
+    // MARK: Expanded card — the current setup, with every field laid out.
+
+    private var expandedCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header: check · number · nickname · NOW badge.
+            HStack(spacing: 10) {
+                Button { toggleDone() } label: { checkCircle }
+                    .buttonStyle(.plain).disabled(locked)
+                Text(shot.displayNumber)
+                    .font(.system(size: 16, weight: .bold)).monospacedDigit()
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .frame(minWidth: 46)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.14)))
+                    .foregroundStyle(Color.accentColor)
+                if hasNick {
+                    Text(shot.nickname)
+                        .font(.system(size: 16, weight: .bold))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 6)
+                Text("NOW")
                     .font(.system(size: 9.5, weight: .heavy)).kerning(0.5)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Capsule().fill(Color.accentColor))
             }
+
+            // Labelled spec fields — only those that are set.
+            let items = detailItems
+            if !items.isEmpty {
+                FlowLayout(spacing: 18) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.0)
+                                .font(.system(size: 9, weight: .heavy)).kerning(0.4)
+                                .foregroundStyle(.tertiary)
+                            Text(item.1)
+                                .font(.system(size: 14, weight: .semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            // Free-text blocks: notes, extra info, and any custom fields.
+            if !trimmed(shot.shotInformation).isEmpty {
+                detailBlock("NOTES", shot.shotInformation)
+            }
+            if !trimmed(shot.extraInfo).isEmpty {
+                detailBlock("MORE", shot.extraInfo)
+            }
+            ForEach(shot.orderedCustomInfo, id: \.uid) { info in
+                if !trimmed(info.exportValue).isEmpty {
+                    detailBlock(info.exportLabel.uppercased(), info.exportValue)
+                }
+            }
         }
-        .padding(.horizontal, 12).padding(.vertical, 11)
+        .padding(.horizontal, 14).padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.platformTextBackground)
-            .shadow(color: .black.opacity(0.06), radius: 5, y: 1))
-        .overlay(RoundedRectangle(cornerRadius: 14)
-            .stroke(isNext ? Color.accentColor : Color.clear, lineWidth: 2))
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.accentColor, lineWidth: 2))
         .opacity(shot.isShot ? 0.6 : 1)
-        .contentShape(Rectangle())
-        .onTapGesture { toggleDone() }
+    }
+
+    private var hasNick: Bool { !trimmed(shot.nickname).isEmpty }
+    private func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var lensText: String {
+        guard shot.lensfocal > 0 else { return "" }
+        return shot.lensIsPrime ? "\(shot.lensfocal)mm" : "\(shot.lensfocal)–\(shot.lensfocalEnd)mm"
+    }
+
+    /// Labelled spec values for the expanded card — each included only when set.
+    private var detailItems: [(String, String)] {
+        var out: [(String, String)] = []
+        let size = [shot.sizeShort, shot.secondSizeShort].filter { !$0.isEmpty }.joined(separator: " / ")
+        if !size.isEmpty { out.append(("SIZE", size)) }
+        let type = [shot.typeShort, shot.secondTypeShort, shot.thirdTypeShort]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+        if !type.isEmpty { out.append(("TYPE", type)) }
+        if !lensText.isEmpty { out.append(("LENS", lensText)) }
+        if !trimmed(shot.lensPreset).isEmpty { out.append(("LENS KIT", shot.lensPreset)) }
+        if shot.hasGrip { out.append(("GRIP", shot.gripName)) }
+        if !trimmed(shot.camera).isEmpty { out.append(("CAMERA", shot.camera)) }
+        if !trimmed(shot.framelines).isEmpty { out.append(("FRAMELINES", shot.framelines)) }
+        if shot.takeCount > 0 {
+            out.append(("TAKES", "\(shot.takeCount)\(shot.circledTake ? "  ◎ circled" : "")"))
+        }
+        return out
+    }
+
+    private func detailBlock(_ label: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.system(size: 9, weight: .heavy)).kerning(0.4)
+                .foregroundStyle(.tertiary)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Nickname first, then the spec (same font), both on one line. The grip joins
