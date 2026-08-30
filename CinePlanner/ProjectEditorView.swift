@@ -1544,6 +1544,11 @@ struct ProjectEditorView: View {
         let nextNumber = (project.episodes.map(\.episodeNumber).max() ?? 0) + 1
         let episode = Episode(episodeNumber: nextNumber)
         episode.project = project
+        // Pre-fill the app's default credits (a series reads per-episode credits).
+        let defDirector = CreditDefaults.director
+        let defDP = CreditDefaults.cinematographer
+        if !defDirector.isEmpty { episode.director = defDirector }
+        if !defDP.isEmpty { episode.cinematographer = defDP }
         // Every episode starts with an empty first version, ready to import into.
         let version = ScriptVersion(versionNumber: 1)
         version.episode = episode

@@ -42,6 +42,7 @@ struct ProjectListView: View {
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
     @State private var showingManageRepos = false
+    @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
     @StateObject private var syncMonitor = CloudSyncMonitor()
     /// Drives On-Set Mode as a full-window, top-level viewing mode.
@@ -128,6 +129,9 @@ struct ProjectListView: View {
             }
             .sheet(isPresented: $showingWalkthrough) {
                 WalkthroughView()
+            }
+            .sheet(isPresented: $showingDefaultCredits) {
+                DefaultCreditsSheet()
             }
             .sheet(isPresented: $showingManageRepos) {
                 ManageRepositoriesSheet(inUseRepos: inUseRepoNames) { deletedRepo in
@@ -229,6 +233,24 @@ struct ProjectListView: View {
                 CloudSyncBadge(monitor: syncMonitor) {
                     syncMonitor.requestSync(context: modelContext)
                 }
+
+                Button {
+                    showingDefaultCredits = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.text.rectangle")
+                        if !isCompact { Text("Credits") }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.secondary.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Default Credits — set a Director and Cinematographer to pre-fill on new projects")
 
                 Button {
                     showingManageRepos = true
@@ -418,6 +440,18 @@ struct ProjectListView: View {
         let newProject = Project(filmName: name, isSeries: isSeries)
         modelContext.insert(newProject)
         newProject.migrateStructureIfNeeded() // creates the first episode + version
+
+        // Pre-fill the default credits (features read the project's fields; series
+        // read each episode's), leaving anything the user hasn't set blank.
+        let defDirector = CreditDefaults.director
+        let defDP = CreditDefaults.cinematographer
+        if !defDirector.isEmpty { newProject.director = defDirector }
+        if !defDP.isEmpty { newProject.cinematographer = defDP }
+        if let firstEpisode = newProject.orderedEpisodes.first {
+            if !defDirector.isEmpty { firstEpisode.director = defDirector }
+            if !defDP.isEmpty { firstEpisode.cinematographer = defDP }
+        }
+
         navigationPath.append(newProject)
 
         guard let url = scriptURL,
