@@ -1769,7 +1769,7 @@ struct ShotDetailView: View {
     }
 
     private var cameraInformationCard: some View {
-    sectionCard("CAMERA INFORMATION", gear: { showingCardSettings = true }) {
+    sectionCard("CAMERA INFORMATION") {
         // Camera - Always editable
         HStack {
             Text("Camera")
