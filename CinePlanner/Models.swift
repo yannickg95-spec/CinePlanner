@@ -55,6 +55,18 @@ final class Project {
     /// get one automatically. Toggled on by adding the tool from a shot.
     var autoAddFilmTool: Bool = false
 
+    // Per-project card settings (all defaulted → CloudKit-safe additive migration).
+    /// Order of the Shot Setup card's fields, as comma-joined `ShotSetupField` raw
+    /// values. Empty = the default order.
+    var shotSetupFieldOrderRaw: String = ""
+    /// Shot Setup fields hidden for this project, as comma-joined raw values.
+    var hiddenShotSetupFieldsRaw: String = ""
+    /// Project-wide default camera package. New shots start with these values; each
+    /// shot stays independently editable.
+    var defaultCamera: String = ""
+    var defaultFramelines: String = ""
+    var defaultLens: String = ""
+
     // Column width preferences
     var sceneColumnWidth: Double = 300
     var shotColumnWidth: Double = 200
@@ -454,6 +466,59 @@ enum ShotNumberingStyle: String, Codable {
     /// A unique running number across the whole project (001, 002, 003…), ignoring
     /// scene boundaries.
     case continuous
+}
+
+/// The reorderable fields of the Shot Setup card. Their order is a per-project
+/// setting (`Project.shotSetupFieldOrder`).
+enum ShotSetupField: String, CaseIterable, Identifiable, Codable {
+    case nickname, size, type, focal, grip, description
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .nickname:    return "Nickname"
+        case .size:        return "Size"
+        case .type:        return "Type"
+        case .focal:       return "Focal Length"
+        case .grip:        return "Grip"
+        case .description: return "Description"
+        }
+    }
+}
+
+extension Project {
+    /// The Shot Setup fields in this project's chosen order. Always complete and
+    /// de-duplicated: any missing field is appended in its default position and
+    /// unknown/duplicate entries are dropped, so it stays valid as fields change.
+    var shotSetupFieldOrder: [ShotSetupField] {
+        get {
+            let saved = shotSetupFieldOrderRaw
+                .split(separator: ",")
+                .compactMap { ShotSetupField(rawValue: String($0)) }
+            var result: [ShotSetupField] = []
+            var seen = Set<ShotSetupField>()
+            for f in saved where seen.insert(f).inserted { result.append(f) }
+            for f in ShotSetupField.allCases where seen.insert(f).inserted { result.append(f) }
+            return result
+        }
+        set { shotSetupFieldOrderRaw = newValue.map(\.rawValue).joined(separator: ",") }
+    }
+
+    /// Shot Setup fields hidden for this project (not shown in the shot editor).
+    var hiddenShotSetupFields: Set<ShotSetupField> {
+        get {
+            Set(hiddenShotSetupFieldsRaw.split(separator: ",")
+                .compactMap { ShotSetupField(rawValue: String($0)) })
+        }
+        set { hiddenShotSetupFieldsRaw = newValue.map(\.rawValue).joined(separator: ",") }
+    }
+}
+
+extension Scene {
+    /// The owning project, however the graph is wired: directly, or through the
+    /// script version's episode, or the version's legacy project link.
+    var resolvedProject: Project? {
+        project ?? scriptVersion?.episode?.project ?? scriptVersion?.project
+    }
 }
 enum ShotSize: String, Codable, CaseIterable {
     case none = ""

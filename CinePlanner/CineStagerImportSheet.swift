@@ -448,11 +448,25 @@ struct CineStagerImportSheet: View {
         ref.captureType = cs.type
         ref.dateTimeOriginal = cs.timestamp
 
-        // Seed the parent shot's camera fields if empty, like a photo import does.
+        // Seed the parent shot's camera fields. The CineStager values lead: they
+        // overwrite a field that's empty OR still holds the project default, but
+        // never a value the user typed. Any field the import leaves empty then
+        // falls back to the project default.
         if let shot = ref.shot {
-            if shot.camera.isEmpty { shot.camera = Shot.combinedCamera(cs.cameraFamily, cs.cameraFormat) }
-            if let lines = cs.framelines, shot.framelines.isEmpty { shot.framelines = lines }
-            if let lens = cs.lensPresetName, shot.lensPreset.isEmpty { shot.lensPreset = lens }
+            let project = shot.scene?.resolvedProject
+            let defCamera = project?.defaultCamera ?? ""
+            let defFramelines = project?.defaultFramelines ?? ""
+            let defLens = project?.defaultLens ?? ""
+            let csCamera = Shot.combinedCamera(cs.cameraFamily, cs.cameraFormat)
+            if !csCamera.isEmpty, shot.camera.isEmpty || shot.camera == defCamera {
+                shot.camera = csCamera
+            }
+            if let lines = cs.framelines, shot.framelines.isEmpty || shot.framelines == defFramelines {
+                shot.framelines = lines
+            }
+            if let lens = cs.lensPresetName, shot.lensPreset.isEmpty || shot.lensPreset == defLens {
+                shot.lensPreset = lens
+            }
             if let focal = cs.focalLengthMM, focal > 0, shot.lensfocal == 0 {
                 shot.lensfocal = focal
                 shot.lensIsPrime = true
@@ -460,6 +474,10 @@ struct CineStagerImportSheet: View {
             if let sensor = cs.sensorWidthMM, sensor > 0, shot.sensorWidthMM == nil {
                 shot.sensorWidthMM = sensor
             }
+            // Fill any field the import left empty with the project default.
+            if shot.camera.isEmpty { shot.camera = defCamera }
+            if shot.framelines.isEmpty { shot.framelines = defFramelines }
+            if shot.lensPreset.isEmpty { shot.lensPreset = defLens }
         }
     }
 

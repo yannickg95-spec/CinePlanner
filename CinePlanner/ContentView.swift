@@ -784,12 +784,23 @@ struct ShotListView: View {
         .contentShape(Rectangle())
     }
 
+    /// Fill a shot's camera package from the project default — but only fields that
+    /// are still empty, so it works both as the seed for a manual shot and as a
+    /// gap-filling fallback after an import (which always leads).
+    private func applyCameraDefaults(to shot: Shot) {
+        guard let project = scene.resolvedProject else { return }
+        if shot.camera.isEmpty { shot.camera = project.defaultCamera }
+        if shot.framelines.isEmpty { shot.framelines = project.defaultFramelines }
+        if shot.lensPreset.isEmpty { shot.lensPreset = project.defaultLens }
+    }
+
     private func addShot() {
         // Find the next shot number
         let nextNumber = (sortedShots.last?.shotNumber ?? 0) + 1
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         newShot.numberingStyle = currentNumberingStyle
+        applyCameraDefaults(to: newShot)
         scene.shots.append(newShot)
         // Start the shot with one empty reference so its card is open and ready
         // for media, rather than only an "Add Reference" button.
@@ -820,6 +831,9 @@ struct ShotListView: View {
             reference.shot = newShot
             newShot.references.append(reference)
             ReferenceMediaLoader.load(mediaAt: url, into: reference)
+            // The import (EXIF / Cadrage) leads; the project default only fills
+            // fields the import left empty.
+            applyCameraDefaults(to: newShot)
             created.append(newShot)
         }
         guard !created.isEmpty else { return }
@@ -857,6 +871,9 @@ struct ShotListView: View {
         let newShot = Shot(shotNumber: nextNumber)
         newShot.scene = scene
         newShot.numberingStyle = currentNumberingStyle
+        // No project-camera default here: the CineStager import fills the camera
+        // fields (and only falls back to the project default for gaps), so the
+        // imported values always lead.
         scene.shots.append(newShot)
         let reference = ShotReference(sortOrder: 0)
         reference.shot = newShot
@@ -1183,7 +1200,10 @@ struct ShotDetailView: View {
     @State private var showSecondType: Bool = false
     @State private var showThirdType: Bool = false
     @State private var showSecondSize: Bool = false
-    
+    /// Presents the per-project card settings (Shot Setup field order + the
+    /// Camera Information default), opened from either card's gear.
+    @State private var showingCardSettings = false
+
     // Computed properties for autocomplete suggestions
     private var previousCameraValues: [String] {
         guard let project = shot.scene?.project else { return [] }
@@ -1251,13 +1271,26 @@ struct ShotDetailView: View {
 
     /// A titled group of rows, used as one section inside the combined card.
     @ViewBuilder
-    private func sectionCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func sectionCard<Content: View>(_ title: String, gear: (() -> Void)? = nil,
+                                            @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .kerning(0.5)
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .kerning(0.5)
+                if let gear {
+                    Spacer(minLength: 8)
+                    Button(action: gear) {
+                        Image(systemName: "gearshape")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Card settings")
+                }
+            }
 
             content()
         }
@@ -1343,13 +1376,33 @@ struct ShotDetailView: View {
     }
 
     private var shotSetupCard: some View {
-    sectionCard("SHOT SETUP") {
+    sectionCard("SHOT SETUP", gear: { showingCardSettings = true }) {
+        ForEach(orderedSetupFields) { field in
+            shotSetupFieldView(field)
+        }
+        customInfoSection
+    }
+    }
+
+    /// The Shot Setup fields in this project's chosen order, minus any hidden here.
+    private var orderedSetupFields: [ShotSetupField] {
+        guard let project = shot.scene?.resolvedProject else { return ShotSetupField.allCases }
+        let hidden = project.hiddenShotSetupFields
+        return project.shotSetupFieldOrder.filter { !hidden.contains($0) }
+    }
+
+    /// One Shot Setup field — lets the card render them in the project's order.
+    @ViewBuilder
+    private func shotSetupFieldView(_ field: ShotSetupField) -> some View {
+        switch field {
+        case .nickname:
     setupRow("Nickname") {
         DebouncedTextField("Add a nickname for this shot", text: $shot.nickname)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 200)
     }
 
+        case .size:
     setupRow("Size") {
         HStack(spacing: 8) {
             OptionPickerView(
@@ -1404,6 +1457,7 @@ struct ShotDetailView: View {
         }
     }
 
+        case .type:
     setupRow("Type") {
         HStack(spacing: 8) {
             OptionPickerView(
@@ -1492,6 +1546,7 @@ struct ShotDetailView: View {
         }
     }
     
+        case .focal:
     setupRow("Focal Length") {
         HStack(spacing: 8) {
             // First focal length field
@@ -1547,6 +1602,7 @@ struct ShotDetailView: View {
         }
     }
     
+        case .grip:
     setupRow("Grip") {
         OptionPickerView(
             noun: "grip",
@@ -1557,22 +1613,21 @@ struct ShotDetailView: View {
         )
     }
 
-    // Extra info — part of the core shot settings, right under Grip.
+        case .description:
+    // Shot description — part of the core shot settings, right under Grip.
     // Vertical axis lets the field grow as the text gets longer.
     HStack(alignment: .top) {
-        Text("Extra info")
+        Text("Description")
             .font(.headline)
             .frame(width: 100, alignment: .leading)
 
-        DebouncedTextField("Additional information", text: $shot.extraInfo, axis: .vertical)
+        DebouncedTextField("Describe the shot", text: $shot.extraInfo, axis: .vertical)
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...10)
             .frame(maxWidth: 200)
     }
 
-    customInfoSection
-
-    }
+        }
     }
 
     // User-added custom fields, listed under Extra info with an "Add Custom Info"
@@ -1714,7 +1769,7 @@ struct ShotDetailView: View {
     }
 
     private var cameraInformationCard: some View {
-    sectionCard("CAMERA INFORMATION") {
+    sectionCard("CAMERA INFORMATION", gear: { showingCardSettings = true }) {
         // Camera - Always editable
         HStack {
             Text("Camera")
@@ -1859,6 +1914,11 @@ struct ShotDetailView: View {
             showSecondType = shot.hasSecondType
             showThirdType = shot.hasThirdType
             showSecondSize = shot.hasSecondSize
+        }
+        .sheet(isPresented: $showingCardSettings) {
+            if let project = shot.scene?.resolvedProject {
+                ShotCardSettingsSheet(project: project)
+            }
         }
     }
 
