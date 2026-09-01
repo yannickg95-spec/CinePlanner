@@ -519,6 +519,57 @@ extension Scene {
     var resolvedProject: Project? {
         project ?? scriptVersion?.episode?.project ?? scriptVersion?.project
     }
+
+    /// A deep copy of this scene with fresh ids: same content, its shots duplicated
+    /// (keeping their per-scene numbers), and the scene map's camera markers
+    /// re-pointed at the copied shots. The caller assigns the copy's scene number,
+    /// sort order and owner (project / script version). Script-position fields and
+    /// schedule strips are intentionally not copied — the copy is a new scene, not
+    /// tied to the script text or the shooting schedule.
+    func duplicate() -> Scene {
+        let copy = Scene(sceneNumber: sceneNumber)
+        copy.isDay = isDay
+        copy.isInterior = isInterior
+        copy.nickname = nickname
+        copy.suffix = suffix
+        copy.scriptTimeOfDay = scriptTimeOfDay
+
+        // Scene map background, floor plan, sun overlay and their scale/flags.
+        copy.sceneMapBackgroundData = sceneMapBackgroundData
+        copy.sceneMapBackgroundIsSatellite = sceneMapBackgroundIsSatellite
+        copy.sceneMapSatelliteLat = sceneMapSatelliteLat
+        copy.sceneMapSatelliteLon = sceneMapSatelliteLon
+        copy.sceneMapSatelliteMeters = sceneMapSatelliteMeters
+        copy.sceneMapMetersWide = sceneMapMetersWide
+        copy.sceneMapCameraSizeMeters = sceneMapCameraSizeMeters
+        copy.sceneMapShowCameraFOV = sceneMapShowCameraFOV
+        copy.sceneMapViewableMarkerSize = sceneMapViewableMarkerSize
+        copy.sceneMapLocation = sceneMapLocation
+        copy.sceneFloorPlanJSON = sceneFloorPlanJSON
+        copy.sceneCharactersJSON = sceneCharactersJSON
+        copy.sunSettingsJSON = sunSettingsJSON
+
+        // Deep-copy the shots, tracking old→new uid so the map can be re-pointed.
+        var uidMap: [String: String] = [:]
+        for shot in orderedShots {
+            let shotCopy = shot.duplicate()
+            uidMap[shot.uid] = shotCopy.uid
+            shotCopy.scene = copy
+        }
+
+        // Re-point the scene map's camera markers at the copied shots.
+        if let json = sceneMapJSON {
+            var doc = SceneMapDoc.load(from: json)
+            for index in doc.elements.indices {
+                if let old = doc.elements[index].shotUID, let new = uidMap[old] {
+                    doc.elements[index].shotUID = new
+                }
+            }
+            copy.sceneMapJSON = doc.jsonString
+        }
+
+        return copy
+    }
 }
 enum ShotSize: String, Codable, CaseIterable {
     case none = ""

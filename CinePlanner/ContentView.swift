@@ -286,6 +286,11 @@ struct SceneListView: View {
             } label: {
                 Text("Edit Scene")
             }
+            Button {
+                duplicateScene(scene)
+            } label: {
+                Text("Duplicate Scene")
+            }
             if canImportShots {
                 Button {
                     onImportShots?(scene)
@@ -296,7 +301,7 @@ struct SceneListView: View {
             Button {
                 bumpSceneNumber(from: scene)
             } label: {
-                Label("Increase Scene Number", systemImage: "arrow.up")
+                Text("Increase Scene Number")
             }
             Divider()
             Button(role: .destructive) {
@@ -442,6 +447,27 @@ struct SceneListView: View {
 
         selectedScenes = [newScene.uid]
         onSceneAdded?(newScene)
+    }
+
+    /// Duplicates a whole scene — all its fields, shots (with fresh ids) and scene
+    /// map — as a new scene at the end of the list with the next scene number.
+    private func duplicateScene(_ scene: Scene) {
+        let highestNumber = orderedScenes.map { $0.sceneNumber }.max() ?? 0
+        let copy = scene.duplicate()
+        copy.sceneNumber = highestNumber + 1
+        copy.project = project
+        copy.scriptVersion = version
+
+        let currentScenesCount = currentScenes.count
+        copy.sortOrder = currentScenesCount
+        project.scenes.append(copy)
+        // Push archived scenes after the new one, mirroring addScene().
+        for (index, oldScene) in oldScenes.enumerated() {
+            oldScene.sortOrder = currentScenesCount + 1 + index
+        }
+
+        try? project.modelContext?.save()
+        selectedScenes = [copy.uid]
     }
 
     private func deleteScenes(at offsets: IndexSet, from sceneList: [Scene]) {
