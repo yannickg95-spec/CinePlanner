@@ -79,6 +79,7 @@ private struct AdaptiveSheetFrame: ViewModifier {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             content.frame(width: width, height: height)
+                .fittedSheetSizing()
         }
     }
 }
@@ -93,7 +94,26 @@ private struct AdaptiveSheetFitFrame: ViewModifier {
             // Fixed width, natural height (capped) so the sheet is only as tall as
             // its content needs.
             content.frame(width: width).frame(maxHeight: maxHeight)
+                .fittedSheetSizing()
         }
+    }
+}
+
+private extension View {
+    /// iPad: shrink the presented sheet to fit its content, instead of the large
+    /// fixed form-sheet size that leaves empty space around a small card. macOS
+    /// already sizes a sheet to its content frame, so this only applies on iOS.
+    @ViewBuilder
+    func fittedSheetSizing() -> some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            self.presentationSizing(.fitted)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 

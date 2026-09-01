@@ -90,7 +90,7 @@ struct SunSettingsSheet: View {
                 onChange()
             }
         }
-        .adaptiveSheetFrame(width: 380, height: isNorthLocked ? 320 : 500)
+        .adaptiveSheetFrame(width: 400, height: isNorthLocked ? 360 : 600)
     }
 
     // MARK: - Bindings
