@@ -126,13 +126,13 @@ struct ShotCardSettingsSheet: View {
     private var cameraSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("CAMERA INFORMATION — PROJECT DEFAULT")
-            VStack(spacing: 10) {
-                defaultField("Camera · Format", text: $project.defaultCamera,
-                             suggestions: distinctValues(\.camera))
-                defaultField("Framelines", text: $project.defaultFramelines,
-                             suggestions: distinctValues(\.framelines))
-                defaultField("Lens", text: $project.defaultLens,
-                             suggestions: distinctValues(\.lensPreset))
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                defaultRow("Camera · Format", text: $project.defaultCamera,
+                           suggestions: distinctValues(\.camera))
+                defaultRow("Framelines", text: $project.defaultFramelines,
+                           suggestions: distinctValues(\.framelines))
+                defaultRow("Lens", text: $project.defaultLens,
+                           suggestions: distinctValues(\.lensPreset))
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,12 +145,16 @@ struct ShotCardSettingsSheet: View {
         }
     }
 
-    private func defaultField(_ label: String, text: Binding<String>, suggestions: [String]) -> some View {
-        HStack(spacing: 10) {
+    /// One row of the camera-default grid: a label cell and a value cell (field +
+    /// optional suggestions menu). The Grid keeps every label and every field
+    /// column-aligned automatically.
+    private func defaultRow(_ label: String, text: Binding<String>, suggestions: [String]) -> some View {
+        GridRow {
             Text(label)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .frame(width: 110, alignment: .leading)
+                .lineLimit(1)
+                .gridColumnAlignment(.leading)
             HStack(spacing: 4) {
                 DebouncedTextField(LocalizedStringKey(label), text: text)
                     .textFieldStyle(.roundedBorder)
@@ -166,6 +170,7 @@ struct ShotCardSettingsSheet: View {
                     .help("Choose from values already used in this project")
                 }
             }
+            .gridColumnAlignment(.leading)
         }
     }
 
