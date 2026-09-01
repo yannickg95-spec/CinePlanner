@@ -2025,68 +2025,6 @@ class PDFCoverageOverlayView: PlatformViewBase {
         return pageBoundsInOverlay.isEmpty ? nil : pageBoundsInOverlay
     }
 
-    private func lineCollisionRects(
-        from lines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)],
-        horizontalPadding: CGFloat = 5,
-        verticalPadding: CGFloat = 2
-    ) -> [CGRect] {
-        lines.map { line in
-            CGRect(
-                x: line.offset - horizontalPadding,
-                y: line.range.lowerBound - verticalPadding,
-                width: horizontalPadding * 2,
-                height: (line.range.upperBound - line.range.lowerBound) + (verticalPadding * 2)
-            )
-        }
-    }
-
-    private func resolvedLabelRect(
-        for desiredRect: CGRect,
-        lineX: CGFloat,
-        lineTopY: CGFloat,
-        pageBounds: CGRect,
-        existingLineRects: [CGRect],
-        placedLabelRects: [CGRect]
-    ) -> CGRect {
-        let topGap: CGFloat = 4
-        let sideGap: CGFloat = 8
-        let verticalStep: CGFloat = desiredRect.height + 3
-        let halfHeight = desiredRect.height / 2
-
-        func clampedX(_ originX: CGFloat) -> CGFloat {
-            min(max(originX, pageBounds.minX), max(pageBounds.minX, pageBounds.maxX - desiredRect.width))
-        }
-
-        func candidate(_ originX: CGFloat, _ originY: CGFloat) -> CGRect {
-            CGRect(x: clampedX(originX), y: originY, width: desiredRect.width, height: desiredRect.height)
-        }
-
-        var candidates: [CGRect] = []
-        for step in 0..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX - (desiredRect.width / 2), y))
-        }
-
-        candidates.append(candidate(lineX + sideGap, lineTopY - halfHeight))
-        candidates.append(candidate(lineX - desiredRect.width - sideGap, lineTopY - halfHeight))
-
-        for step in 1..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX + sideGap, y))
-            candidates.append(candidate(lineX - desiredRect.width - sideGap, y))
-        }
-
-        for rect in candidates {
-            let overlapsLine = existingLineRects.contains { $0.intersects(rect) }
-            let overlapsLabel = placedLabelRects.contains { $0.intersects(rect.insetBy(dx: -2, dy: -1)) }
-            if !overlapsLine && !overlapsLabel {
-                return rect
-            }
-        }
-
-        return candidates.last ?? desiredRect
-    }
-    
     override func draw(_ dirtyRect: CGRect) {
         super.draw(dirtyRect)
         #if canImport(UIKit)
@@ -2097,31 +2035,53 @@ class PDFCoverageOverlayView: PlatformViewBase {
         render(in: context)
     }
 
+    /// A resolved coverage line: where its vertical bar sits, and where its shot
+    /// number would rest above it at the base font.
+    private struct CoveragePlacement {
+        let pageX: CGFloat
+        let minY: CGFloat
+        let maxY: CGFloat
+        let color: PlatformColor
+        let label: String
+        let baseLabelRect: CGRect
+        let minPageX: CGFloat
+        let maxPageX: CGFloat
+    }
+
     private func render(in context: CGContext) {
         guard let pdfView = pdfView,
               let document = pdfView.document else { return }
 
-        // Track existing lines to prevent overlap
+        // Pass 1: resolve every coverage line's placement. Lines still fan out
+        // across the left margin so their bars don't sit on top of each other.
         var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)] = []
-        var placedLabelRects: [CGRect] = []
-
-        // Draw vertical lines for all shots with coverage (always visible)
+        var placements: [CoveragePlacement] = []
         for shot in allShotsWithCoverage {
             guard let selections = shot.scriptCoverageSelections else { continue }
-
             for selection in selections {
-                drawVerticalLine(
-                    for: selection,
-                    shot: shot,
-                    in: context,
-                    pdfView: pdfView,
-                    document: document,
-                    existingLines: &existingLines,
-                    placedLabelRects: &placedLabelRects
-                )
+                if let placement = linePlacement(for: selection, shot: shot,
+                                                 pdfView: pdfView, document: document,
+                                                 existingLines: &existingLines) {
+                    placements.append(placement)
+                }
             }
         }
-        
+
+        // One scale that keeps every shot number centered above its own line yet
+        // never lets two labels overlap — the numbers shrink together on a narrow
+        // pane instead of being shuffled around.
+        let scale = labelScale(for: placements)
+
+        // Pass 2: draw the bars, then the (scaled) shot numbers above them.
+        for placement in placements {
+            context.setStrokeColor(placement.color.cgColor)
+            context.setLineWidth(max(1, 3 * scale))
+            context.move(to: CGPoint(x: placement.pageX, y: placement.minY))
+            context.addLine(to: CGPoint(x: placement.pageX, y: placement.maxY))
+            context.strokePath()
+            drawLabel(placement, scale: scale, in: context)
+        }
+
         // Draw highlighted text for selected shot only
         if let shot = selectedShot,
            let selections = shot.scriptCoverageSelections {
@@ -2130,18 +2090,54 @@ class PDFCoverageOverlayView: PlatformViewBase {
             }
         }
     }
+
+    /// The largest uniform label scale (≤ 1) at which no two shot numbers overlap.
+    private func labelScale(for placements: [CoveragePlacement]) -> CGFloat {
+        let minScale: CGFloat = 0.4
+        let pad: CGFloat = 2
+        var scale: CGFloat = 1
+        for i in placements.indices {
+            for j in (i + 1)..<placements.count {
+                let a = placements[i].baseLabelRect
+                let b = placements[j].baseLabelRect
+                // Only labels that share vertical space can collide.
+                guard a.minY < b.maxY, b.minY < a.maxY else { continue }
+                let dx = abs(a.midX - b.midX)
+                let needed = (a.width + b.width) / 2
+                guard needed > 0, dx < needed + pad else { continue }
+                scale = min(scale, max(0, dx - pad) / needed)
+            }
+        }
+        return max(minScale, min(1, scale))
+    }
+
+    /// Draws a shot number centered above its line at the shared scale.
+    private func drawLabel(_ placement: CoveragePlacement, scale: CGFloat, in context: CGContext) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: PlatformFont.boldSystemFont(ofSize: 11 * scale),
+            .foregroundColor: placement.color
+        ]
+        let string = NSAttributedString(string: placement.label, attributes: attributes)
+        let size = string.size()
+        let padding: CGFloat = 4
+        var x = placement.pageX - size.width / 2
+        x = min(max(x, placement.minPageX), max(placement.minPageX, placement.maxPageX - size.width))
+        #if os(macOS)
+        let y = max(placement.minY, placement.maxY) + padding   // y-up: above the top
+        #else
+        let y = min(placement.minY, placement.maxY) - padding - size.height
+        #endif
+        string.draw(at: CGPoint(x: x, y: y))
+    }
     
-    private func drawVerticalLine(
+    private func linePlacement(
         for selection: ScriptTextSelection,
         shot: Shot,
-        in context: CGContext,
         pdfView: PDFView,
         document: PDFDocument,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)],
-        placedLabelRects: inout [CGRect]
-    ) {
-        print("📏 [EDITOR DRAW] Drawing vertical line for shot \(shot.displayNumber)")
-        
+        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)]
+    ) -> CoveragePlacement? {
+
         // Calculate the overall vertical extent of the selection across all pages
         var minY: CGFloat = .infinity
         var maxY: CGFloat = -.infinity
@@ -2217,61 +2213,25 @@ class PDFCoverageOverlayView: PlatformViewBase {
                 existingLines: &existingLines
             )
             
-            // Draw vertical line
-            context.setStrokeColor(lineColor.cgColor)
-            context.setLineWidth(3)
-            context.move(to: CGPoint(x: pageX, y: minY))
-            context.addLine(to: CGPoint(x: pageX, y: maxY))
-            context.strokePath()
-            
-            // Place the shot number above the line's visual top. The overlay is
-            // y-up on macOS (larger Y is the top) and y-down on iOS (smaller Y is
-            // the top), so the "above" direction differs per platform.
+            // The label's resting rect at the base font, centered above the line's
+            // visual top. The overlay is y-up on macOS (larger Y = top) and y-down
+            // on iOS (smaller Y = top), so the "above" direction differs.
             #if os(macOS)
-            let labelY = max(minY, maxY) // larger Y = visual top
-            let unconstrainedLabelRect = CGRect(
-                x: pageX - textSize.width / 2,
-                y: labelY + padding,
-                width: labelWidth,
-                height: textSize.height
-            )
-            let pageBounds = CGRect(
-                x: minimumPageX,
-                y: minY,
-                width: max(0, maximumPageX - minimumPageX),
-                height: max(0, maxY - minY) + 400
-            )
-            let labelRect = resolvedLabelRect(
-                for: unconstrainedLabelRect,
-                lineX: pageX,
-                lineTopY: labelY,
-                pageBounds: pageBounds,
-                existingLineRects: lineCollisionRects(from: existingLines),
-                placedLabelRects: placedLabelRects
-            )
-            attributedString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
-            placedLabelRects.append(labelRect)
+            let labelTopY = max(minY, maxY)
+            let baseLabelRect = CGRect(x: pageX - textSize.width / 2, y: labelTopY + padding,
+                                       width: labelWidth, height: textSize.height)
             #else
-            let top = min(minY, maxY) // smaller Y = visual top in UIKit
-            var labelRect = CGRect(
-                x: pageX - textSize.width / 2,
-                y: top - padding - textSize.height,
-                width: labelWidth,
-                height: textSize.height
-            )
-            labelRect.origin.x = min(max(labelRect.minX, minimumPageX),
-                                     max(minimumPageX, maximumPageX - textSize.width))
-            while placedLabelRects.contains(where: { $0.intersects(labelRect.insetBy(dx: -1, dy: -1)) }) {
-                labelRect.origin.y -= (textSize.height + 2)
-            }
-            attributedString.draw(at: labelRect.origin)
-            placedLabelRects.append(labelRect)
+            let labelTopY = min(minY, maxY)
+            let baseLabelRect = CGRect(x: pageX - textSize.width / 2,
+                                       y: labelTopY - padding - textSize.height,
+                                       width: labelWidth, height: textSize.height)
             #endif
-            
-            print("   ✅ [EDITOR DRAW] Drew line from (\(pageX), \(minY)) to (\(pageX), \(maxY))")
-        } else {
-            print("   ⚠️ [EDITOR DRAW] No valid bounds found for shot \(shot.displayNumber)")
+            return CoveragePlacement(
+                pageX: pageX, minY: minY, maxY: maxY, color: lineColor,
+                label: shotLabel, baseLabelRect: baseLabelRect,
+                minPageX: minimumPageX, maxPageX: maximumPageX)
         }
+        return nil
     }
     
     private func drawHighlightedText(for selection: ScriptTextSelection, in context: CGContext, pdfView: PDFView, document: PDFDocument) {

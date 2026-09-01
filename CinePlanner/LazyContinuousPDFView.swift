@@ -805,45 +805,76 @@ private final class CoverageBarsView: UIView {
         let xUpper = min(maximumPageX, marginLimitX)
         let xLower = min(minimumPageX, xUpper)
 
-        var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat)] = []
-        var placedLabelRects: [CGRect] = []
+        struct Placement {
+            let x: CGFloat, minY: CGFloat, maxY: CGFloat
+            let color: UIColor, label: String, baseLabelRect: CGRect
+        }
 
+        // Pass 1: place the bars across the margin (label-width spacing).
+        var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat)] = []
+        var placements: [Placement] = []
         for bar in bars {
             let a = viewY(bar.maxY), b = viewY(bar.minY)
             let minY = min(a, b), maxY = max(a, b)
             let verticalRange = minY...maxY
-
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: 11),
                 .foregroundColor: bar.color
             ]
-            let label = NSAttributedString(string: bar.label, attributes: attrs)
-            let textSize = label.size()
-
+            let textSize = NSAttributedString(string: bar.label, attributes: attrs).size()
             let x = Self.calculateLineX(
                 verticalRange: verticalRange,
                 xRange: xLower...xUpper,
                 minimumCenterSpacing: textSize.width + 6,
                 existingLines: &existingLines)
+            let padding: CGFloat = 2
+            let baseLabelRect = CGRect(x: x - textSize.width / 2, y: minY - padding - textSize.height,
+                                       width: textSize.width, height: textSize.height)
+            placements.append(Placement(x: x, minY: minY, maxY: maxY, color: bar.color,
+                                        label: bar.label, baseLabelRect: baseLabelRect))
+        }
 
-            ctx.setStrokeColor(bar.color.cgColor)
-            ctx.setLineWidth(3)
-            ctx.move(to: CGPoint(x: x, y: minY))
-            ctx.addLine(to: CGPoint(x: x, y: maxY))
+        // One scale so each shot number stays centered above its own line yet no
+        // two labels overlap — they shrink together instead of being repositioned.
+        var scale: CGFloat = 1
+        let pad: CGFloat = 2
+        for i in placements.indices {
+            for j in (i + 1)..<placements.count {
+                let a = placements[i].baseLabelRect, b = placements[j].baseLabelRect
+                guard a.minY < b.maxY, b.minY < a.maxY else { continue }
+                let dx = abs(a.midX - b.midX)
+                let needed = (a.width + b.width) / 2
+                guard needed > 0, dx < needed + pad else { continue }
+                scale = min(scale, max(0, dx - pad) / needed)
+            }
+        }
+        scale = max(0.4, min(1, scale))
+
+        // Line thickness scales with the coverage-band width — the same for every
+        // page (identical pane width), so all bars are equally thick regardless of
+        // how crowded their own page is. (The per-page `scale` still governs the
+        // labels so numbers never overlap.)
+        let bandWidth = xUpper - xLower
+        let lineScale = max(0.4, min(1, bandWidth / 55))
+
+        // Pass 2: draw the bars, then the scaled shot numbers above them.
+        for p in placements {
+            ctx.setStrokeColor(p.color.cgColor)
+            ctx.setLineWidth(max(1, 3 * lineScale))
+            ctx.move(to: CGPoint(x: p.x, y: p.minY))
+            ctx.addLine(to: CGPoint(x: p.x, y: p.maxY))
             ctx.strokePath()
 
-            // Label — above the top of the line (minY is the visual top in UIKit's
-            // y-down space), matching the Mac editor. Stagger upward to avoid
-            // overlapping a label already placed for another line.
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 11 * scale),
+                .foregroundColor: p.color
+            ]
+            let label = NSAttributedString(string: p.label, attributes: attrs)
+            let ts = label.size()
             let padding: CGFloat = 2
-            var labelRect = CGRect(x: x - textSize.width / 2, y: minY - padding - textSize.height,
-                                   width: textSize.width, height: textSize.height)
-            labelRect.origin.x = min(max(labelRect.minX, 0), max(0, bounds.width - textSize.width))
-            while placedLabelRects.contains(where: { $0.intersects(labelRect.insetBy(dx: -1, dy: -1)) }) {
-                labelRect.origin.y -= (textSize.height + 2)
-            }
-            label.draw(at: labelRect.origin)
-            placedLabelRects.append(labelRect)
+            var x = p.x - ts.width / 2
+            x = min(max(x, 0), max(0, bounds.width - ts.width))
+            label.draw(at: CGPoint(x: x, y: p.minY - padding - ts.height))
         }
     }
 
