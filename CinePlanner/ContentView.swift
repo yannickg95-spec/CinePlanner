@@ -926,11 +926,11 @@ private struct CustomInfoRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            TextField("Label", text: $item.label)
+            DebouncedTextField("Label", text: $item.label)
                 .textFieldStyle(.roundedBorder)
                 .font(.headline)
                 .frame(width: 100, alignment: .leading)
-            TextField("Value", text: $item.value, axis: .vertical)
+            DebouncedTextField("Value", text: $item.value, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...10)
                 .frame(maxWidth: 200)
@@ -978,7 +978,7 @@ private struct ShotTimeOfDayRow: View {
                 }
                 .labelsHidden().fixedSize()
                 if isCustom {
-                    TextField("Describe the time of day", text: $item.value)
+                    DebouncedTextField("Describe the time of day", text: $item.value)
                         .textFieldStyle(.roundedBorder).frame(maxWidth: 200)
                 }
             }
@@ -1121,6 +1121,52 @@ private struct FilmStockRow: View {
             // Migrate the old generic "35" to explicit 4-perf so the picker matches.
             if item.filmGauge == "35" { item.filmGauge = "35-4" }
         }
+    }
+}
+
+/// A `TextField` that types into fast local state and writes the bound value only
+/// after the user pauses (or when the field goes away). Binding a `TextField`
+/// straight to a SwiftData `@Model` property makes every keystroke trigger a store
+/// write (autosave + CloudKit) and re-render the whole detail view, which makes
+/// typing lag badly. This decouples keystrokes from those writes.
+///
+/// Safe against shot-switching only when its host view has a stable identity per
+/// shot (see the `.id(shot.uid)` on `ShotDetailView`): the field then reseeds on
+/// appear and flushes any pending write on disappear, so no edit is lost.
+struct DebouncedTextField: View {
+    private let placeholder: LocalizedStringKey
+    @Binding private var text: String
+    private let axis: Axis
+
+    @State private var draft = ""
+    @State private var debounce: Task<Void, Never>?
+
+    init(_ placeholder: LocalizedStringKey, text: Binding<String>, axis: Axis = .horizontal) {
+        self.placeholder = placeholder
+        self._text = text
+        self.axis = axis
+    }
+
+    var body: some View {
+        TextField(placeholder, text: $draft, axis: axis)
+            .onAppear { draft = text }
+            .onChange(of: text) { _, newValue in
+                // Adopt external changes (undo/redo, sync) and drop any pending
+                // write so a stale draft can't clobber them.
+                if newValue != draft { debounce?.cancel(); draft = newValue }
+            }
+            .onChange(of: draft) { _, newValue in
+                guard newValue != text else { return }
+                debounce?.cancel()
+                debounce = Task {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    if !Task.isCancelled { text = newValue }
+                }
+            }
+            .onDisappear {
+                debounce?.cancel()
+                if draft != text { text = draft }   // flush before leaving
+            }
     }
 }
 
@@ -1299,7 +1345,7 @@ struct ShotDetailView: View {
     private var shotSetupCard: some View {
     sectionCard("SHOT SETUP") {
     setupRow("Nickname") {
-        TextField("Add a nickname for this shot", text: $shot.nickname)
+        DebouncedTextField("Add a nickname for this shot", text: $shot.nickname)
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 200)
     }
@@ -1518,7 +1564,7 @@ struct ShotDetailView: View {
             .font(.headline)
             .frame(width: 100, alignment: .leading)
 
-        TextField("Additional information", text: $shot.extraInfo, axis: .vertical)
+        DebouncedTextField("Additional information", text: $shot.extraInfo, axis: .vertical)
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...10)
             .frame(maxWidth: 200)
@@ -1677,7 +1723,7 @@ struct ShotDetailView: View {
                 .frame(width: 92, alignment: .leading)
 
             HStack(spacing: 4) {
-                TextField("Camera · Format", text: $shot.camera)
+                DebouncedTextField("Camera · Format", text: $shot.camera)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
                     .onChange(of: shot.camera) { inheritCineStagerSensorWidth() }
@@ -1703,7 +1749,7 @@ struct ShotDetailView: View {
                 .frame(width: 92, alignment: .leading)
 
             HStack(spacing: 4) {
-                TextField("Framelines", text: $shot.framelines)
+                DebouncedTextField("Framelines", text: $shot.framelines)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
 
@@ -1728,7 +1774,7 @@ struct ShotDetailView: View {
                 .frame(width: 92, alignment: .leading)
 
             HStack(spacing: 4) {
-                TextField("Lens name", text: $shot.lensPreset)
+                DebouncedTextField("Lens name", text: $shot.lensPreset)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
 

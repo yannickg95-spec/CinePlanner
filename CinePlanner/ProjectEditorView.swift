@@ -1026,6 +1026,7 @@ struct ProjectEditorView: View {
         }
         .navigationDestination(for: Shot.self) { shot in
             ShotDetailView(shot: shot)
+                .id(shot.uid)
                 .navigationTitle("Shot \(shot.displayNumber)")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
@@ -1524,6 +1525,7 @@ struct ProjectEditorView: View {
         case .shot, .script:
             if let shot = selectedShot {
                 ShotDetailView(shot: shot)
+                    .id(shot.uid)
             } else {
                 ContentUnavailableView {
                     Text("No Shot Selected").font(.headline)
