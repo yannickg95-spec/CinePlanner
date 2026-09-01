@@ -717,6 +717,10 @@ struct SceneMapEditorView: View {
                 }
                 // Sun-direction overlay (non-interactive), above the map content.
                 sunOverlay(in: rect)
+                // Apple Maps attribution on satellite backgrounds.
+                if scene.sceneMapBackgroundIsSatellite, backgroundImage != nil {
+                    AppleMapsAttribution(rect: rect)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.platformTextBackground)
@@ -3541,6 +3545,31 @@ struct ArrowHitShape: Shape {
 /// markers — minus every editing affordance (selection rings, handles, drawing
 /// overlays). Lives in this file so it can reuse the private `MapMarkerView`
 /// and `FurnitureView`.
+/// The Apple Maps attribution badge (Apple logo + "Maps"), pinned to the
+/// bottom-left of a map rect and sized relative to it — mirrors MapKit's own
+/// placement. Shown wherever Apple satellite imagery is displayed or exported, as
+/// Apple's map content must carry visible attribution.
+fileprivate struct AppleMapsAttribution: View {
+    let rect: CGRect
+
+    var body: some View {
+        let fontSize = max(5, min(rect.width, rect.height) * 0.0125)
+        HStack(spacing: fontSize * 0.35) {
+            Image(systemName: "apple.logo")
+            Text("Maps")
+        }
+        .font(.system(size: fontSize, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, fontSize * 0.55)
+        .padding(.vertical, fontSize * 0.28)
+        .background(Capsule().fill(Color.black.opacity(0.45)))
+        .padding(fontSize * 0.6)
+        .frame(width: rect.width, height: rect.height, alignment: .bottomLeading)
+        .position(x: rect.midX, y: rect.midY)
+        .allowsHitTesting(false)
+    }
+}
+
 struct SceneMapExportView: View {
     let doc: SceneMapDoc
     let plan: FloorPlan
@@ -3553,6 +3582,10 @@ struct SceneMapExportView: View {
     var cameraMeters: Double? = nil
     /// When true, markers use the fixed viewable size instead of real-world scale.
     var viewableMarkers: Bool = false
+    /// True when the background is an Apple Maps satellite still — shows the
+    /// required Apple Maps attribution in the corner of the map (Apple's map
+    /// content must carry visible attribution wherever it's displayed/exported).
+    var isSatellite: Bool = false
 
     var body: some View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
@@ -3586,6 +3619,9 @@ struct SceneMapExportView: View {
                               scale: sceneMarkerScale(kind: element.kind, metersWide: metersWide,
                                                       cameraMeters: cameraMeters, mapWidthPoints: rect.width,
                                                       viewable: viewableMarkers))
+            }
+            if isSatellite, background != nil {
+                AppleMapsAttribution(rect: rect)
             }
         }
         .frame(width: size.width, height: size.height)

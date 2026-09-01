@@ -487,7 +487,8 @@ struct ProjectExporter {
                                       labels: labels, size: outSize,
                                       metersWide: scene.sceneMapMetersWide,
                                       cameraMeters: scene.sceneMapCameraSizeMeters,
-                                      viewableMarkers: scene.sceneMapViewableMarkerSize)
+                                      viewableMarkers: scene.sceneMapViewableMarkerSize,
+                                      isSatellite: scene.sceneMapBackgroundIsSatellite)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let cg = renderer.cgImage else { return nil }
