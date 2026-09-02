@@ -387,19 +387,28 @@ struct ProjectExporter {
                 ctx.translateBy(x: -cropBox.origin.x, y: -cropBox.origin.y)
                 page.draw(with: .cropBox, to: ctx)
 
-                // Place each bar into a free margin slot, avoiding vertical overlap.
-                var placed: [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)] = []
-                let xRange = exportLineRange(for: cropBox)
-                for bar in byPage[pageIndex] ?? [] {
-                    let x = calculateCoverageLineX(at: bar.minY...bar.maxY, within: xRange, existingLines: &placed)
+                // Pack bars by density and share one label scale — identical to the
+                // editor overlay and the on-screen viewer (see CoverageLineLayout).
+                let bars = byPage[pageIndex] ?? []
+                let baseFont = PlatformFont.systemFont(ofSize: 9, weight: .semibold)
+                let barLines: [CoverageLineLayout.Line] = bars.map { bar in
+                    let w = NSAttributedString(string: bar.label, attributes: [.font: baseFont]).size()
+                    return CoverageLineLayout.Line(
+                        extent: bar.minY...bar.maxY,
+                        labelWidth: w.width,
+                        labelBand: (bar.maxY + 3)...(bar.maxY + 3 + w.height))
+                }
+                let placements = CoverageLineLayout.solve(barLines, band: exportLineRange(for: cropBox))
+                for (bar, placed) in zip(bars, placements) {
+                    let x = placed.x
                     ctx.setStrokeColor(bar.color.cgColor)
-                    ctx.setLineWidth(3)
+                    ctx.setLineWidth(max(1, 3 * placed.scale))
                     ctx.move(to: CGPoint(x: x, y: bar.minY))
                     ctx.addLine(to: CGPoint(x: x, y: bar.maxY))
                     ctx.strokePath()
 
                     let attrs: [NSAttributedString.Key: Any] = [
-                        .font: PlatformFont.systemFont(ofSize: 9, weight: .semibold),
+                        .font: PlatformFont.systemFont(ofSize: 9 * placed.scale, weight: .semibold),
                         .foregroundColor: bar.color
                     ]
                     let label = NSAttributedString(string: bar.label, attributes: attrs)
@@ -2622,100 +2631,6 @@ struct ProjectExporter {
     
     // MARK: - Helper Functions
 
-    private func calculateCoverageLineX(
-        at verticalRange: ClosedRange<CGFloat>,
-        within xRange: ClosedRange<CGFloat>,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)]
-    ) -> CGFloat {
-        let usableWidth = xRange.upperBound - xRange.lowerBound
-        guard usableWidth > 0 else {
-            return xRange.lowerBound
-        }
-
-        let slotCount = 8
-        let slotStep = usableWidth / CGFloat(slotCount)
-
-        for slotIndex in 0..<slotCount {
-            let candidateX = xRange.upperBound - ((CGFloat(slotIndex) + 0.5) * slotStep)
-            let conflicts = existingLines.contains { existing in
-                existing.slot == slotIndex && existing.range.overlaps(verticalRange)
-            }
-
-            if !conflicts {
-                existingLines.append((range: verticalRange, offset: candidateX, slot: slotIndex))
-                return candidateX
-            }
-        }
-
-        let fallbackX = xRange.lowerBound
-        existingLines.append((range: verticalRange, offset: fallbackX, slot: slotCount - 1))
-        return fallbackX
-    }
-
-    private func calculateCoverageLineX(
-        preferredSlot: Int?,
-        at verticalRange: ClosedRange<CGFloat>,
-        within xRange: ClosedRange<CGFloat>,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)]
-    ) -> (x: CGFloat, slot: Int) {
-        let usableWidth = xRange.upperBound - xRange.lowerBound
-        guard usableWidth > 0 else {
-            let fallbackSlot = max(0, min(7, preferredSlot ?? 7))
-            return (xRange.lowerBound, fallbackSlot)
-        }
-
-        let slotCount = 8
-        let slotStep = usableWidth / CGFloat(slotCount)
-
-        func candidateX(for slotIndex: Int) -> CGFloat {
-            xRange.upperBound - ((CGFloat(slotIndex) + 0.5) * slotStep)
-        }
-
-        func slotIsFree(_ slotIndex: Int) -> Bool {
-            !existingLines.contains { existing in
-                existing.slot == slotIndex && existing.range.overlaps(verticalRange)
-            }
-        }
-
-        if let preferredSlot {
-            let clampedPreferredSlot = max(0, min(slotCount - 1, preferredSlot))
-            if slotIsFree(clampedPreferredSlot) {
-                let x = candidateX(for: clampedPreferredSlot)
-                existingLines.append((range: verticalRange, offset: x, slot: clampedPreferredSlot))
-                return (x, clampedPreferredSlot)
-            }
-
-            for slotIndex in clampedPreferredSlot..<slotCount {
-                if slotIsFree(slotIndex) {
-                    let x = candidateX(for: slotIndex)
-                    existingLines.append((range: verticalRange, offset: x, slot: slotIndex))
-                    return (x, slotIndex)
-                }
-            }
-
-            for slotIndex in 0..<clampedPreferredSlot {
-                if slotIsFree(slotIndex) {
-                    let x = candidateX(for: slotIndex)
-                    existingLines.append((range: verticalRange, offset: x, slot: slotIndex))
-                    return (x, slotIndex)
-                }
-            }
-        }
-
-        for slotIndex in 0..<slotCount {
-            if slotIsFree(slotIndex) {
-                let x = candidateX(for: slotIndex)
-                existingLines.append((range: verticalRange, offset: x, slot: slotIndex))
-                return (x, slotIndex)
-            }
-        }
-
-        let fallbackSlot = slotCount - 1
-        let fallbackX = candidateX(for: fallbackSlot)
-        existingLines.append((range: verticalRange, offset: fallbackX, slot: fallbackSlot))
-        return (fallbackX, fallbackSlot)
-    }
-
     private func exportLineRange(for pageRect: CGRect) -> ClosedRange<CGFloat> {
         let minimumPageX = pageRect.minX
         let maximumPageX = pageRect.maxX - 6
@@ -2726,87 +2641,6 @@ struct ProjectExporter {
         return lowerBound...upperBound
     }
 
-    private func exportLineSlotSpacing(for pageRect: CGRect) -> CGFloat {
-        let xRange = exportLineRange(for: pageRect)
-        let slotCount = 8
-        let usableWidth = xRange.upperBound - xRange.lowerBound
-        return usableWidth / CGFloat(slotCount)
-    }
-
-    private func exportLineX(for slotIndex: Int, pageRect: CGRect) -> CGFloat {
-        let xRange = exportLineRange(for: pageRect)
-        let spacing = exportLineSlotSpacing(for: pageRect)
-        return xRange.upperBound - ((CGFloat(slotIndex) + 0.5) * spacing)
-    }
-
-    private func exportSlotIndex(for lineX: CGFloat, pageRect: CGRect) -> Int {
-        let xRange = exportLineRange(for: pageRect)
-        let spacing = max(exportLineSlotSpacing(for: pageRect), 1)
-        let rawIndex = Int(floor((xRange.upperBound - lineX) / spacing))
-        return max(0, min(7, rawIndex))
-    }
-
-    private func exportLineCollisionRects(
-        from lines: [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)],
-        horizontalPadding: CGFloat = 5,
-        verticalPadding: CGFloat = 2
-    ) -> [CGRect] {
-        lines.map { line in
-            CGRect(
-                x: line.offset - horizontalPadding,
-                y: line.range.lowerBound - verticalPadding,
-                width: horizontalPadding * 2,
-                height: (line.range.upperBound - line.range.lowerBound) + (verticalPadding * 2)
-            )
-        }
-    }
-
-    private func resolvedExportLabelRect(
-        desiredRect: CGRect,
-        lineX: CGFloat,
-        lineTopY: CGFloat,
-        pageBounds: CGRect,
-        existingLineRects: [CGRect],
-        placedLabelRects: [CGRect]
-    ) -> CGRect {
-        let topGap: CGFloat = 4
-        let sideGap: CGFloat = 8
-        let verticalStep: CGFloat = desiredRect.height + 3
-        let halfHeight = desiredRect.height / 2
-
-        func clampedX(_ originX: CGFloat) -> CGFloat {
-            min(max(originX, pageBounds.minX), max(pageBounds.minX, pageBounds.maxX - desiredRect.width))
-        }
-
-        func candidate(_ originX: CGFloat, _ originY: CGFloat) -> CGRect {
-            CGRect(x: clampedX(originX), y: originY, width: desiredRect.width, height: desiredRect.height)
-        }
-
-        var candidates: [CGRect] = []
-        for step in 0..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX - (desiredRect.width / 2), y))
-        }
-
-        candidates.append(candidate(lineX + sideGap, lineTopY - halfHeight))
-        candidates.append(candidate(lineX - desiredRect.width - sideGap, lineTopY - halfHeight))
-
-        for step in 1..<8 {
-            let y = lineTopY + topGap + (CGFloat(step) * verticalStep)
-            candidates.append(candidate(lineX + sideGap, y))
-            candidates.append(candidate(lineX - desiredRect.width - sideGap, y))
-        }
-
-        for rect in candidates {
-            let overlapsLine = existingLineRects.contains { $0.intersects(rect) }
-            let overlapsLabel = placedLabelRects.contains { $0.intersects(rect.insetBy(dx: -2, dy: -1)) }
-            if !overlapsLine && !overlapsLabel {
-                return rect
-            }
-        }
-
-        return candidates.last ?? desiredRect
-    }
     
     private func createScriptWithCoverage() -> Data? {
         var result: Data?
@@ -2901,98 +2735,7 @@ struct ProjectExporter {
         }
         
         print("✅ [EXPORT COLOR] Base color assignment complete")
-        
-        var selectionSlotIndices: [String: Int] = [:]
-        var occupiedRangesByPageAndSlot: [Int: [Int: [ClosedRange<CGFloat>]]] = [:]
-        
-        struct ExportSelectionLayout {
-            let key: String
-            let shot: Shot
-            let preferredColorIndex: Int
-            let pageRanges: [(pageIndex: Int, range: ClosedRange<CGFloat>)]
-        }
-        
-        var exportSelectionLayouts: [ExportSelectionLayout] = []
-        for scene in exportScenes {
-            for shot in scene.shots {
-                guard let selections = shot.scriptCoverageSelections,
-                      let baseColorInfo = shotBaseColors[ObjectIdentifier(shot)] else {
-                    continue
-                }
-                
-                for selection in selections {
-                    var layoutRanges: [(pageIndex: Int, range: ClosedRange<CGFloat>)] = []
-                    let allPageIndices = selection.pageRanges.map { $0.pageIndex }.sorted()
-                    let isMultiPage = allPageIndices.count > 1
-                    
-                    for pageRange in selection.pageRanges {
-                        guard let page = sourcePDF.page(at: pageRange.pageIndex),
-                              let firstSelection = pageRange.selections.first else {
-                            continue
-                        }
-                        
-                        let pageRect = page.bounds(for: .cropBox)
-                        var minY = firstSelection.cgRect.minY
-                        var maxY = firstSelection.cgRect.maxY
-                        for selectionBounds in pageRange.selections {
-                            let rect = selectionBounds.cgRect
-                            minY = min(minY, rect.minY)
-                            maxY = max(maxY, rect.maxY)
-                        }
-                        
-                        if isMultiPage {
-                            let isFirstPage = pageRange.pageIndex == allPageIndices.first
-                            let isLastPage = pageRange.pageIndex == allPageIndices.last
-                            if !isFirstPage {
-                                maxY = pageRect.maxY
-                            }
-                            if !isLastPage {
-                                minY = pageRect.minY
-                            }
-                        }
-                        
-                        layoutRanges.append((pageIndex: pageRange.pageIndex, range: minY...maxY))
-                    }
-                    
-                    exportSelectionLayouts.append(
-                        ExportSelectionLayout(
-                            key: "\(shot.id)_\(selection.id)",
-                            shot: shot,
-                            preferredColorIndex: baseColorInfo.colorIndex,
-                            pageRanges: layoutRanges.sorted { $0.pageIndex < $1.pageIndex }
-                        )
-                    )
-                }
-            }
-        }
-        
-        exportSelectionLayouts.sort { lhs, rhs in
-            let lhsFirstPage = lhs.pageRanges.first?.pageIndex ?? 0
-            let rhsFirstPage = rhs.pageRanges.first?.pageIndex ?? 0
-            if lhsFirstPage != rhsFirstPage {
-                return lhsFirstPage < rhsFirstPage
-            }
-            if lhs.preferredColorIndex != rhs.preferredColorIndex {
-                return lhs.preferredColorIndex < rhs.preferredColorIndex
-            }
-            return lhs.shot.displayNumber < rhs.shot.displayNumber
-        }
-        
-        for layout in exportSelectionLayouts {
-            let assignedSlot = (0..<8).first { slotIndex in
-                layout.pageRanges.allSatisfy { pageRange in
-                    let occupiedRanges = occupiedRangesByPageAndSlot[pageRange.pageIndex]?[slotIndex] ?? []
-                    return !occupiedRanges.contains { $0.overlaps(pageRange.range) }
-                }
-            } ?? 7
-            
-            selectionSlotIndices[layout.key] = assignedSlot
-            
-            for pageRange in layout.pageRanges {
-                occupiedRangesByPageAndSlot[pageRange.pageIndex, default: [:]][assignedSlot, default: []].append(pageRange.range)
-            }
-        }
-        
+
         // Process each page
         for pageIndex in 0..<sourcePDF.pageCount {
             guard let page = sourcePDF.page(at: pageIndex) else { continue }
@@ -3012,169 +2755,91 @@ struct ProjectExporter {
             // Draw coverage lines if any exist on this page
             if let coverages = coverageByPage[pageIndex] {
                 print("📝 [SCRIPT_COVERAGE] Drawing \(coverages.count) coverage item(s) on page \(pageIndex + 1)")
-                
-                let sortedCoverages = coverages.sorted { (item1, item2) -> Bool in
-                    let key1 = "\(item1.shot.id)_\(item1.selection.id)"
-                    let key2 = "\(item2.shot.id)_\(item2.selection.id)"
-                    let slot1 = selectionSlotIndices[key1]
-                    let slot2 = selectionSlotIndices[key2]
-                    
-                    // Reserve continuing selections first so new selections adapt to them.
-                    if (slot1 != nil) != (slot2 != nil) {
-                        return slot1 != nil
-                    }
-                    if let slot1, let slot2, slot1 != slot2 {
-                        return slot1 < slot2
-                    }
-                    
-                    let shot1BaseIndex = shotBaseColors[ObjectIdentifier(item1.shot)]?.colorIndex ?? 0
-                    let shot2BaseIndex = shotBaseColors[ObjectIdentifier(item2.shot)]?.colorIndex ?? 0
-                    return shot1BaseIndex < shot2BaseIndex
+
+                // Gather this page's bars, then pack them by density and share one
+                // label scale — identical to the editor overlay, the on-screen viewer
+                // and the web-export images (see CoverageLineLayout). The page context
+                // is y-up, so a bar's top is its larger Y (maxY).
+                struct Bar {
+                    let color: PlatformColor
+                    let label: String
+                    let minY: CGFloat        // extended to page edges for continuations
+                    let maxY: CGFloat
+                    let labelTopY: CGFloat   // the true selection top; nil label when not drawn here
+                    let labelWidth: CGFloat
+                    let labelHeight: CGFloat
+                    let drawsLabel: Bool
                 }
-                var placedLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, slot: Int)] = []
-                var shotNumberRects: [CGRect] = []
+                let baseFont = PlatformFont.systemFont(ofSize: 9)
+                var bars: [Bar] = []
+                for (shot, selection) in coverages {
+                    guard let pageRange = selection.pageRanges.first(where: { $0.pageIndex == pageIndex }),
+                          let baseColorInfo = shotBaseColors[ObjectIdentifier(shot)],
+                          let firstSelection = pageRange.selections.first else { continue }
 
-                for (shot, selection) in sortedCoverages {
-                    // Find the page range for this specific page
-                    guard let pageRange = selection.pageRanges.first(where: { $0.pageIndex == pageIndex }) else {
-                        continue
+                    var minY = firstSelection.cgRect.minY
+                    var maxY = firstSelection.cgRect.maxY
+                    for bounds in pageRange.selections {
+                        minY = min(minY, bounds.cgRect.minY)
+                        maxY = max(maxY, bounds.cgRect.maxY)
                     }
-                    let selectionKey = "\(shot.id)_\(selection.id)"
+                    let labelTopY = maxY   // the real selection top, before any page-edge extension
 
-                    guard let baseColorInfo = shotBaseColors[ObjectIdentifier(shot)] else {
-                        print("   ⚠️ No base color assigned for shot \(shot.displayNumber)")
-                        continue
-                    }
-
-                    // Deterministic per-shot colour (position within its scene) so it
-                    // matches the editor and the web-export images on both platforms.
-                    let lineColor = shotColors[baseColorInfo.colorIndex]
-                    
-                    print("   🖊️ [EXPORT DRAW] Drawing line for shot \(shot.displayNumber)")
-                    print("      - Color: \(lineColor)")
-
-                    // Get first selection bounds for Y calculation
-                    guard let firstSelection = pageRange.selections.first else { continue }
-                    let firstRect = firstSelection.cgRect
-                    
-                    // Calculate bounds for this page
-                    var minY = firstRect.minY
-                    var maxY = firstRect.maxY
-                    
-                    for selectionBounds in pageRange.selections {
-                        let rect = selectionBounds.cgRect
-                        minY = min(minY, rect.minY)
-                        maxY = max(maxY, rect.maxY)
-                    }
-                    
-                    print("      - Y range: \(minY) to \(maxY)")
-                    
-                    // Check if this selection spans multiple pages
                     let allPageIndices = selection.pageRanges.map { $0.pageIndex }.sorted()
                     let isMultiPage = allPageIndices.count > 1
                     let isFirstPage = pageIndex == allPageIndices.first
                     let isLastPage = pageIndex == allPageIndices.last
-                    
                     if isMultiPage {
-                        print("      - Multi-page: first=\(isFirstPage), last=\(isLastPage)")
+                        if !isFirstPage { maxY = pageRect.maxY }   // continues from above
+                        if !isLastPage { minY = pageRect.minY }    // continues below
                     }
-                    
-                    // Extend line to page boundaries if it continues to other pages
-                    if isMultiPage {
-                        if !isFirstPage {
-                            // Continue from top of page
-                            maxY = pageRect.maxY
-                        }
-                        if !isLastPage {
-                            // Continue to bottom of page
-                            minY = pageRect.minY
-                        }
-                    }
-                    
-                    let finalSlotIndex: Int
-                    let finalLineX: CGFloat
-                    if let persistedSlotIndex = selectionSlotIndices[selectionKey] {
-                        finalSlotIndex = persistedSlotIndex
-                        finalLineX = exportLineX(for: finalSlotIndex, pageRect: pageRect)
-                        placedLines.append((range: minY...maxY, offset: finalLineX, slot: finalSlotIndex))
-                    } else {
-                        let linePlacement = calculateCoverageLineX(
-                            preferredSlot: nil,
-                            at: minY...maxY,
-                            within: exportLineRange(for: pageRect),
-                            existingLines: &placedLines
-                        )
-                        finalLineX = linePlacement.x
-                        finalSlotIndex = linePlacement.slot
-                    }
-                    print("      - X position: \(finalLineX)")
-                    
-                    // Draw vertical line
-                    let lineWidth: CGFloat = 3
-                    
-                    context.setStrokeColor(lineColor.cgColor)
-                    context.setLineWidth(lineWidth)
-                    context.move(to: CGPoint(x: finalLineX, y: minY))
-                    context.addLine(to: CGPoint(x: finalLineX, y: maxY))
-                    context.strokePath()
-                    
-                    print("      ✅ Drew line from (\(finalLineX), \(minY)) to (\(finalLineX), \(maxY))")
-                    
-                    // Draw shot number ABOVE the line (only on first page or if text starts on this page)
-                    if isFirstPage || (!isMultiPage) {
-                        let shotNumberText = shot.displayNumber
-                        let font = PlatformFont.systemFont(ofSize: 9)
-                        let textAttributes: [NSAttributedString.Key: Any] = [
-                            .font: font,
-                            .foregroundColor: lineColor
-                        ]
-                        
-                        let attrString = NSAttributedString(string: shotNumberText, attributes: textAttributes)
-                        let textSize = attrString.size()
-                        
-                        // Use the actual top of the selection (not extended maxY)
-                        var actualMaxY = firstRect.maxY
-                        for selectionBounds in pageRange.selections {
-                            actualMaxY = max(actualMaxY, selectionBounds.cgRect.maxY)
-                        }
-                        
-                        let desiredRect = CGRect(
-                            x: finalLineX - (textSize.width / 2),
-                            y: actualMaxY + 4,
-                            width: textSize.width,
-                            height: textSize.height
-                        )
-                        let pageBounds = CGRect(
-                            x: pageRect.minX + 6,
-                            y: pageRect.minY,
-                            width: max(0, pageRect.width - 12),
-                            height: pageRect.height
-                        )
-                        let labelRect = resolvedExportLabelRect(
-                            desiredRect: desiredRect,
-                            lineX: finalLineX,
-                            lineTopY: actualMaxY,
-                            pageBounds: pageBounds,
-                            existingLineRects: exportLineCollisionRects(from: placedLines),
-                            placedLabelRects: shotNumberRects
-                        )
-                        
-                        // The page context is y-up (flipped: false). AppKit text
-                        // draws upright in it, but UIKit text would come out
-                        // mirrored (the shot number upside down). On iOS, flip
-                        // locally about the label box so the glyphs are upright.
-                        #if canImport(UIKit)
-                        context.saveGState()
-                        context.translateBy(x: 0, y: labelRect.minY + labelRect.maxY)
-                        context.scaleBy(x: 1, y: -1)
-                        attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
-                        context.restoreGState()
-                        #else
-                        attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
-                        #endif
 
-                        shotNumberRects.append(labelRect)
-                    }
+                    let ls = NSAttributedString(string: shot.displayNumber, attributes: [.font: baseFont]).size()
+                    bars.append(Bar(color: shotColors[baseColorInfo.colorIndex],
+                                    label: shot.displayNumber, minY: minY, maxY: maxY,
+                                    labelTopY: labelTopY, labelWidth: ls.width, labelHeight: ls.height,
+                                    drawsLabel: isFirstPage || !isMultiPage))
+                }
+
+                let lines: [CoverageLineLayout.Line] = bars.map { bar in
+                    CoverageLineLayout.Line(
+                        extent: bar.minY...bar.maxY,
+                        labelWidth: bar.labelWidth,
+                        labelBand: bar.drawsLabel ? (bar.labelTopY + 4)...(bar.labelTopY + 4 + bar.labelHeight) : nil)
+                }
+                let placements = CoverageLineLayout.solve(lines, band: exportLineRange(for: pageRect))
+
+                for (bar, placed) in zip(bars, placements) {
+                    let x = placed.x
+                    context.setStrokeColor(bar.color.cgColor)
+                    context.setLineWidth(max(1, 3 * placed.scale))
+                    context.move(to: CGPoint(x: x, y: bar.minY))
+                    context.addLine(to: CGPoint(x: x, y: bar.maxY))
+                    context.strokePath()
+
+                    guard bar.drawsLabel else { continue }
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: PlatformFont.systemFont(ofSize: 9 * placed.scale),
+                        .foregroundColor: bar.color
+                    ]
+                    let attrString = NSAttributedString(string: bar.label, attributes: attrs)
+                    let size = attrString.size()
+                    var labelX = x - size.width / 2
+                    labelX = min(max(labelX, pageRect.minX + 6), max(pageRect.minX + 6, pageRect.maxX - 6 - size.width))
+                    let labelRect = CGRect(x: labelX, y: bar.labelTopY + 4, width: size.width, height: size.height)
+
+                    // The page context is y-up (flipped: false). AppKit text draws
+                    // upright; UIKit text would be mirrored (the number upside down),
+                    // so on iOS flip locally about the label box.
+                    #if canImport(UIKit)
+                    context.saveGState()
+                    context.translateBy(x: 0, y: labelRect.minY + labelRect.maxY)
+                    context.scaleBy(x: 1, y: -1)
+                    attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
+                    context.restoreGState()
+                    #else
+                    attrString.draw(at: CGPoint(x: labelRect.minX, y: labelRect.minY))
+                    #endif
                 }
             }
 
