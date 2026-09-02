@@ -1310,8 +1310,10 @@ struct ShotDetailView: View {
                     Spacer(minLength: 8)
                     Button(action: gear) {
                         Image(systemName: "gearshape")
-                            .font(.caption)
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 24)
+                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
                     }
                     .buttonStyle(.plain)
                     .help("Card settings")
