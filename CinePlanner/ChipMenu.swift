@@ -54,7 +54,10 @@ struct ChipMenu<Label: View>: View {
         }
         .menuIndicator(.hidden)
         #if os(macOS)
-        .menuStyle(.borderlessButton)
+        // Render the label exactly as authored (no control bezel/tint), so custom
+        // labels like the round GitHub button look identical to iOS/iPadOS.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .fixedSize()
         #endif
     }
