@@ -1979,40 +1979,46 @@ class PDFCoverageOverlayView: PlatformViewBase {
         return shotColors[index % shotColors.count]
     }
     
-    // Place overlapping lines across the left page margin before stacking them.
-    private func calculateLineX(
-        for shot: Shot,
-        at verticalRange: ClosedRange<CGFloat>,
-        within xRange: ClosedRange<CGFloat>,
-        minimumCenterSpacing: CGFloat,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)]
-    ) -> CGFloat {
-        let usableWidth = xRange.upperBound - xRange.lowerBound
-        guard usableWidth > 0 else {
-            return xRange.lowerBound
-        }
-
-        let targetSlotCount = 8
-        let targetSpacing = targetSlotCount > 1 ? usableWidth / CGFloat(targetSlotCount - 1) : usableWidth
-        let minimumSpacing = max(6, min(minimumCenterSpacing, targetSpacing))
-        let slotCount = max(1, Int(floor(usableWidth / minimumSpacing)) + 1)
-        let actualSpacing = slotCount > 1 ? usableWidth / CGFloat(slotCount - 1) : 0
-
-        for slotIndex in 0..<slotCount {
-            let candidateX = xRange.upperBound - (CGFloat(slotIndex) * actualSpacing)
-            let conflicts = existingLines.contains { existing in
-                existing.range.overlaps(verticalRange) && abs(existing.offset - candidateX) < max(minimumSpacing - 1, actualSpacing * 0.75)
+    /// Assigns each line to a column so that lines which don't share vertical
+    /// space reuse the same column. The column count equals the largest number of
+    /// lines overlapping at any one point — the true local density — so columns
+    /// can then be spread as far apart as the margin allows. This is earliest-start
+    /// interval-graph colouring, which uses exactly that many columns.
+    private func assignColumns(_ lines: [RawLine]) -> (columns: [Int], count: Int) {
+        var columns = [Int](repeating: 0, count: lines.count)
+        // Track, per column, the lowest point (largest maxY) reached so far.
+        var columnMaxY: [CGFloat] = []
+        // Process lines top-to-bottom (by minY) and give each the first free column.
+        let order = lines.indices.sorted { lines[$0].minY < lines[$1].minY }
+        for idx in order {
+            let line = lines[idx]
+            var placed = false
+            for c in columnMaxY.indices {
+                if columnMaxY[c] <= line.minY {          // that column is now clear
+                    columnMaxY[c] = line.maxY
+                    columns[idx] = c
+                    placed = true
+                    break
+                }
             }
-
-            if !conflicts {
-                existingLines.append((range: verticalRange, offset: candidateX, shot: shot))
-                return candidateX
+            if !placed {
+                columns[idx] = columnMaxY.count
+                columnMaxY.append(line.maxY)
             }
         }
+        return (columns, max(1, columnMaxY.count))
+    }
 
-        let fallbackX = xRange.lowerBound
-        existingLines.append((range: verticalRange, offset: fallbackX, shot: shot))
-        return fallbackX
+    /// X for a column. Columns are packed as tightly as possible from the text
+    /// edge outward, spaced by exactly enough for a full-size shot number
+    /// (`spacing`) so the labels never overlap yet stay compact. Only when that
+    /// won't fit in the band do we fall back to spreading evenly across the whole
+    /// band — the crowded case where the numbers then shrink to suit.
+    private func columnX(_ column: Int, count: Int, band: ClosedRange<CGFloat>, spacing: CGFloat) -> CGFloat {
+        guard count > 1 else { return band.upperBound }
+        let width = band.upperBound - band.lowerBound
+        let step = min(spacing, width / CGFloat(count - 1))
+        return band.upperBound - CGFloat(column) * step
     }
 
     private func pageBoundsInOverlay(for pageRange: PageTextRange, document: PDFDocument, pdfView: PDFView) -> CGRect? {
@@ -2048,23 +2054,59 @@ class PDFCoverageOverlayView: PlatformViewBase {
         let maxPageX: CGFloat
     }
 
+    /// A coverage line's resolved geometry, before it is assigned a column/X.
+    private struct RawLine {
+        let minY: CGFloat
+        let maxY: CGFloat
+        let color: PlatformColor
+        let label: String
+        let textSize: CGSize
+        let band: ClosedRange<CGFloat>   // usable margin x-range for this line
+        let minPageX: CGFloat
+        let maxPageX: CGFloat
+    }
+
     private func render(in context: CGContext) {
         guard let pdfView = pdfView,
               let document = pdfView.document else { return }
 
-        // Pass 1: resolve every coverage line's placement. Lines still fan out
-        // across the left margin so their bars don't sit on top of each other.
-        var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)] = []
-        var placements: [CoveragePlacement] = []
+        // Pass 1: resolve each coverage line's vertical extent and margin band.
+        var rawLines: [RawLine] = []
         for shot in allShotsWithCoverage {
             guard let selections = shot.scriptCoverageSelections else { continue }
             for selection in selections {
-                if let placement = linePlacement(for: selection, shot: shot,
-                                                 pdfView: pdfView, document: document,
-                                                 existingLines: &existingLines) {
-                    placements.append(placement)
+                if let raw = lineGeometry(for: selection, shot: shot,
+                                          pdfView: pdfView, document: document) {
+                    rawLines.append(raw)
                 }
             }
+        }
+
+        // Assign columns by true vertical density, then spread those columns as
+        // far apart as each line's margin band allows. Lines that don't overlap
+        // reuse a column, so a shot number only has to share horizontal room with
+        // lines that genuinely sit beside it.
+        let (columns, columnCount) = assignColumns(rawLines)
+        // Spacing that fits the widest shot number at full size, so packed columns
+        // never overlap while staying as close together as possible.
+        let labelSpacing = (rawLines.map { $0.textSize.width }.max() ?? 0) + 4
+        var placements: [CoveragePlacement] = []
+        for (i, raw) in rawLines.enumerated() {
+            let pageX = columnX(columns[i], count: columnCount, band: raw.band, spacing: labelSpacing)
+            #if os(macOS)
+            let labelTopY = max(raw.minY, raw.maxY)
+            let baseLabelRect = CGRect(x: pageX - raw.textSize.width / 2, y: labelTopY + 4,
+                                       width: raw.textSize.width, height: raw.textSize.height)
+            #else
+            let labelTopY = min(raw.minY, raw.maxY)
+            let baseLabelRect = CGRect(x: pageX - raw.textSize.width / 2,
+                                       y: labelTopY - 4 - raw.textSize.height,
+                                       width: raw.textSize.width, height: raw.textSize.height)
+            #endif
+            placements.append(CoveragePlacement(
+                pageX: pageX, minY: raw.minY, maxY: raw.maxY, color: raw.color,
+                label: raw.label, baseLabelRect: baseLabelRect,
+                minPageX: raw.minPageX, maxPageX: raw.maxPageX))
         }
 
         // One scale that keeps every shot number centered above its own line yet
@@ -2130,18 +2172,16 @@ class PDFCoverageOverlayView: PlatformViewBase {
         string.draw(at: CGPoint(x: x, y: y))
     }
     
-    private func linePlacement(
+    private func lineGeometry(
         for selection: ScriptTextSelection,
         shot: Shot,
         pdfView: PDFView,
-        document: PDFDocument,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat, shot: Shot)]
-    ) -> CoveragePlacement? {
+        document: PDFDocument
+    ) -> RawLine? {
 
         // Calculate the overall vertical extent of the selection across all pages
         var minY: CGFloat = .infinity
         var maxY: CGFloat = -.infinity
-        var textMinX: CGFloat = .infinity
         var pageMinX: CGFloat = .infinity
         var pageMaxX: CGFloat = -.infinity
         var foundAnyBounds = false
@@ -2173,15 +2213,12 @@ class PDFCoverageOverlayView: PlatformViewBase {
                 
                 minY = min(minY, boundsInOverlay.minY)
                 maxY = max(maxY, boundsInOverlay.maxY)
-                textMinX = min(textMinX, boundsInOverlay.minX)
-                
+
                 foundAnyBounds = true
             }
         }
         
         if foundAnyBounds && minY != .infinity && maxY != -.infinity && minY < maxY {
-            // Calculate line position with overlap prevention
-            let verticalRange = minY...maxY
             let horizontalInset: CGFloat = 6
             let minimumPageX = pageMinX.isFinite ? pageMinX + horizontalInset : horizontalInset
             let maximumPageX = pageMaxX.isFinite ? pageMaxX - horizontalInset : bounds.maxX - horizontalInset
@@ -2189,46 +2226,20 @@ class PDFCoverageOverlayView: PlatformViewBase {
             let marginLimitX = pageMinX + (pageWidth * marginFraction)
             let lineRangeUpperBound = min(maximumPageX, marginLimitX)
             let lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
-            
+
             // Deterministic per-shot colour (matches iPad viewer and exporters).
             let lineColor = color(for: shot)
-            print("   ✏️ [EDITOR DRAW] Using color \(lineColor) for shot \(shot.displayNumber)")
 
-            // Draw shot number at the top
             let shotLabel = shot.displayNumber
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: PlatformFont.boldSystemFont(ofSize: 11),
                 .foregroundColor: lineColor
             ]
-            
-            let attributedString = NSAttributedString(string: shotLabel, attributes: attributes)
-            let textSize = attributedString.size()
-            let padding: CGFloat = 4
-            let labelWidth = textSize.width
-            let pageX = calculateLineX(
-                for: shot,
-                at: verticalRange,
-                within: lineRangeLowerBound...lineRangeUpperBound,
-                minimumCenterSpacing: labelWidth + 6,
-                existingLines: &existingLines
-            )
-            
-            // The label's resting rect at the base font, centered above the line's
-            // visual top. The overlay is y-up on macOS (larger Y = top) and y-down
-            // on iOS (smaller Y = top), so the "above" direction differs.
-            #if os(macOS)
-            let labelTopY = max(minY, maxY)
-            let baseLabelRect = CGRect(x: pageX - textSize.width / 2, y: labelTopY + padding,
-                                       width: labelWidth, height: textSize.height)
-            #else
-            let labelTopY = min(minY, maxY)
-            let baseLabelRect = CGRect(x: pageX - textSize.width / 2,
-                                       y: labelTopY - padding - textSize.height,
-                                       width: labelWidth, height: textSize.height)
-            #endif
-            return CoveragePlacement(
-                pageX: pageX, minY: minY, maxY: maxY, color: lineColor,
-                label: shotLabel, baseLabelRect: baseLabelRect,
+            let textSize = NSAttributedString(string: shotLabel, attributes: attributes).size()
+
+            return RawLine(
+                minY: minY, maxY: maxY, color: lineColor, label: shotLabel,
+                textSize: textSize, band: lineRangeLowerBound...lineRangeUpperBound,
                 minPageX: minimumPageX, maxPageX: maximumPageX)
         }
         return nil

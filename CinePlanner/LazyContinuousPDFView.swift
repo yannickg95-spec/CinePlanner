@@ -809,29 +809,54 @@ private final class CoverageBarsView: UIView {
             let x: CGFloat, minY: CGFloat, maxY: CGFloat
             let color: UIColor, label: String, baseLabelRect: CGRect
         }
+        struct RawBar { let minY: CGFloat, maxY: CGFloat, color: UIColor, label: String, textSize: CGSize }
 
-        // Pass 1: place the bars across the margin (label-width spacing).
-        var existingLines: [(range: ClosedRange<CGFloat>, offset: CGFloat)] = []
-        var placements: [Placement] = []
+        // Pass 1: resolve each bar's vertical extent (no X yet).
+        var raws: [RawBar] = []
         for bar in bars {
             let a = viewY(bar.maxY), b = viewY(bar.minY)
-            let minY = min(a, b), maxY = max(a, b)
-            let verticalRange = minY...maxY
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: 11),
                 .foregroundColor: bar.color
             ]
             let textSize = NSAttributedString(string: bar.label, attributes: attrs).size()
-            let x = Self.calculateLineX(
-                verticalRange: verticalRange,
-                xRange: xLower...xUpper,
-                minimumCenterSpacing: textSize.width + 6,
-                existingLines: &existingLines)
+            raws.append(RawBar(minY: min(a, b), maxY: max(a, b), color: bar.color,
+                               label: bar.label, textSize: textSize))
+        }
+
+        // Assign columns by true vertical density (earliest-start interval
+        // colouring): bars that don't share vertical space reuse a column, so the
+        // column count is the largest number of bars overlapping at any one point.
+        var columns = [Int](repeating: 0, count: raws.count)
+        var columnMaxY: [CGFloat] = []
+        for idx in raws.indices.sorted(by: { raws[$0].minY < raws[$1].minY }) {
+            var placed = false
+            for c in columnMaxY.indices where columnMaxY[c] <= raws[idx].minY {
+                columnMaxY[c] = raws[idx].maxY; columns[idx] = c; placed = true; break
+            }
+            if !placed { columns[idx] = columnMaxY.count; columnMaxY.append(raws[idx].maxY) }
+        }
+        let columnCount = max(1, columnMaxY.count)
+
+        // Pack columns tightly from the text edge outward, spaced by exactly enough
+        // for a full-size shot number so labels never overlap yet stay compact.
+        // Only when that won't fit do we spread evenly across the whole band — the
+        // crowded case where the numbers then shrink to suit.
+        let band = xUpper - xLower
+        let labelSpacing = (raws.map { $0.textSize.width }.max() ?? 0) + 4
+        func columnX(_ column: Int) -> CGFloat {
+            guard columnCount > 1 else { return xUpper }
+            let step = min(labelSpacing, band / CGFloat(columnCount - 1))
+            return xUpper - CGFloat(column) * step
+        }
+        var placements: [Placement] = []
+        for (i, raw) in raws.enumerated() {
+            let x = columnX(columns[i])
             let padding: CGFloat = 2
-            let baseLabelRect = CGRect(x: x - textSize.width / 2, y: minY - padding - textSize.height,
-                                       width: textSize.width, height: textSize.height)
-            placements.append(Placement(x: x, minY: minY, maxY: maxY, color: bar.color,
-                                        label: bar.label, baseLabelRect: baseLabelRect))
+            let baseLabelRect = CGRect(x: x - raw.textSize.width / 2, y: raw.minY - padding - raw.textSize.height,
+                                       width: raw.textSize.width, height: raw.textSize.height)
+            placements.append(Placement(x: x, minY: raw.minY, maxY: raw.maxY, color: raw.color,
+                                        label: raw.label, baseLabelRect: baseLabelRect))
         }
 
         // One scale so each shot number stays centered above its own line yet no
@@ -878,38 +903,5 @@ private final class CoverageBarsView: UIView {
         }
     }
 
-    // MARK: Placement helpers (ported from PDFCoverageOverlayView for identical layout)
-
-    private static func calculateLineX(
-        verticalRange: ClosedRange<CGFloat>,
-        xRange: ClosedRange<CGFloat>,
-        minimumCenterSpacing: CGFloat,
-        existingLines: inout [(range: ClosedRange<CGFloat>, offset: CGFloat)]
-    ) -> CGFloat {
-        let usableWidth = xRange.upperBound - xRange.lowerBound
-        guard usableWidth > 0 else { return xRange.lowerBound }
-
-        let targetSlotCount = 8
-        let targetSpacing = targetSlotCount > 1 ? usableWidth / CGFloat(targetSlotCount - 1) : usableWidth
-        let minimumSpacing = max(6, min(minimumCenterSpacing, targetSpacing))
-        let slotCount = max(1, Int(floor(usableWidth / minimumSpacing)) + 1)
-        let actualSpacing = slotCount > 1 ? usableWidth / CGFloat(slotCount - 1) : 0
-
-        for slotIndex in 0..<slotCount {
-            let candidateX = xRange.upperBound - (CGFloat(slotIndex) * actualSpacing)
-            let conflicts = existingLines.contains { existing in
-                existing.range.overlaps(verticalRange)
-                    && abs(existing.offset - candidateX) < max(minimumSpacing - 1, actualSpacing * 0.75)
-            }
-            if !conflicts {
-                existingLines.append((range: verticalRange, offset: candidateX))
-                return candidateX
-            }
-        }
-
-        let fallbackX = xRange.lowerBound
-        existingLines.append((range: verticalRange, offset: fallbackX))
-        return fallbackX
-    }
 }
 #endif
