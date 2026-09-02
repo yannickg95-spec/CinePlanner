@@ -2056,40 +2056,89 @@ struct OptionPickerView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    var body: some View {
-        Button { isPresented.toggle() } label: {
-            HStack {
-                Text(currentLabel)
-                    .foregroundStyle(hasValue ? .primary : .secondary)
-                    // One line, sized to its text — the card is given enough width
-                    // (camera card is capped narrower) so labels never wrap or clip.
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 60)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.1))
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-            )
+    /// The dropdown's pill label, shared by the button/menu on every platform.
+    private var pickerLabel: some View {
+        HStack {
+            Text(currentLabel)
+                .foregroundStyle(hasValue ? .primary : .secondary)
+                // One line, sized to its text — the card is given enough width
+                // (camera card is capped narrower) so labels never wrap or clip.
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        // iPhone: a popover is too small for the longer Size/Type/Grip lists, so
-        // present a sheet (detented, scrollable) where every item fits.
-        // iPad: open beside the button (arrow on its trailing edge) so the popover
-        // has the full screen height. macOS keeps the below-the-button placement.
+        .frame(minWidth: 60)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    /// Per-platform presentation:
+    /// • iPhone — a detented, scrollable sheet (the long lists fit and scroll).
+    /// • iPad — a native menu: it opens instantly and lets you go straight from one
+    ///   dropdown to another (the custom popover felt slow and modal there).
+    /// • macOS — the custom two-column popover below the button.
+    @ViewBuilder private var control: some View {
         #if os(iOS)
-        .applyIf(DeviceLayout.isPhone) { $0.sheet(isPresented: $isPresented) { phoneSheet } }
-        .applyIf(!DeviceLayout.isPhone) { $0.popover(isPresented: $isPresented, arrowEdge: .trailing) { popover } }
+        if DeviceLayout.isPhone {
+            Button { isPresented.toggle() } label: { pickerLabel }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $isPresented) { phoneSheet }
+        } else {
+            Menu { menuContent } label: { pickerLabel }
+        }
         #else
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
+        Button { isPresented.toggle() } label: { pickerLabel }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
         #endif
+    }
+
+    /// The iPad menu's contents: every option (grouped), then add / clear / remove.
+    @ViewBuilder private var menuContent: some View {
+        ForEach(allSections, id: \.title) { section in
+            SwiftUI.Section(section.title) {
+                ForEach(section.options, id: \.value) { option in
+                    Button {
+                        select(option.value)
+                    } label: {
+                        if value == option.value {
+                            Label(option.label, systemImage: "checkmark")
+                        } else {
+                            Text(option.label)
+                        }
+                    }
+                }
+            }
+        }
+        Divider()
+        Button {
+            newName = ""
+            showAdd = true
+        } label: {
+            Label("Add Custom \(noun.capitalized)…", systemImage: "plus")
+        }
+        if hasValue {
+            Button("Clear", role: .destructive) { select("") }
+        }
+        if !customOptions.isEmpty {
+            Menu("Remove Custom") {
+                ForEach(customOptions, id: \.self) { name in
+                    Button(role: .destructive) { removeCustom(name) } label: { Text(name) }
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        control
         .alert("Add Custom \(noun.capitalized)", isPresented: $showAdd) {
             TextField("\(noun.capitalized) name", text: $newName)
             Button("Add") { addCustom(newName) }
