@@ -731,7 +731,8 @@ struct ProjectExporter {
                                  cinematographer: resolvedCinematographer(version?.episode),
                                  scenes: scenes, media: media, schedule: snapshotSchedule())
         try writeIndex(Self.buildHTML(filmName: project.filmName,
-                                      productionCompany: project.productionCompany, episodes: [episode]), into: staging)
+                                      productionCompany: project.productionCompany, episodes: [episode],
+                                      assetURL: Self.fileAssetWriter(staging: staging, subdir: "media")), into: staging)
         return staging
     }
 
@@ -770,7 +771,8 @@ struct ProjectExporter {
                                           scenes: scenes, media: media, schedule: ex.snapshotSchedule()))
         }
         try writeIndex(Self.buildHTML(filmName: project.filmName,
-                                      productionCompany: project.productionCompany, episodes: webEpisodes), into: staging)
+                                      productionCompany: project.productionCompany, episodes: webEpisodes,
+                                      assetURL: Self.fileAssetWriter(staging: staging, subdir: "media")), into: staging)
         return staging
     }
 
@@ -791,20 +793,30 @@ struct ProjectExporter {
         }
     }
 
-    /// Writes an episode's videos into `staging/<mediaSubdir>/` (transcoding any that
-    /// exceed GitHub's size limit) and returns the media map for `buildHTML`. Photos
-    /// stay embedded as data URIs; only videos become sibling files.
+    /// Writes an episode's media into `staging/<mediaSubdir>/` and returns the media
+    /// map for `buildHTML`. On the hosted publish path every image is a sibling file
+    /// referenced by URL (not a data URI): embedding them would pile every photo,
+    /// map and poster into `index.html`, making one blob too big for GitHub's API.
+    /// Videos over GitHub's size limit are transcoded down first.
     private func buildPublishMedia(scenes: [MediaScene], mediaSubdir: String, into staging: URL,
                                    progress: CompressProgress) async throws -> [String: RenderedMedia] {
         let fm = FileManager.default
-        let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
-        if hasVideo {
+        let hasAnyMedia = scenes.contains { $0.shots.contains { $0.references.contains {
+            $0.videoData != nil || $0.mapVideoData != nil || $0.photoData != nil || $0.mapData != nil } } }
+        if hasAnyMedia {
             try fm.createDirectory(at: staging.appendingPathComponent(mediaSubdir, isDirectory: true),
                                    withIntermediateDirectories: true)
         }
 
+        // Writes JPEG bytes into the media folder and returns the page-relative path.
+        func writeImage(_ jpeg: Data, name: String) throws -> String {
+            let file = "\(mediaSubdir)/\(name).jpg"
+            try jpeg.write(to: staging.appendingPathComponent(file))
+            return file
+        }
+
         // Compresses an oversized clip, writes it into the episode's media folder,
-        // and returns its (page-relative) path and a poster frame.
+        // and returns its (page-relative) path plus a poster-frame file.
         func writeWebVideo(_ data: Data, ext: String, name: String) async throws -> (path: String, poster: String?) {
             var outData = data, outExt = ext
             if data.count > Self.gitHubVideoLimit {
@@ -814,30 +826,38 @@ struct ProjectExporter {
             }
             let file = "\(mediaSubdir)/\(name).\(outExt)"
             try outData.write(to: staging.appendingPathComponent(file))
-            return (file, Self.posterFrame(fromVideoData: outData, ext: outExt).map { Self.dataURI($0) })
+            let poster = try Self.posterFrame(fromVideoData: outData, ext: outExt)
+                .map { try writeImage($0, name: "\(name)_poster") }
+            return (file, poster)
         }
 
         var rendered: [String: RenderedMedia] = [:]
         for scene in scenes {
             for shot in scene.shots {
                 for reference in shot.references {
+                    let base = "shot_\(shot.slug)_\(reference.index)"
                     var videoPath: String?
                     var posterURI: String?
                     if let data = reference.videoData {
-                        let out = try await writeWebVideo(data, ext: reference.videoExtension,
-                                                          name: "shot_\(shot.slug)_\(reference.index)_video")
+                        let out = try await writeWebVideo(data, ext: reference.videoExtension, name: "\(base)_video")
                         videoPath = out.path; posterURI = out.poster
                     }
                     var mapVideoPath: String?
                     var mapPosterURI: String?
                     if let mData = reference.mapVideoData {
-                        let out = try await writeWebVideo(mData, ext: reference.mapVideoExtension,
-                                                          name: "shot_\(shot.slug)_\(reference.index)_map")
+                        let out = try await writeWebVideo(mData, ext: reference.mapVideoExtension, name: "\(base)_map")
                         mapVideoPath = out.path; mapPosterURI = out.poster
                     }
+                    // Reference stills go to files too (transcoded to JPEG for the browser).
+                    let photoPath = try reference.photoData
+                        .flatMap { Self.jpegData(from: $0) }
+                        .map { try writeImage($0, name: "\(base)_photo") }
+                    let topDownPath = try reference.mapData
+                        .flatMap { Self.jpegData(from: $0) }
+                        .map { try writeImage($0, name: "\(base)_maptop") }
                     rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
-                        photoURI: reference.photoData.map { Self.dataURI($0) },
-                        topDownURI: reference.mapData.map { Self.dataURI($0) },
+                        photoURI: photoPath,
+                        topDownURI: topDownPath,
                         videoPath: videoPath,
                         posterURI: posterURI,
                         mapVideoPath: mapVideoPath,
@@ -849,6 +869,23 @@ struct ProjectExporter {
         }
 
         return rendered
+    }
+
+    /// A `buildHTML` asset writer for the publish path: saves each image into the
+    /// site's media folder and returns its page-relative URL, so coverage and
+    /// scene-map images stay out of `index.html`.
+    private static func fileAssetWriter(staging: URL, subdir: String) -> (Data, String) -> String {
+        let dir = staging.appendingPathComponent(subdir, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return { data, name in
+            let file = "\(subdir)/\(name).jpg"
+            do {
+                try data.write(to: staging.appendingPathComponent(file))
+                return file
+            } catch {
+                return dataURI(data)   // fall back to embedding so the image still shows
+            }
+        }
     }
 
     // MARK: - Web video compression
@@ -1060,9 +1097,14 @@ struct ProjectExporter {
         return c.isEmpty ? project.cinematographer : c
     }
 
+    /// Resolves an image to the URL used in the page. Defaults to embedding it as a
+    /// data URI (self-contained, needed for the local `file://` export on iOS). The
+    /// publish path passes a writer that saves each image as a sibling file and
+    /// returns a relative URL, so `index.html` never grows into one oversized blob.
     private static func buildHTML(filmName: String,
                                   productionCompany: String = "",
-                                  episodes: [WebEpisode]) -> String {
+                                  episodes: [WebEpisode],
+                                  assetURL: (Data, String) -> String = { data, _ in ProjectExporter.dataURI(data) }) -> String {
         // Production credits. Production Company is project-level; Director and
         // Cinematographer can vary per episode, so for a series they're rebuilt in
         // the browser when the episode changes (from per-episode data attributes).
@@ -1120,14 +1162,14 @@ struct ProjectExporter {
             var coverageClass: String? = nil
             if let cov = scene.coverage {
                 let cls = "cov-\(e)-\(index)"
-                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(cov.data))); aspect-ratio: \(Int(cov.width)) / \(Int(cov.height)); }\n"
+                coverageStyles += "          .\(cls) { background-image: url(\(assetURL(cov.data, "cov_\(e)_\(index)"))); aspect-ratio: \(Int(cov.width)) / \(Int(cov.height)); }\n"
                 coverageClass = cls
             }
             // The scene map, embedded once per scene as its own background rule.
             var mapClass: String? = nil
             if let map = scene.map {
                 let cls = "map-\(e)-\(index)"
-                coverageStyles += "          .\(cls) { background-image: url(\(Self.dataURI(map.data))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); }\n"
+                coverageStyles += "          .\(cls) { background-image: url(\(assetURL(map.data, "map_\(e)_\(index)"))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); }\n"
                 mapClass = cls
             }
             let timeLabel = scene.isDay ? "DAY" : "NIGHT"
