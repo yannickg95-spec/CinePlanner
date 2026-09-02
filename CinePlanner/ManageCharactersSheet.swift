@@ -83,11 +83,7 @@ struct ManageCharactersSheet: View {
                 Button {
                     character.wrappedValue.colorHex = item.hex
                 } label: {
-                    if character.wrappedValue.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame {
-                        Label(item.name, systemImage: "checkmark")
-                    } else {
-                        Text(item.name)
-                    }
+                    menuSelectionLabel(item.name, isSelected: character.wrappedValue.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame)
                 }
             }
         } label: {

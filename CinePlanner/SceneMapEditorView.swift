@@ -373,11 +373,7 @@ struct SceneMapEditorView: View {
                             Button {
                                 addCamera(for: shot)
                             } label: {
-                                if hasCamera(for: shot) {
-                                    Label(cameraMenuLabel(for: shot), systemImage: "checkmark")
-                                } else {
-                                    Text(cameraMenuLabel(for: shot))
-                                }
+                                menuSelectionLabel(cameraMenuLabel(for: shot), isSelected: hasCamera(for: shot))
                             }
                             .disabled(hasCamera(for: shot))
                         }
@@ -2672,11 +2668,7 @@ private struct MapMarkerView: View {
                         Button {
                             onSetCharacter(character)
                         } label: {
-                            if element.label.caseInsensitiveCompare(character.name) == .orderedSame {
-                                Label(character.name, systemImage: "checkmark")
-                            } else {
-                                Text(character.name)
-                            }
+                            menuSelectionLabel(character.name, isSelected: element.label.caseInsensitiveCompare(character.name) == .orderedSame)
                         }
                     }
                 }
@@ -2704,11 +2696,7 @@ private struct MapMarkerView: View {
                     Divider()
                     ForEach(fovProfiles, id: \.id) { profile in
                         Button { onSelectFOVProfile(profile.id) } label: {
-                            if selectedFOVProfileID == profile.id {
-                                Label(profile.label, systemImage: "checkmark")
-                            } else {
-                                Text(profile.label)
-                            }
+                            menuSelectionLabel(profile.label, isSelected: selectedFOVProfileID == profile.id)
                         }
                     }
                 }
@@ -2723,11 +2711,7 @@ private struct MapMarkerView: View {
                 Button {
                     onSetColor(item.hex)
                 } label: {
-                    if element.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame {
-                        Label(item.name, systemImage: "checkmark")
-                    } else {
-                        Text(item.name)
-                    }
+                    menuSelectionLabel(item.name, isSelected: element.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame)
                 }
             }
         }
@@ -2743,11 +2727,7 @@ private struct MapMarkerView: View {
     @ViewBuilder
     private func fovBasisButton(_ basis: FOVBasis) -> some View {
         Button { onSetFOVBasis(basis) } label: {
-            if fovBasis == basis {
-                Label(basis.menuLabel, systemImage: "checkmark")
-            } else {
-                Text(basis.menuLabel)
-            }
+            menuSelectionLabel(basis.menuLabel, isSelected: fovBasis == basis)
         }
     }
 
@@ -3484,11 +3464,7 @@ private struct FurnitureView: View {
                 Button {
                     onSetColor(item.hex)
                 } label: {
-                    if furniture.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame {
-                        Label(item.name, systemImage: "checkmark")
-                    } else {
-                        Text(item.name)
-                    }
+                    menuSelectionLabel(item.name, isSelected: furniture.colorHex.caseInsensitiveCompare(item.hex) == .orderedSame)
                 }
             }
         }

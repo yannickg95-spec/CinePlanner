@@ -1985,7 +1985,6 @@ struct OptionPickerView: View {
     // Custom options are stored as one newline-joined string because @AppStorage
     // can't hold an array directly. The key is per-field, passed in at init.
     @AppStorage private var customRaw: String
-    @State private var isPresented = false
     @State private var showAdd = false
     @State private var newName = ""
 
@@ -2025,37 +2024,6 @@ struct OptionPickerView: View {
         return result
     }
 
-    /// Splits the sections into two balanced columns, keeping each section whole
-    /// and preserving top-to-bottom order within a column. A section's weight is
-    /// its options plus one for the header row.
-    private func splitColumns(_ sections: [Section]) -> (left: [Section], right: [Section]) {
-        let total = sections.reduce(0) { $0 + $1.options.count + 1 }
-        var accumulated = 0
-        var breakIndex = sections.count
-        for (index, section) in sections.enumerated() {
-            accumulated += section.options.count + 1
-            if accumulated >= (total + 1) / 2 { breakIndex = index + 1; break }
-        }
-        return (Array(sections[..<breakIndex]), Array(sections[breakIndex...]))
-    }
-
-    // Flat (ungrouped) layout: every built-in option followed by the customs,
-    // each tagged so custom ones can carry a remove button.
-    private var flatItems: [(option: Option, isCustom: Bool)] {
-        var items = sections.flatMap { $0.options }.map { (option: $0, isCustom: false) }
-        items += customOptions.map { (option: (label: $0, value: $0), isCustom: true) }
-        return items
-    }
-
-    private func itemColumn(_ items: [(option: Option, isCustom: Bool)]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(items, id: \.option.value) { item in
-                optionChip(item.option, removable: item.isCustom)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     /// The dropdown's pill label, shared by the button/menu on every platform.
     private var pickerLabel: some View {
         HStack {
@@ -2080,25 +2048,15 @@ struct OptionPickerView: View {
         )
     }
 
-    /// Per-platform presentation:
-    /// • iPhone — a detented, scrollable sheet (the long lists fit and scroll).
-    /// • iPad — a native menu: it opens instantly and lets you go straight from one
-    ///   dropdown to another (the custom popover felt slow and modal there).
-    /// • macOS — the custom two-column popover below the button.
-    @ViewBuilder private var control: some View {
-        #if os(iOS)
-        if DeviceLayout.isPhone {
-            Button { isPresented.toggle() } label: { pickerLabel }
-                .buttonStyle(.plain)
-                .sheet(isPresented: $isPresented) { phoneSheet }
-        } else {
-            Menu { menuContent } label: { pickerLabel }
-        }
-        #else
-        Button { isPresented.toggle() } label: { pickerLabel }
-            .buttonStyle(.plain)
-            .popover(isPresented: $isPresented, arrowEdge: .bottom) { popover }
-        #endif
+    /// A native menu on every platform: it opens instantly and lets you go straight
+    /// from one dropdown to another.
+    private var control: some View {
+        Menu { menuContent } label: { pickerLabel }
+            .menuIndicator(.hidden)
+            #if os(macOS)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            #endif
     }
 
     /// The iPad menu's contents: every option (grouped), then add / clear / remove.
@@ -2109,11 +2067,7 @@ struct OptionPickerView: View {
                     Button {
                         select(option.value)
                     } label: {
-                        if value == option.value {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Text(option.label)
-                        }
+                        menuSelectionLabel(option.label, isSelected: value == option.value)
                     }
                 }
             }
@@ -2149,165 +2103,8 @@ struct OptionPickerView: View {
     }
 
     /// The option columns/sections, without the Add/Clear footer.
-    @ViewBuilder private var pickerOptions: some View {
-        if grouped {
-            let split = splitColumns(allSections)
-            HStack(alignment: .top, spacing: 16) {
-                sectionColumn(split.left)
-                sectionColumn(split.right)
-            }
-        } else {
-            // A single column of titled sections (e.g. Sizes and Framing),
-            // like the grouped picker but not split into two columns.
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(sections, id: \.title) { section in
-                    optionSection(section)
-                }
-                if !customOptions.isEmpty {
-                    optionSection((title: "Custom", options: customOptions.map { (label: $0, value: $0) }))
-                }
-            }
-        }
-    }
-
-    private var popover: some View {
-        // No fixed height — the popover fits its content, so a short list (sizes)
-        // doesn't leave empty space below. On iPad the taller lists (Type) can
-        // exceed the available popover height, so the options scroll there while
-        // the Add/Clear footer stays pinned.
-        VStack(alignment: .leading, spacing: 12) {
-            #if os(iOS)
-            ScrollView {
-                pickerOptions.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            // Tall enough that the built-in Size/Type/Grip lists show in full on any
-            // iPad (all are ≥744pt high); only very long custom lists still scroll.
-            .frame(maxHeight: 600)
-            #else
-            pickerOptions
-            #endif
-
-            Divider()
-            pickerFooter
-        }
-        .padding(12)
-        .frame(width: grouped ? 360 : 240)
-        #if os(iOS)
-        // Keep it a popover (not a full-screen sheet) even in a compact width.
-        .presentationCompactAdaptation(.popover)
-        #endif
-    }
-
-    /// iPhone: the picker as a detented, scrollable sheet — the whole list fits and
-    /// scrolls, unlike a size-constrained popover.
-    private var phoneSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ScrollView {
-                pickerOptions.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Divider()
-            pickerFooter
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-
-    /// The Add-custom / Clear row shown under the options in both presentations.
-    private var pickerFooter: some View {
-        HStack {
-            Button {
-                // Close the popover first, then raise the alert — macOS
-                // doesn't present an alert cleanly over an open popover.
-                isPresented = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    newName = ""
-                    showAdd = true
-                }
-            } label: {
-                Label("Add Custom \(noun.capitalized)…", systemImage: "plus")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
-
-            Spacer()
-
-            if hasValue {
-                Button("Clear") { select("") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// One of the two side-by-side columns: a stack of whole sections.
-    private func sectionColumn(_ sections: [Section]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(sections, id: \.title) { section in
-                optionSection(section)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// A section header with its options listed vertically underneath.
-    private func optionSection(_ section: Section) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(section.title.uppercased())
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-            ForEach(section.options, id: \.value) { option in
-                optionChip(option, removable: section.title == "Custom")
-            }
-        }
-    }
-
-    private func optionChip(_ option: Option, removable: Bool = false) -> some View {
-        let selected = option.value.caseInsensitiveCompare(value) == .orderedSame
-        // The whole padded chip is the button (contentShape covers it), so a click
-        // anywhere on the row selects — not just on the text. The remove-× floats
-        // on top as its own button.
-        return Button {
-            select(option.value)
-        } label: {
-            Text(option.label)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 8)
-                .padding(.trailing, removable ? 26 : 8)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(selected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
-        )
-        .overlay(alignment: .trailing) {
-            if removable {
-                Button {
-                    removeCustom(option.value)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 6)
-                .help("Remove this custom \(noun)")
-            }
-        }
-    }
-
     private func select(_ newValue: String) {
         value = newValue
-        isPresented = false
         onSelect?(newValue)
     }
 

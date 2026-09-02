@@ -117,6 +117,17 @@ private extension View {
     }
 }
 
+// MARK: - Menu selection label
+
+/// A menu-row label that shows the title with a *trailing* checkmark when
+/// selected. A native menu always pulls an `Image` (e.g. `Label(_, systemImage:)`)
+/// to the leading edge, which shifts the selected row's text right of the others;
+/// rendering the check as a trailing text glyph instead keeps every row's text
+/// aligned with the check at the end.
+func menuSelectionLabel(_ title: String, isSelected: Bool) -> some View {
+    Text(isSelected ? "\(title)  ✓" : title)
+}
+
 // MARK: - SwiftUI Image
 
 extension Image {

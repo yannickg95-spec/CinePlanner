@@ -192,8 +192,7 @@ struct OnSetModeView: View {
                     Menu {
                         ForEach(days, id: \.uid) { d in
                             Button { selectedDayUID = d.uid } label: {
-                                if d.uid == day.uid { Label(dayLabel(d), systemImage: "checkmark") }
-                                else { Text(dayLabel(d)) }
+                                menuSelectionLabel(dayLabel(d), isSelected: d.uid == day.uid)
                             }
                         }
                     } label: {
