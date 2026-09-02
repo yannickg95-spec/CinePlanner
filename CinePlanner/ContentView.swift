@@ -2049,12 +2049,14 @@ struct OptionPickerView: View {
     }
 
     /// A native menu on every platform: it opens instantly and lets you go straight
-    /// from one dropdown to another.
+    /// from one dropdown to another. On macOS the menu is rendered as a plain button
+    /// so the trigger is exactly the pill label — identical to iOS/iPadOS.
     private var control: some View {
         Menu { menuContent } label: { pickerLabel }
             .menuIndicator(.hidden)
             #if os(macOS)
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .fixedSize()
             #endif
     }
