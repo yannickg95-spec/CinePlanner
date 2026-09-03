@@ -427,6 +427,8 @@ struct ExportOptionsSheet: View {
                         }
                         .buttonStyle(.plain)
                         .help("Choose what to include in the PDF")
+                        .accessibilityLabel("PDF settings")
+                        .accessibilityHint("Choose what to include in the PDF")
                         Text(pdfPresetName)
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)

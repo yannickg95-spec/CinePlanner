@@ -570,6 +570,7 @@ struct ImagePreviewSheet: View {
 
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
+                    .accessibilityLabel("Close")
                     .font(.title)
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)

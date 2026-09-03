@@ -1317,6 +1317,7 @@ struct ShotDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Card settings")
+                    .accessibilityLabel("Card settings")
                 }
             }
 
@@ -2252,6 +2253,7 @@ struct PhotoSlot: View {
                             }
                             .buttonStyle(.plain)
                             .help("View full size")
+                            .accessibilityLabel("View full size")
                         }
                         if let onDelete {
                             Button(action: onDelete) {
@@ -2263,6 +2265,7 @@ struct PhotoSlot: View {
                             }
                             .buttonStyle(.plain)
                             .help("Remove photo")
+                            .accessibilityLabel("Remove photo")
                         }
                     }
                     .padding(8)

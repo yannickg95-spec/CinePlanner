@@ -119,6 +119,7 @@ struct OnSetModeView: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(live.isRunning ? "Stop Live Activity" : "Start Live Activity")
                     .disabled(selectedDay == nil)
                     .help(live.isRunning ? "Stop the Live Activity" : "Show this day on the Lock Screen (Live Activity)")
                 }
@@ -126,6 +127,7 @@ struct OnSetModeView: View {
                 if project != nil {
                     Button { showSchedule = true } label: {
                         Image(systemName: "calendar")
+                            .accessibilityLabel("Shooting schedule")
                             .font(.system(size: 15))
                             .foregroundStyle(.secondary)
                             .frame(width: 32, height: 32)

@@ -1273,6 +1273,7 @@ struct ProjectEditorView: View {
             }
             .buttonStyle(.plain)
             .help("Publish this shot list to the web through your GitHub account")
+            .accessibilityLabel("Publish to GitHub")
         }
     }
 
@@ -1697,6 +1698,7 @@ struct ProjectEditorView: View {
     private var scheduleButton: some View {
         Button { showScheduleSheet = true } label: {
             Image(systemName: "calendar")
+                .accessibilityLabel("Shooting schedule")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
@@ -1713,6 +1715,7 @@ struct ProjectEditorView: View {
     private var onSetButton: some View {
         Button { onSet.version = selectedVersion } label: {
             Image(systemName: "film")
+                .accessibilityLabel("On Set mode")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)

@@ -440,6 +440,8 @@ struct SceneMapEditorView: View {
         .modifier(SegmentedGroup(height: toolbarPillHeight))
         .disabled(mapIsEmpty)
         .help("Clear Map — remove everything from the scene map")
+        .accessibilityLabel("Clear map")
+        .accessibilityHint("Removes everything from the scene map")
     }
 
     /// The marker-size toggle (when relevant) plus the sun overlay and its settings.
@@ -460,6 +462,9 @@ struct SceneMapEditorView: View {
                 .help(scene.sceneMapViewableMarkerSize
                       ? "Markers: easy-to-see size — tap for real-world scale"
                       : "Markers: real-world scale — tap for an easy-to-see size")
+                .accessibilityLabel(scene.sceneMapViewableMarkerSize
+                                    ? "Switch markers to real-world scale"
+                                    : "Switch markers to an easy-to-see size")
             }
             Button {
                 sun.enabled.toggle()
@@ -483,6 +488,7 @@ struct SceneMapEditorView: View {
             .buttonStyle(.borderless)
             .modifier(SegmentedGroup(height: toolbarPillHeight))
             .help("Location details")
+            .accessibilityLabel("Location details")
         }
     }
 

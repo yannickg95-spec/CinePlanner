@@ -229,6 +229,7 @@ struct ProjectListView: View {
                                 Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Clear search")
                         }
                     }
                     .padding(.horizontal, 10)

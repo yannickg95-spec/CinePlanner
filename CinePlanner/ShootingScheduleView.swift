@@ -933,6 +933,8 @@ private struct ScheduleShotPicker: View {
                                     .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Shot \(shot.displayNumber)")
+                            .accessibilityAddTraits(selected.contains(shot.uid) ? .isSelected : [])
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("Shot \(shot.displayNumber)").font(.body)
                                 let sub = shotSubtitle(shot)
@@ -1046,6 +1048,8 @@ private struct ConflictBadgeButton: View {
         }
         .buttonStyle(.plain)
         .help("Some of these shots are also planned on another day")
+        .accessibilityLabel("Scheduling conflict")
+        .accessibilityHint("Some of these shots are also planned on another day")
         .popover(isPresented: $show) {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Also planned on another day", systemImage: "exclamationmark.triangle.fill")

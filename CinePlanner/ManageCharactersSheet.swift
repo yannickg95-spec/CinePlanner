@@ -62,6 +62,7 @@ struct ManageCharactersSheet: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Delete character")
+                        .accessibilityLabel("Delete character")
                     }
                     .padding(.vertical, 2)
                 }

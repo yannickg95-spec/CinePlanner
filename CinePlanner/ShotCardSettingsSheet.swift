@@ -77,6 +77,7 @@ struct ShotCardSettingsSheet: View {
             }
             .buttonStyle(.plain)
             .help(hidden ? "Show this field" : "Hide this field for this project")
+            .accessibilityLabel(hidden ? "Show \(field.label)" : "Hide \(field.label)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
