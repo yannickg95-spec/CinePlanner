@@ -8,3 +8,9 @@ build/
 
 # Leftovers from cloud-sync conflicts (".git 2", ".git 3", …)
 .git [0-9]/
+
+# Per-user Xcode state (scheme order, breakpoints) — not shared
+xcuserdata/
+
+# Marketing copy, kept out of the code repo
+CinePlanner-Marketing-Brief.md
