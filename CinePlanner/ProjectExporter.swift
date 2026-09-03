@@ -885,13 +885,15 @@ struct ProjectExporter {
     /// scene-map images stay out of `index.html`.
     private static func fileAssetWriter(staging: URL, subdir: String) -> (Data, String) -> String {
         let dir = staging.appendingPathComponent(subdir, isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        catch { Log.export.error("Could not create the site's media folder, images will be embedded instead: \(error.localizedDescription)") }
         return { data, name in
             let file = "\(subdir)/\(name).jpg"
             do {
                 try data.write(to: staging.appendingPathComponent(file))
                 return file
             } catch {
+                Log.export.notice("Could not write \(name, privacy: .public) to the media folder, embedding it instead: \(error.localizedDescription)")
                 return dataURI(data)   // fall back to embedding so the image still shows
             }
         }
@@ -912,7 +914,11 @@ struct ProjectExporter {
     static func videoForWeb(data: Data, ext: String, maxBytes: Int) async -> (data: Data, ext: String) {
         let fm = FileManager.default
         let src = fm.temporaryDirectory.appendingPathComponent("src_\(UUID().uuidString).\(ext)")
-        guard (try? data.write(to: src)) != nil else { return (data, ext) }
+        do { try data.write(to: src) }
+        catch {
+            Log.export.error("Could not stage a video for compression, publishing it at full size: \(error.localizedDescription)")
+            return (data, ext)
+        }
         defer { try? fm.removeItem(at: src) }
 
         let asset = AVURLAsset(url: src)
@@ -936,9 +942,14 @@ struct ProjectExporter {
         do {
             try await session.export(to: out, as: .mp4)
         } catch {
+            Log.export.notice("Video transcode to \(preset, privacy: .public) failed: \(error.localizedDescription)")
             return nil
         }
-        return try? Data(contentsOf: out)
+        do { return try Data(contentsOf: out) }
+        catch {
+            Log.export.error("Transcoded video could not be read back: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Writes "<name>.html" + media/ into a temp folder and zips it to `destination`.
@@ -1145,8 +1156,11 @@ struct ProjectExporter {
                  "entries": day.entries.map { e -> [String: Any] in
                     ["s": e.sceneIndex, "all": e.allShots, "shots": Array(e.scheduledShotNumbers), "note": e.note] }]
             }
-            if let data = try? JSONSerialization.data(withJSONObject: days),
-               let str = String(data: data, encoding: .utf8) {
+            guard let data = try? JSONSerialization.data(withJSONObject: days) else {
+                Log.export.error("Could not encode the shooting schedule; the published page will have no day view.")
+                return "[]"
+            }
+            if let str = String(data: data, encoding: .utf8) {
                 // This JSON is inlined into a <script> element, and JSONSerialization
                 // leaves "<" alone. A day note containing "</script>" would close the
                 // element early and break the published page, so escape it — inside

@@ -32,6 +32,8 @@ enum Log {
     static let sceneMap = Logger(subsystem: subsystem, category: "sceneMap")
     /// Bringing in shots from CineStager and Cadrage.
     static let importer = Logger(subsystem: subsystem, category: "import")
+    /// Snapshots, restores and quarantine of the data store.
+    static let backup = Logger(subsystem: subsystem, category: "backup")
     /// Everything else in the app shell.
     static let app = Logger(subsystem: subsystem, category: "app")
 }

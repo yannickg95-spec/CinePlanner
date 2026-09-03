@@ -14,6 +14,7 @@
 
 import Foundation
 import SwiftData
+import os
 
 enum StoreBackup {
     static let maxBackups = 12
@@ -131,6 +132,7 @@ enum StoreBackup {
                 try cloneOrCopy(from: item, to: dest.appending(path: item.lastPathComponent))
             }
         } catch {
+            Log.backup.error("Snapshot failed, discarding the partial copy: \(error.localizedDescription)")
             try? FileManager.default.removeItem(at: dest)   // don't leave a partial snapshot
             return
         }
@@ -148,7 +150,9 @@ enum StoreBackup {
         let all = listBackups()   // newest first
         guard all.count > maxBackups else { return }
         for backup in all.dropFirst(maxBackups) {
-            try? FileManager.default.removeItem(at: backup.url)
+            do { try FileManager.default.removeItem(at: backup.url) }
+            // Not fatal, but it means the backup folder keeps growing unnoticed.
+            catch { Log.backup.notice("Could not prune an old snapshot: \(error.localizedDescription)") }
         }
     }
 
@@ -212,7 +216,10 @@ enum StoreBackup {
         for item in storeItems(for: storeURL) {
             let aside = item.deletingLastPathComponent()
                 .appending(path: item.lastPathComponent + ".corrupt-\(stamp)")
-            try? FileManager.default.moveItem(at: item, to: aside)
+            do { try FileManager.default.moveItem(at: item, to: aside) }
+            // The last rung of the recovery ladder: if the bad store cannot be
+            // moved aside, the fresh one is about to be created on top of it.
+            catch { Log.backup.error("Could not quarantine an unreadable store file: \(error.localizedDescription)") }
         }
     }
 
@@ -230,7 +237,9 @@ enum StoreBackup {
         for item in storeItems(for: storeURL) {
             let name = item.lastPathComponent
             guard name.contains(base) || restorable.contains(name) else { continue }
-            try? FileManager.default.removeItem(at: item)
+            do { try FileManager.default.removeItem(at: item) }
+            // A leftover file here can shadow what we are about to restore.
+            catch { Log.backup.error("Could not clear \(name, privacy: .public) before restoring: \(error.localizedDescription)") }
         }
         var ok = true
         for item in items {
