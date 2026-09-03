@@ -18,6 +18,13 @@
 			remoteGlobalIDString = DEADBEEFDEADBEEFDEAD0001;
 			remoteInfo = OnSetWidgetExtension;
 		};
+		DEADBEEFDEADBEEFDEAD010A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8C819A822EF043DF009E48CD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8C819A892EF043DF009E48CD;
+			remoteInfo = "CineStager 2";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,6 +45,7 @@
 		8C46A16730165D7500A99C96 /* CineStager 2.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CineStager 2.entitlements"; sourceTree = "<group>"; };
 		8C819A8A2EF043DF009E48CD /* CinePlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OnSetWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DEADBEEFDEADBEEFDEAD0101 /* CinePlannerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CinePlannerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -69,6 +77,11 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		DEADBEEFDEADBEEFDEAD0105 /* CinePlannerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CinePlannerTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -86,6 +99,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DEADBEEFDEADBEEFDEAD0103 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -96,6 +116,7 @@
 				8C819A8C2EF043DF009E48CD /* CinePlanner */,
 				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
 				DEADBEEFDEADBEEFDEAD0003 /* OnSetWidget */,
+				DEADBEEFDEADBEEFDEAD0105 /* CinePlannerTests */,
 				8C819A8B2EF043DF009E48CD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -105,6 +126,7 @@
 			children = (
 				8C819A8A2EF043DF009E48CD /* CinePlanner.app */,
 				DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */,
+				DEADBEEFDEADBEEFDEAD0101 /* CinePlannerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -160,6 +182,29 @@
 			productReference = DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		DEADBEEFDEADBEEFDEAD0100 /* CinePlannerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DEADBEEFDEADBEEFDEAD0106 /* Build configuration list for PBXNativeTarget "CinePlannerTests" */;
+			buildPhases = (
+				DEADBEEFDEADBEEFDEAD0102 /* Sources */,
+				DEADBEEFDEADBEEFDEAD0103 /* Frameworks */,
+				DEADBEEFDEADBEEFDEAD0104 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DEADBEEFDEADBEEFDEAD0109 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DEADBEEFDEADBEEFDEAD0105 /* CinePlannerTests */,
+			);
+			name = CinePlannerTests;
+			packageProductDependencies = (
+			);
+			productName = CinePlannerTests;
+			productReference = DEADBEEFDEADBEEFDEAD0101 /* CinePlannerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -175,6 +220,9 @@
 					};
 					DEADBEEFDEADBEEFDEAD0001 = {
 						CreatedOnToolsVersion = 26.1.1;
+					};
+					DEADBEEFDEADBEEFDEAD0100 = {
+						TestTargetID = 8C819A892EF043DF009E48CD;
 					};
 				};
 			};
@@ -194,6 +242,7 @@
 			targets = (
 				8C819A892EF043DF009E48CD /* CineStager 2 */,
 				DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */,
+				DEADBEEFDEADBEEFDEAD0100 /* CinePlannerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -207,6 +256,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DEADBEEFDEADBEEFDEAD0007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DEADBEEFDEADBEEFDEAD0104 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -230,6 +286,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DEADBEEFDEADBEEFDEAD0102 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -238,6 +301,11 @@
 			platformFilter = ios;
 			target = DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */;
 			targetProxy = DEADBEEFDEADBEEFDEAD000E /* PBXContainerItemProxy */;
+		};
+		DEADBEEFDEADBEEFDEAD0109 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8C819A892EF043DF009E48CD /* CineStager 2 */;
+			targetProxy = DEADBEEFDEADBEEFDEAD010A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -524,6 +592,54 @@
 			};
 			name = Release;
 		};
+		DEADBEEFDEADBEEFDEAD0107 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65W863L6A3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlannerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CinePlanner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CinePlanner";
+			};
+			name = Debug;
+		};
+		DEADBEEFDEADBEEFDEAD0108 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65W863L6A3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlannerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CinePlanner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CinePlanner";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -550,6 +666,15 @@
 			buildConfigurations = (
 				DEADBEEFDEADBEEFDEAD0009 /* Debug */,
 				DEADBEEFDEADBEEFDEAD000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DEADBEEFDEADBEEFDEAD0106 /* Build configuration list for PBXNativeTarget "CinePlannerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DEADBEEFDEADBEEFDEAD0107 /* Debug */,
+				DEADBEEFDEADBEEFDEAD0108 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
