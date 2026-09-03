@@ -18,6 +18,11 @@ import SwiftData
 enum StoreBackup {
     static let maxBackups = 12
 
+    /// Whether a snapshot has already been taken this launch. `backupBeforeOpening`
+    /// is the normal path; the post-open pass exists only to cover the very first
+    /// launch, and must not add a second copy of the same moment.
+    private static var snapshotTakenThisLaunch = false
+
     private static let restorePendingKey = "pendingRestoreBackupPath"
     private static let storeURLKey = "recordedStoreURL"
 
@@ -81,7 +86,11 @@ enum StoreBackup {
 
     /// Snapshots the current store after a successful open — covers the very
     /// first launch, when there was no recorded location to snapshot beforehand.
+    /// On every other launch `backupBeforeOpening` has already run, so this is a
+    /// no-op: opening the store writes to it, which would otherwise defeat the
+    /// "did anything change?" check in `snapshot` and duplicate that snapshot.
     static func backupIfNeeded(container: ModelContainer) {
+        guard !snapshotTakenThisLaunch else { return }
         guard let url = container.configurations.first?.url else { return }
         snapshot(storeURL: url)
     }
@@ -105,6 +114,7 @@ enum StoreBackup {
             try? FileManager.default.removeItem(at: dest)   // don't leave a partial snapshot
             return
         }
+        snapshotTakenThisLaunch = true
         prune()
     }
 
