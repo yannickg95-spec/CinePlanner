@@ -804,15 +804,17 @@ final class ShotReference {
     var uid: String = UUID().uuidString
     var sortOrder: Int = 0
 
-    // Media — exactly one of these is set
-    var imageData: Data?
-    var videoData: Data?
+    // Media — exactly one of these is set. Stored as files beside the store
+    // rather than inline: a reference photo is ~0.8 MB and a video far more, and
+    // inline blobs bloat every row, every fetch and every CloudKit record.
+    @Attribute(.externalStorage) var imageData: Data?
+    @Attribute(.externalStorage) var videoData: Data?
     var videoExtension: String?     // "mov", "mp4" — used for export filenames
 
     /// Top-down map belonging to this reference — an image, or a video (e.g. a
     /// Shot Designer top-down animation). At most one of the two is set.
-    var mapData: Data?
-    var mapVideoData: Data?
+    @Attribute(.externalStorage) var mapData: Data?
+    @Attribute(.externalStorage) var mapVideoData: Data?
     var mapVideoExtension: String?  // "mov", "mp4" — used for export filenames
     /// CineStager's marker-free ("clean") top-down map, used as the scene-map
     /// background when re-adding this shot to the scene map.
