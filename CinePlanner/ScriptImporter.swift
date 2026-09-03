@@ -1921,18 +1921,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
     var marginFraction: CGFloat = 0.15
 
     // Color palette for different shots within the same scene
-    private let shotColors: [PlatformColor] = [
-        .systemBlue,
-        .systemGreen,
-        .systemOrange,
-        .systemPurple,
-        .systemPink,
-        .systemTeal,
-        .systemIndigo,
-        .systemRed,
-        .systemYellow,
-        .systemBrown
-    ]
+    private let shotColors: [PlatformColor] = CoveragePalette.colors
 
     override init(frame frameRect: CGRect) {
         super.init(frame: frameRect)

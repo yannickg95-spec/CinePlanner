@@ -309,10 +309,7 @@ struct ProjectExporter {
 
     /// The per-shot colour used for coverage highlights, matching the editor and
     /// the "script with coverage" PDF: a shot's position within its scene.
-    private static let coveragePalette: [PlatformColor] = [
-        .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemPink,
-        .systemTeal, .systemIndigo, .systemRed, .systemYellow, .systemBrown
-    ]
+    private static let coveragePalette: [PlatformColor] = CoveragePalette.colors
 
     /// A rendered scene-coverage image, plus its pixel size so the web page can set
     /// an aspect ratio and let the (often tall) image scroll at a readable width.
@@ -1146,7 +1143,14 @@ struct ProjectExporter {
                     ["s": e.sceneIndex, "all": e.allShots, "shots": Array(e.scheduledShotNumbers), "note": e.note] }]
             }
             if let data = try? JSONSerialization.data(withJSONObject: days),
-               let str = String(data: data, encoding: .utf8) { return str }
+               let str = String(data: data, encoding: .utf8) {
+                // This JSON is inlined into a <script> element, and JSONSerialization
+                // leaves "<" alone. A day note containing "</script>" would close the
+                // element early and break the published page, so escape it — inside
+                // serialized JSON every "<" is within a string, and \u003C parses back
+                // to the same character.
+                return str.replacingOccurrences(of: "<", with: "\\u003C")
+            }
             return "[]"
         }
 
@@ -2702,18 +2706,7 @@ struct ProjectExporter {
         print("📋 [SCRIPT_COVERAGE] Found coverage on \(coverageByPage.keys.count) pages")
         
         // Use the same color scheme as the editor tab
-        let shotColors: [PlatformColor] = [
-            .systemBlue,
-            .systemGreen,
-            .systemOrange,
-            .systemPurple,
-            .systemPink,
-            .systemTeal,
-            .systemIndigo,
-            .systemRed,
-            .systemYellow,
-            .systemBrown
-        ]
+        let shotColors: [PlatformColor] = CoveragePalette.colors
         
         print("🎨 [EXPORT COLOR] Using color palette with \(shotColors.count) colors:")
         for (index, color) in shotColors.enumerated() {

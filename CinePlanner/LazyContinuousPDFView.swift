@@ -33,10 +33,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
     struct Bar { let color: UIColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
 
-    static let palette: [UIColor] = [
-        .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemPink,
-        .systemTeal, .systemIndigo, .systemRed, .systemYellow, .systemBrown
-    ]
+    static let palette: [UIColor] = CoveragePalette.colors
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
