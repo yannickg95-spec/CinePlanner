@@ -49,10 +49,30 @@ enum StoreBackup {
     private static func storeItems(for storeURL: URL) -> [URL] {
         let dir = storeURL.deletingLastPathComponent()
         let base = storeURL.lastPathComponent   // e.g. "default.store"
+        // Core Data keeps externally-stored blobs (script PDFs, reference photos)
+        // in a sibling ".<name>_SUPPORT" folder. Its name shares no substring with
+        // the store's own, so it has to be matched separately — leaving it out
+        // makes a snapshot incomplete, and a restore then resurrects a database
+        // whose file references point at blobs that may no longer exist.
+        let support = "." + storeURL.deletingPathExtension().lastPathComponent + "_SUPPORT"
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil,
             options: [.skipsSubdirectoryDescendants])) ?? []
-        return contents.filter { $0.lastPathComponent.contains(base) && !$0.lastPathComponent.contains(".corrupt-") }
+        return contents.filter { item in
+            let name = item.lastPathComponent
+            guard !name.contains(".corrupt-") else { return false }
+            return name.contains(base) || name == support
+        }
+    }
+
+    /// Copies a file or folder, preferring an APFS clone. A clone shares the
+    /// underlying bytes until one side is written to, so snapshotting the
+    /// external-data folder costs almost nothing on disk and stays independent
+    /// (copy-on-write) if either copy changes later. Falls back to a real copy
+    /// when cloning isn't possible — another filesystem, or a cross-volume path.
+    private static func cloneOrCopy(from source: URL, to destination: URL) throws {
+        if clonefile(source.path, destination.path, 0) == 0 { return }
+        try FileManager.default.copyItem(at: source, to: destination)
     }
 
     private static var backupsRoot: URL? {
@@ -108,7 +128,7 @@ enum StoreBackup {
         do {
             try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
             for item in items {
-                try FileManager.default.copyItem(at: item, to: dest.appending(path: item.lastPathComponent))
+                try cloneOrCopy(from: item, to: dest.appending(path: item.lastPathComponent))
             }
         } catch {
             try? FileManager.default.removeItem(at: dest)   // don't leave a partial snapshot
@@ -146,12 +166,18 @@ enum StoreBackup {
         .sorted { $0.date > $1.date }
     }
 
+    /// Total bytes of every file in the backup, the external-data folder included
+    /// — a shallow sum would report a snapshot as far smaller than it is.
     private static func directorySize(_ url: URL) -> Int64 {
-        guard let items = try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.fileSizeKey], options: []) else { return 0 }
-        return items.reduce(0) { total, item in
-            total + Int64((try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys) else { return 0 }
+        var total: Int64 = 0
+        for case let item as URL in walker {
+            guard let values = try? item.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            total += Int64(values.fileSize ?? 0)
         }
+        return total
     }
 
     // MARK: - Restore
@@ -194,12 +220,23 @@ enum StoreBackup {
         let storeDir = storeURL.deletingLastPathComponent()
         guard let items = try? FileManager.default.contentsOfDirectory(
             at: backupDir, includingPropertiesForKeys: nil, options: []) else { return false }
-        for item in storeItems(for: storeURL) { try? FileManager.default.removeItem(at: item) }
+        // Clear only what this backup can actually put back. Snapshots taken before
+        // the external-data folder was included don't carry one, and wiping the live
+        // folder for them would delete every externally-stored photo and PDF with
+        // nothing to restore in its place. The store file and its sidecars always go,
+        // since a stale -wal against a restored store is worse than none.
+        let restorable = Set(items.map(\.lastPathComponent))
+        let base = storeURL.lastPathComponent
+        for item in storeItems(for: storeURL) {
+            let name = item.lastPathComponent
+            guard name.contains(base) || restorable.contains(name) else { continue }
+            try? FileManager.default.removeItem(at: item)
+        }
         var ok = true
         for item in items {
             let dest = storeDir.appending(path: item.lastPathComponent)
             try? FileManager.default.removeItem(at: dest)
-            do { try FileManager.default.copyItem(at: item, to: dest) } catch { ok = false }
+            do { try cloneOrCopy(from: item, to: dest) } catch { ok = false }
         }
         return ok
     }
