@@ -33,7 +33,6 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
     struct Bar { let color: UIColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
 
-    static let palette: [UIColor] = CoveragePalette.colors
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -260,11 +259,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         func recomputeBars() {
             var result: [Int: [Bar]] = [:]
             let scenes = version?.scenes ?? project?.scenes ?? []
+            let coloring = CoverageColoring(version: version, project: project)
             for scene in scenes {
                 for shot in scene.shots {
                     guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
-                    let colorIndex = (scene.orderedShots.firstIndex { $0 === shot } ?? 0) % LazyContinuousPDFView.palette.count
-                    let color = LazyContinuousPDFView.palette[colorIndex]
+                    let color = coloring.color(for: shot)
                     for selection in selections {
                         for pageRange in selection.pageRanges {
                             let ys = pageRange.selections.map(\.cgRect)

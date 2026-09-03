@@ -58,6 +58,12 @@ final class Project {
     // Per-project card settings (all defaulted → CloudKit-safe additive migration).
     /// Order of the Shot Setup card's fields, as comma-joined `ShotSetupField` raw
     /// values. Empty = the default order.
+    /// How coverage-line colours are drawn and handed out. Stored raw and
+    /// defaulted so the attributes stay CloudKit-safe; both live on the project so
+    /// a series looks the same across its episodes and on every device.
+    var coveragePaletteRaw: String = CoveragePaletteChoice.classic.rawValue
+    var coverageColorModeRaw: String = CoverageColorMode.perScene.rawValue
+
     var shotSetupFieldOrderRaw: String = ""
     /// Shot Setup fields hidden for this project, as comma-joined raw values.
     var hiddenShotSetupFieldsRaw: String = ""
@@ -486,6 +492,18 @@ enum ShotSetupField: String, CaseIterable, Identifiable, Codable {
 }
 
 extension Project {
+    /// The set of colours this project's coverage lines are drawn from.
+    var coveragePalette: CoveragePaletteChoice {
+        get { CoveragePaletteChoice(rawValue: coveragePaletteRaw) ?? .classic }
+        set { coveragePaletteRaw = newValue.rawValue }
+    }
+
+    /// How those colours are spread over the script's shots.
+    var coverageColorMode: CoverageColorMode {
+        get { CoverageColorMode(rawValue: coverageColorModeRaw) ?? .perScene }
+        set { coverageColorModeRaw = newValue.rawValue }
+    }
+
     /// The Shot Setup fields in this project's chosen order. Always complete and
     /// de-duplicated: any missing field is appended in its default position and
     /// unknown/duplicate entries are dropped, so it stays valid as fields change.

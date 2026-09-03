@@ -91,28 +91,10 @@ extension ProjectExporter {
         Log.export.debug("📋 [SCRIPT_COVERAGE] Found coverage on \(coverageByPage.keys.count) pages")
         
         // Use the same color scheme as the editor tab
-        let shotColors: [PlatformColor] = CoveragePalette.colors
-        
-        Log.export.debug("🎨 [EXPORT COLOR] Using color palette with \(shotColors.count) colors:")
-        for (index, color) in shotColors.enumerated() {
-            Log.export.debug("   \(index): \(color)")
-        }
-        
-        // STEP 1: Assign base colors to each shot based on their sorted position within their scene
-        // This ensures the same shot always gets the same base color (matching editor behavior)
-        var shotBaseColors: [ObjectIdentifier: (colorIndex: Int, color: PlatformColor)] = [:]
-        
-        Log.export.debug("🎨 [EXPORT COLOR] Step 1: Assigning base colors to shots...")
-        for scene in exportScenes {
-            for shot in scene.shots {
-                guard let shotIndex = scene.orderedShots.firstIndex(where: { $0 === shot }) else { continue }
-                let colorIndex = shotIndex % shotColors.count
-                shotBaseColors[ObjectIdentifier(shot)] = (colorIndex, shotColors[colorIndex])
-                Log.export.debug("   - Scene \(scene.sceneNumber)\(scene.suffix), Shot \(shot.displayNumber): Base color index \(colorIndex)")
-            }
-        }
-        
-        Log.export.debug("✅ [EXPORT COLOR] Base color assignment complete")
+        // A shot's colour follows the project's palette and distribution setting,
+        // resolved once here so the burned-in PDF matches the editor exactly.
+        let coloring = CoverageColoring(version: version, project: project)
+        Log.export.debug("Coverage colours: \(project.coveragePalette.rawValue, privacy: .public) palette, \(project.coverageColorMode.rawValue, privacy: .public) distribution")
 
         // Process each page
         for pageIndex in 0..<sourcePDF.pageCount {
@@ -152,7 +134,6 @@ extension ProjectExporter {
                 var bars: [Bar] = []
                 for (shot, selection) in coverages {
                     guard let pageRange = selection.pageRanges.first(where: { $0.pageIndex == pageIndex }),
-                          let baseColorInfo = shotBaseColors[ObjectIdentifier(shot)],
                           let firstSelection = pageRange.selections.first else { continue }
 
                     var minY = firstSelection.cgRect.minY
@@ -173,7 +154,7 @@ extension ProjectExporter {
                     }
 
                     let ls = NSAttributedString(string: shot.displayNumber, attributes: [.font: baseFont]).size()
-                    bars.append(Bar(color: shotColors[baseColorInfo.colorIndex],
+                    bars.append(Bar(color: coloring.color(for: shot),
                                     label: shot.displayNumber, minY: minY, maxY: maxY,
                                     labelTopY: labelTopY, labelWidth: ls.width, labelHeight: ls.height,
                                     drawsLabel: isFirstPage || !isMultiPage))

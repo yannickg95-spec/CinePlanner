@@ -2,9 +2,9 @@
 //  CoveragePaletteTests.swift
 //  CinePlannerTests
 //
-//  The palette exists to keep one promise: a shot is the same colour in the
-//  editor, the viewer, the PDF and the published page. These tests pin the
-//  properties that promise depends on.
+//  The palettes themselves. The classic set matters most: it is what every
+//  existing project is coloured with, and reordering it would silently recolour
+//  shot lists people have already planned and printed.
 //
 
 import XCTest
@@ -12,41 +12,44 @@ import XCTest
 
 final class CoveragePaletteTests: XCTestCase {
 
-    func testPaletteIsNotEmpty() {
-        XCTAssertFalse(CoveragePalette.colors.isEmpty)
+    func testClassicKeepsTheOrderExistingProjectsWerePlannedWith() {
+        let classic = CoveragePaletteChoice.classic.colors
+        XCTAssertEqual(classic.count, 10)
+        XCTAssertEqual(classic[0].description, PlatformColor.systemBlue.description)
+        XCTAssertEqual(classic[1].description, PlatformColor.systemGreen.description)
+        XCTAssertEqual(classic[2].description, PlatformColor.systemOrange.description)
     }
 
-    func testColoursAreDistinct() {
-        // Two shots in one scene sharing a colour would make coverage ambiguous.
-        XCTAssertEqual(Set(CoveragePalette.colors.map { $0.description }).count,
-                       CoveragePalette.colors.count)
-    }
-
-    func testColourIsAPureFunctionOfTheIndex() {
-        for index in 0..<50 {
-            XCTAssertEqual(CoveragePalette.color(at: index).description,
-                           CoveragePalette.color(at: index).description)
+    func testEveryPaletteIsUsable() {
+        for choice in CoveragePaletteChoice.allCases {
+            XCTAssertFalse(choice.colors.isEmpty, "\(choice.label) has no colours")
+            XCTAssertFalse(choice.label.isEmpty)
+            XCTAssertFalse(choice.detail.isEmpty, "\(choice.label) has nothing to explain itself with")
         }
     }
 
-    func testColoursCycleOnceThePaletteRunsOut() {
-        let count = CoveragePalette.colors.count
-        XCTAssertEqual(CoveragePalette.color(at: 0).description,
-                       CoveragePalette.color(at: count).description)
-        XCTAssertEqual(CoveragePalette.color(at: 3).description,
-                       CoveragePalette.color(at: count + 3).description)
+    func testEveryModeDescribesItself() {
+        // The sheet offers these by name and explanation; an empty one is a blank row.
+        for mode in CoverageColorMode.allCases {
+            XCTAssertFalse(mode.label.isEmpty)
+            XCTAssertFalse(mode.detail.isEmpty)
+        }
     }
 
-    func testANegativeIndexDoesNotTrap() {
-        // Defensive: an index is derived from a lookup that can fail to find a shot.
-        XCTAssertEqual(CoveragePalette.color(at: -1).description,
-                       CoveragePalette.color(at: 1).description)
+    func testRawValuesAreStableBecauseTheyArePersisted() {
+        // These strings sit in the store and sync through iCloud; renaming a case
+        // without keeping its raw value would reset everyone's choice.
+        XCTAssertEqual(CoveragePaletteChoice.classic.rawValue, "classic")
+        XCTAssertEqual(CoveragePaletteChoice.highContrast.rawValue, "highContrast")
+        XCTAssertEqual(CoverageColorMode.perScene.rawValue, "perScene")
+        XCTAssertEqual(CoverageColorMode.acrossScript.rawValue, "acrossScript")
+        XCTAssertEqual(CoverageColorMode.sceneUniform.rawValue, "sceneUniform")
     }
 
-    func testFirstColoursMatchTheOrderEveryRendererAssumes() {
-        // The order is the contract — reordering it silently recolours old exports.
-        XCTAssertEqual(CoveragePalette.colors.count, 10)
-        XCTAssertEqual(CoveragePalette.colors[0].description, PlatformColor.systemBlue.description)
-        XCTAssertEqual(CoveragePalette.colors[1].description, PlatformColor.systemGreen.description)
+    func testDisplayColoursMatchTheDrawnOnes() {
+        for choice in CoveragePaletteChoice.allCases {
+            XCTAssertEqual(choice.displayColors.count, choice.colors.count,
+                           "\(choice.label): the settings swatches must show what gets drawn")
+        }
     }
 }

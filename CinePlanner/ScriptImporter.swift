@@ -1006,10 +1006,9 @@ struct ScriptPDFViewer: View {
                 Label("Replace Script…", systemImage: "arrow.triangle.2.circlepath")
             }
             Button {
-                coverageMargin = version?.coverageLineMargin ?? 0.15
                 showMarginSheet = true
             } label: {
-                Label("Set Coverage Margin…", systemImage: "arrow.left.and.right")
+                Label("Coverage Line Settings…", systemImage: "paintpalette")
             }
             Divider()
             Button(role: .destructive) {
@@ -1032,49 +1031,6 @@ struct ScriptPDFViewer: View {
         .help("Script settings — replace, delete, or set the coverage margin")
     }
 
-    /// The Set-Coverage-Margin sheet: a slider that moves the coverage lines
-    /// nearer to / further from the script text, live.
-    private var marginSheet: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
-                Text("Coverage Margin")
-                    .font(.title3).fontWeight(.semibold)
-                Text("Move the coverage lines closer to or further from the script text, to match this script's left margin.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            HStack(spacing: 12) {
-                Image(systemName: "text.alignleft").foregroundStyle(.secondary)
-                Slider(value: $coverageMargin, in: 0.05...0.35)
-                    .onChange(of: coverageMargin) { _, new in
-                        version?.coverageLineMargin = new
-                    }
-                Image(systemName: "text.alignright").foregroundStyle(.secondary)
-            }
-
-            Text("\(Int((coverageMargin * 100).rounded()))% of page width")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Button("Reset") {
-                    coverageMargin = 0.15
-                    version?.coverageLineMargin = 0.15
-                }
-                Spacer()
-                Button("Done") {
-                    try? version?.modelContext?.save()
-                    showMarginSheet = false
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: 420)
-    }
 
     /// Prompt shown while placing a new scene: scroll to its first page, tap Done.
     /// Rendered as a bold, full-width call-to-action so it can't be mistaken for a
@@ -1210,7 +1166,7 @@ struct ScriptPDFViewer: View {
             coverageMargin = version?.coverageLineMargin ?? 0.15
         }
         .sheet(isPresented: $showMarginSheet) {
-            marginSheet
+            CoverageSettingsSheet(project: project, version: version, margin: $coverageMargin)
                 #if os(iOS)
                 .presentationDetents([.height(300)])
                 #endif
@@ -1684,6 +1640,7 @@ struct PDFViewerWithCoverageRepresentable {
                 }
             }
             overlayView.allShotsWithCoverage = allShotsWithCoverage
+            overlayView.coloring = CoverageColoring(version: version, project: project)
             overlayView.requestRedraw()
         }
     }
@@ -1918,11 +1875,13 @@ class PDFCoverageOverlayView: PlatformViewBase {
     weak var pdfView: PDFView?
     var selectedShot: Shot?
     var allShotsWithCoverage: [Shot] = []
+    /// Resolves each shot's colour from the project's settings; replaced whenever
+    /// the drawn set changes, so the overlay never recomputes it while drawing.
+    var coloring = CoverageColoring(version: nil, project: nil)
     /// Right edge of the coverage-line band, as a fraction of page width.
     var marginFraction: CGFloat = 0.15
 
     // Color palette for different shots within the same scene
-    private let shotColors: [PlatformColor] = CoveragePalette.colors
 
     override init(frame frameRect: CGRect) {
         super.init(frame: frameRect)
@@ -1963,11 +1922,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
     // A shot's coverage colour is a pure function of its position within its
     // scene. Deterministic (no scroll- or page-dependent collision avoidance) so
     // it matches the iPad viewer and every exporter exactly.
-    private func color(for shot: Shot) -> PlatformColor {
-        guard let scene = shot.scene,
-              let index = scene.orderedShots.firstIndex(where: { $0 === shot }) else { return .systemBlue }
-        return shotColors[index % shotColors.count]
-    }
+    private func color(for shot: Shot) -> PlatformColor { coloring.color(for: shot) }
     
     private func pageBoundsInOverlay(for pageRange: PageTextRange, document: PDFDocument, pdfView: PDFView) -> CGRect? {
         guard let page = document.page(at: pageRange.pageIndex) else {

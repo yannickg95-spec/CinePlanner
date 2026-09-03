@@ -150,7 +150,6 @@ extension ProjectExporter {
 
     /// The per-shot colour used for coverage highlights, matching the editor and
     /// the "script with coverage" PDF: a shot's position within its scene.
-    private static let coveragePalette: [PlatformColor] = CoveragePalette.colors
 
     /// A rendered scene-coverage image, plus its pixel size so the web page can set
     /// an aspect ratio and let the (often tall) image scroll at a readable width.
@@ -184,13 +183,13 @@ extension ProjectExporter {
     /// margin next to the covered lines (the same style as the "script with coverage"
     /// PDF), with the shot number above each bar. Returns nil when no shot in the
     /// scene has coverage.
-    private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument) -> CoverageImage? {
+    private func renderSceneCoverage(scene: Scene, sourcePDF: PDFDocument,
+                                     coloring: CoverageColoring) -> CoverageImage? {
         struct Bar { let color: PlatformColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
         var byPage: [Int: [Bar]] = [:]
         for shot in scene.shots {
             guard let selections = shot.scriptCoverageSelections, !selections.isEmpty else { continue }
-            let colorIndex = (scene.orderedShots.firstIndex { $0 === shot } ?? 0) % Self.coveragePalette.count
-            let color = Self.coveragePalette[colorIndex]
+            let color = coloring.color(for: shot)
             for selection in selections {
                 for pageRange in selection.pageRanges {
                     let ys = pageRange.selections.map(\.cgRect)
@@ -349,6 +348,9 @@ extension ProjectExporter {
     private func snapshotScenesForMedia() -> [MediaScene] {
         let ordered = exportScenes.sorted { $0.sortOrder < $1.sortOrder }
         let sourcePDF = (version?.pdfData ?? project.scriptPDFData).flatMap { PDFDocument(data: $0) }
+        // Resolved once for the whole export, not per scene: two of the colour
+        // modes depend on a shot's place in the entire script.
+        let coloring = CoverageColoring(version: version, project: project)
         // Whole-export film totals, shared by every scene's report.
         let projectFilmTotals = ShotCustomInfo.filmTotalsByGauge(for: ordered.flatMap { $0.shots }).map {
             (gauge: ShotCustomInfo.filmGaugeLabel($0.gauge),
@@ -405,7 +407,7 @@ extension ProjectExporter {
                               isInterior: scene.isInterior,
                               isDay: scene.isDay,
                               location: location,
-                              coverage: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0) },
+                              coverage: sourcePDF.flatMap { renderSceneCoverage(scene: scene, sourcePDF: $0, coloring: coloring) },
                               map: renderSceneMap(scene: scene),
                               filmEntries: filmEntries,
                               filmTotals: filmTotals,

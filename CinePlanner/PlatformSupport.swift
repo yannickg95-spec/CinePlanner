@@ -433,3 +433,11 @@ enum PlatformURLOpener {
         #endif
     }
 }
+
+// MARK: - Hex colours for the drawing layer
+
+extension PlatformColor {
+    /// The app parses hex once, in `Color(hex:)`. The renderers draw with
+    /// UIColor/NSColor, so bridge rather than keep a second parser in step.
+    static func hex(_ value: String) -> PlatformColor { PlatformColor(Color(hex: value)) }
+}
