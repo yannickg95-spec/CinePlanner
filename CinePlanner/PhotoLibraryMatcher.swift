@@ -8,6 +8,7 @@
 import Foundation
 import Photos
 import PhotosUI
+import os
 #if os(macOS)
 import AppKit
 #else
@@ -23,16 +24,16 @@ class PhotoLibraryMatcher {
         // Request photo library authorization if needed
         let status = await requestPhotoLibraryAccess()
         guard status == .authorized || status == .limited else {
-            print("⚠️ Photo library access not authorized. Status: \(status.rawValue)")
+            Log.photos.notice("⚠️ Photo library access not authorized. Status: \(status.rawValue)")
             return nil
         }
         
         if status == .limited {
-            print("⚠️ Photo library access is limited - can only search user-selected photos")
-            print("💡 For full auto-matching, user needs to grant 'All Photos' access in Settings")
+            Log.photos.notice("⚠️ Photo library access is limited - can only search user-selected photos")
+            Log.photos.debug("💡 For full auto-matching, user needs to grant 'All Photos' access in Settings")
         }
         
-        print("🔍 Searching photo library for Capture ID: \(captureID)")
+        Log.photos.debug("🔍 Searching photo library for Capture ID: \(captureID)")
         
         // Fetch photos from the same day as the selected photo
         let fetchOptions = PHFetchOptions()
@@ -50,20 +51,20 @@ class PhotoLibraryMatcher {
                 endOfDay as NSDate
             )
             
-            print("📅 Searching photos from same day: \(DateFormatter.localizedString(from: referenceDate, dateStyle: .medium, timeStyle: .none))")
+            Log.photos.debug("📅 Searching photos from same day: \(DateFormatter.localizedString(from: referenceDate, dateStyle: .medium, timeStyle: .none))")
         } else {
             // Fallback: search last 7 days if no date provided
             let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
             fetchOptions.predicate = NSPredicate(format: "creationDate > %@", sevenDaysAgo as NSDate)
-            print("ℹ️ No reference date provided, searching last 7 days")
+            Log.photos.debug("ℹ️ No reference date provided, searching last 7 days")
         }
         
         let allPhotos = PHAsset.fetchAssets(with: .image, options: fetchOptions)
         
-        print("📷 Found \(allPhotos.count) photos to search...")
+        Log.photos.debug("📷 Found \(allPhotos.count) photos to search...")
         
         if allPhotos.count == 0 {
-            print("❌ No photos found - this may be due to limited photo library access")
+            Log.photos.error("❌ No photos found - this may be due to limited photo library access")
             return nil
         }
         
@@ -97,7 +98,7 @@ class PhotoLibraryMatcher {
                     // Extract metadata quickly
                     if let metadata = EXIFExtractor.extractMetadata(from: imageData) {
                         if metadata.captureID == captureID {
-                            print("✅ Found matching photo at index \(index) (type: \(metadata.captureType ?? "unknown"))")
+                            Log.photos.debug("✅ Found matching photo at index \(index) (type: \(metadata.captureType ?? "unknown"))")
                             found = true
                             stop.pointee = true
                             
@@ -116,7 +117,7 @@ class PhotoLibraryMatcher {
             
             // If we didn't find a match after searching
             if !found {
-                print("❌ No matching photo found in \(searchedCount) photos searched")
+                Log.photos.error("❌ No matching photo found in \(searchedCount) photos searched")
                 continuation.resume(returning: nil)
             }
         }
@@ -136,8 +137,8 @@ class PhotoLibraryMatcher {
         
         // If limited, we should inform the user or prompt to change settings
         if status == .limited {
-            print("⚠️ Photo library access is limited. Full access needed for auto-matching.")
-            print("💡 User can grant full access in Settings > Privacy > Photos")
+            Log.photos.notice("⚠️ Photo library access is limited. Full access needed for auto-matching.")
+            Log.photos.debug("💡 User can grant full access in Settings > Privacy > Photos")
         }
         
         return status

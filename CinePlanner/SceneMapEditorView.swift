@@ -12,6 +12,7 @@ import SwiftData
 import UniformTypeIdentifiers
 import CoreLocation
 import MapKit
+import os
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
@@ -2008,7 +2009,7 @@ struct SceneMapEditorView: View {
         do {
             try context.save()
         } catch {
-            print("⚠️ Scene map save failed: \(error)")
+            Log.sceneMap.notice("⚠️ Scene map save failed: \(error)")
         }
     }
 

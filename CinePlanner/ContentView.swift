@@ -11,6 +11,7 @@ import SwiftData
 import PhotosUI
 import AVKit
 import UniformTypeIdentifiers
+import os
 
 /// Width of the focal-length text fields. Wider on iPad, where the larger text
 /// field font needs more room to show three-digit focal lengths (100 mm+).
@@ -375,7 +376,7 @@ struct SceneListView: View {
     }
 
     private func handleDrop(shotIDStrings: [String], toScene targetScene: Scene) {
-        print("🎬 Attempting to drop shots into scene \(targetScene.sceneNumber)")
+        Log.app.debug("🎬 Attempting to drop shots into scene \(targetScene.sceneNumber)")
 
         for shotIDString in shotIDStrings {
             // Find the shot in all scenes by matching the ID string
@@ -391,17 +392,17 @@ struct SceneListView: View {
             }
             
             guard let shot = shotToMove, let source = sourceScene else {
-                print("⚠️ Could not find shot with ID \(shotIDString)")
+                Log.app.notice("⚠️ Could not find shot with ID \(shotIDString)")
                 continue
             }
             
             // Don't move if already in target scene
             if source === targetScene {
-                print("ℹ️ Shot \(shot.displayNumber) is already in scene \(targetScene.sceneNumber)")
+                Log.app.debug("ℹ️ Shot \(shot.displayNumber) is already in scene \(targetScene.sceneNumber)")
                 continue
             }
             
-            print("📦 Moving shot \(shot.displayNumber) from scene \(source.sceneNumber) to scene \(targetScene.sceneNumber)")
+            Log.app.debug("📦 Moving shot \(shot.displayNumber) from scene \(source.sceneNumber) to scene \(targetScene.sceneNumber)")
             
             // Remove from source scene
             if let index = source.shots.firstIndex(where: { $0.id == shot.id }) {

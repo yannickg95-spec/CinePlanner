@@ -7,6 +7,7 @@
 
 import Foundation
 import ImageIO
+import os
 #if os(macOS)
 import AppKit
 #else
@@ -85,18 +86,18 @@ class EXIFExtractor {
     static func extractMetadata(from imageData: Data) -> PhotoMetadata? {
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [String: Any] else {
-            print("❌ Failed to create image source or get properties")
+            Log.exif.error("❌ Failed to create image source or get properties")
             return nil
         }
         
         // Debug: Print all available properties
-        print("📸 Available metadata dictionaries:")
+        Log.exif.debug("📸 Available metadata dictionaries:")
         for (key, value) in properties {
-            print("  - \(key)")
+            Log.exif.debug("  - \(key)")
             // Print the actual content of smaller dictionaries
             if let dict = value as? [String: Any], dict.count < 20 {
                 for (subKey, subValue) in dict {
-                    print("      [\(subKey)] = \(subValue)")
+                    Log.exif.debug("      [\(subKey)] = \(String(describing: subValue))")
                 }
             }
         }
@@ -105,29 +106,29 @@ class EXIFExtractor {
         
         // Extract EXIF data
         if let exifDict = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
-            print("📝 EXIF Dictionary found with \(exifDict.count) keys")
+            Log.exif.debug("📝 EXIF Dictionary found with \(exifDict.count) keys")
             
             // Debug: Print all EXIF keys
-            print("  EXIF keys: \(exifDict.keys.joined(separator: ", "))")
+            Log.exif.debug("  EXIF keys: \(exifDict.keys.joined(separator: ", "))")
             
             // Focal length
             if let focalLength = exifDict[kCGImagePropertyExifFocalLength as String] as? Double {
                 metadata.focalLength = focalLength
-                print("  ✅ Focal Length: \(focalLength)mm")
+                Log.exif.debug("  ✅ Focal Length: \(focalLength)mm")
             }
             
             // Lens model/preset
             if let lensModel = exifDict[kCGImagePropertyExifLensModel as String] as? String {
                 metadata.lensPreset = lensModel
-                print("  ✅ Lens Model: \(lensModel)")
+                Log.exif.debug("  ✅ Lens Model: \(lensModel)")
             }
             
             // Parse UserComment (CinemaAR pipe-delimited format)
             if let userComment = exifDict[kCGImagePropertyExifUserComment as String] {
-                print("  📋 UserComment found: \(type(of: userComment))")
+                Log.exif.debug("  📋 UserComment found: \(type(of: userComment))")
                 parseCinemaARUserComment(userComment, into: &metadata)
             } else {
-                print("  ⚠️ No UserComment found in EXIF")
+                Log.exif.notice("  ⚠️ No UserComment found in EXIF")
             }
             
             // Date/Time Original
@@ -138,26 +139,26 @@ class EXIFExtractor {
                 formatter.timeZone = TimeZone(secondsFromGMT: 0)
                 if let date = formatter.date(from: dtString) {
                     metadata.dateTimeOriginal = date
-                    print("  ✅ DateTimeOriginal: \(date)")
+                    Log.exif.debug("  ✅ DateTimeOriginal: \(date)")
                 } else {
-                    print("  ⚠️ Could not parse DateTimeOriginal string: \(dtString)")
+                    Log.exif.notice("  ⚠️ Could not parse DateTimeOriginal string: \(dtString)")
                 }
             } else if let dt = exifDict[kCGImagePropertyExifDateTimeOriginal as String] as? Date {
                 metadata.dateTimeOriginal = dt
-                print("  ✅ DateTimeOriginal: \(dt)")
+                Log.exif.debug("  ✅ DateTimeOriginal: \(dt)")
             }
         } else {
-            print("⚠️ No EXIF dictionary found")
+            Log.exif.notice("⚠️ No EXIF dictionary found")
         }
         
         // Extract TIFF data (camera info)
         if let tiffDict = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-            print("🏷️ TIFF Dictionary found with \(tiffDict.count) keys")
-            print("  TIFF keys: \(tiffDict.keys.joined(separator: ", "))")
+            Log.exif.debug("🏷️ TIFF Dictionary found with \(tiffDict.count) keys")
+            Log.exif.debug("  TIFF keys: \(tiffDict.keys.joined(separator: ", "))")
             
             // Debug: Print all TIFF values
             for (key, value) in tiffDict {
-                print("    TIFF[\(key)] = \(value)")
+                Log.exif.debug("    TIFF[\(key)] = \(String(describing: value))")
             }
             
             let make = tiffDict[kCGImagePropertyTIFFMake as String] as? String
@@ -166,7 +167,7 @@ class EXIFExtractor {
 
             if let software {
                 metadata.tiffSoftware = software
-                print("  ✅ TIFF Software: \(software)")
+                Log.exif.debug("  ✅ TIFF Software: \(software)")
             }
 
             // Cadrage packs its data differently from CineStager: the camera,
@@ -178,50 +179,50 @@ class EXIFExtractor {
             } else {
                 if let make {
                     metadata.cameraFamily = make
-                    print("  ✅ Camera Make: \(make)")
+                    Log.exif.debug("  ✅ Camera Make: \(make)")
                 }
                 if let model {
                     metadata.cameraFormat = model
-                    print("  ✅ Camera Model: \(model)")
+                    Log.exif.debug("  ✅ Camera Model: \(model)")
                 }
             }
         } else {
-            print("⚠️ No TIFF dictionary found")
+            Log.exif.notice("⚠️ No TIFF dictionary found")
         }
         
         // Extract IPTC data (CinemaAR keywords and SpecialInstructions)
         if let iptcDict = properties[kCGImagePropertyIPTCDictionary as String] as? [String: Any] {
-            print("📰 IPTC Dictionary found with \(iptcDict.count) keys")
-            print("  IPTC keys: \(iptcDict.keys.joined(separator: ", "))")
+            Log.exif.debug("📰 IPTC Dictionary found with \(iptcDict.count) keys")
+            Log.exif.debug("  IPTC keys: \(iptcDict.keys.joined(separator: ", "))")
             extractIPTCMetadata(from: iptcDict, into: &metadata)
         } else {
-            print("⚠️ No IPTC dictionary found")
+            Log.exif.notice("⚠️ No IPTC dictionary found")
         }
         
         // Extract GPS data (if available, for height)
         if let gpsDict = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any] {
-            print("📍 GPS Dictionary found")
+            Log.exif.debug("📍 GPS Dictionary found")
             if let altitude = gpsDict[kCGImagePropertyGPSAltitude as String] as? Double {
                 // Convert meters to centimeters
                 metadata.height = altitude * 100
-                print("  ✅ GPS Altitude: \(altitude)m (\(altitude * 100)cm)")
+                Log.exif.debug("  ✅ GPS Altitude: \(altitude)m (\(altitude * 100)cm)")
             }
         }
         
-        print("📊 Final metadata summary:")
-        print("  Camera: \(metadata.cameraFamily ?? "nil") / \(metadata.cameraFormat ?? "nil")")
-        print("  Focal Length: \(metadata.focalLength?.description ?? "nil")")
-        print("  Lens Preset: \(metadata.lensPreset ?? "nil")")
-        print("  Horizon: \(metadata.horizon?.description ?? "nil")")
-        print("  Tilt: \(metadata.tilt?.description ?? "nil")")
-        print("  Height: \(metadata.height?.description ?? "nil")")
-        print("  Capture ID: \(metadata.captureID ?? "nil")")
-        print("  Capture Type: \(metadata.captureType ?? "nil")")
-        print("  DateTimeOriginal: \(metadata.dateTimeOriginal?.description ?? "nil")")
-        print("  Framelines: \(metadata.framelines ?? "nil")")
-        print("  IPTC Keywords: \(metadata.iptcKeywords?.joined(separator: ", ") ?? "nil")")
-        print("  TIFF Software: \(metadata.tiffSoftware ?? "nil")")
-        print("  IPTC Caption: \(metadata.iptcCaption ?? "nil")")
+        Log.exif.debug("📊 Final metadata summary:")
+        Log.exif.debug("  Camera: \(metadata.cameraFamily ?? "nil") / \(metadata.cameraFormat ?? "nil")")
+        Log.exif.debug("  Focal Length: \(metadata.focalLength?.description ?? "nil")")
+        Log.exif.debug("  Lens Preset: \(metadata.lensPreset ?? "nil")")
+        Log.exif.debug("  Horizon: \(metadata.horizon?.description ?? "nil")")
+        Log.exif.debug("  Tilt: \(metadata.tilt?.description ?? "nil")")
+        Log.exif.debug("  Height: \(metadata.height?.description ?? "nil")")
+        Log.exif.debug("  Capture ID: \(metadata.captureID ?? "nil")")
+        Log.exif.debug("  Capture Type: \(metadata.captureType ?? "nil")")
+        Log.exif.debug("  DateTimeOriginal: \(metadata.dateTimeOriginal?.description ?? "nil")")
+        Log.exif.debug("  Framelines: \(metadata.framelines ?? "nil")")
+        Log.exif.debug("  IPTC Keywords: \(metadata.iptcKeywords?.joined(separator: ", ") ?? "nil")")
+        Log.exif.debug("  TIFF Software: \(metadata.tiffSoftware ?? "nil")")
+        Log.exif.debug("  IPTC Caption: \(metadata.iptcCaption ?? "nil")")
         
         return metadata
     }
@@ -247,7 +248,7 @@ class EXIFExtractor {
                 .filter { !$0.isEmpty }
             if let camera = parts.first {
                 metadata.cameraFamily = camera
-                print("  ✅ [Cadrage] Camera: \(camera)")
+                Log.exif.debug("  ✅ [Cadrage] Camera: \(camera)")
             }
             if parts.count > 1 {
                 var formatParts = Array(parts.dropFirst())
@@ -258,12 +259,12 @@ class EXIFExtractor {
                 if let last = formatParts.last, isAspectRatio(last) {
                     metadata.framelines = last
                     formatParts.removeLast()
-                    print("  ✅ [Cadrage] Framelines: \(last)")
+                    Log.exif.debug("  ✅ [Cadrage] Framelines: \(last)")
                 }
                 if !formatParts.isEmpty {
                     let format = formatParts.joined(separator: " · ")
                     metadata.cameraFormat = format
-                    print("  ✅ [Cadrage] Format: \(format)")
+                    Log.exif.debug("  ✅ [Cadrage] Format: \(format)")
                 }
             }
         }
@@ -273,7 +274,7 @@ class EXIFExtractor {
            let match = model.range(of: #"[0-9]+(\.[0-9]+)?"#, options: .regularExpression),
            let focal = Double(model[match]) {
             metadata.focalLength = focal
-            print("  ✅ [Cadrage] Focal Length: \(focal)mm")
+            Log.exif.debug("  ✅ [Cadrage] Focal Length: \(focal)mm")
         }
     }
 
@@ -281,131 +282,133 @@ class EXIFExtractor {
         // UserComment can be String, Data, or Array
         var commentString: String?
         
-        print("  🔍 Parsing UserComment of type: \(type(of: userComment))")
+        Log.exif.debug("  🔍 Parsing UserComment of type: \(type(of: userComment))")
         
         if let str = userComment as? String {
             commentString = str
-            print("  📝 UserComment as String: '\(str)'")
+            Log.exif.debug("  📝 UserComment as String: '\(str)'")
         } else if let data = userComment as? Data {
             commentString = String(data: data, encoding: .utf8)
-            print("  📝 UserComment as Data, converted to: '\(commentString ?? "nil")'")
+            Log.exif.debug("  📝 UserComment as Data, converted to: '\(commentString ?? "nil")'")
         } else if let array = userComment as? [UInt8] {
             commentString = String(bytes: array, encoding: .utf8)
-            print("  📝 UserComment as [UInt8], converted to: '\(commentString ?? "nil")'")
+            Log.exif.debug("  📝 UserComment as [UInt8], converted to: '\(commentString ?? "nil")'")
         } else {
-            print("  ⚠️ UserComment is unexpected type, trying description")
+            Log.exif.notice("  ⚠️ UserComment is unexpected type, trying description")
             commentString = String(describing: userComment)
         }
         
         guard let comment = commentString else {
-            print("  ❌ Could not convert UserComment to String")
+            Log.exif.error("  ❌ Could not convert UserComment to String")
             return
         }
         
-        print("  🔸 Splitting by ' | '")
+        Log.exif.debug("  🔸 Splitting by ' | '")
         
         // Split by " | " (pipe with spaces)
         let parts = comment.components(separatedBy: " | ")
-        print("  🔸 Found \(parts.count) parts: \(parts)")
+        Log.exif.debug("  🔸 Found \(parts.count) parts: \(parts)")
         
         for part in parts {
             let keyValue = part.components(separatedBy: ":")
             guard keyValue.count >= 2 else {
-                print("    ⚠️ Skipping malformed part: '\(part)'")
+                Log.exif.notice("    ⚠️ Skipping malformed part: '\(part)'")
                 continue
             }
             
             let key = keyValue[0].trimmingCharacters(in: .whitespaces)
             let value = keyValue[1...].joined(separator: ":").trimmingCharacters(in: .whitespaces)
             
-            print("    🔑 Key: '\(key)', Value: '\(value)'")
+            Log.exif.debug("    🔑 Key: '\(key)', Value: '\(value)'")
             
             switch key {
             case "Pitch":
                 if let angle = parseNumericDouble(from: value) {
                     metadata.tilt = angle
-                    print("      ✅ Parsed and SET Tilt (from Pitch): \(angle)")
-                    print("      🔍 Metadata.tilt is now: \(metadata.tilt?.description ?? "nil")")
+                    Log.exif.debug("      ✅ Parsed and SET Tilt (from Pitch): \(angle)")
+                    let setTilt = metadata.tilt
+                    Log.exif.debug("      🔍 Metadata.tilt is now: \(setTilt?.description ?? "nil")")
                 } else {
-                    print("      ⚠️ Could not parse Tilt from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Tilt from '\(value)'")
                 }
                 
             case "Roll":
                 if let angle = parseNumericDouble(from: value) {
                     metadata.horizon = angle
-                    print("      ✅ Parsed and SET Horizon (from Roll): \(angle)")
-                    print("      🔍 Metadata.horizon is now: \(metadata.horizon?.description ?? "nil")")
+                    Log.exif.debug("      ✅ Parsed and SET Horizon (from Roll): \(angle)")
+                    let setHorizon = metadata.horizon
+                    Log.exif.debug("      🔍 Metadata.horizon is now: \(setHorizon?.description ?? "nil")")
                 } else {
-                    print("      ⚠️ Could not parse Horizon from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Horizon from '\(value)'")
                 }
                 
             case "Height":
                 if let h = parseNumericDouble(from: value) {
                     metadata.height = h
-                    print("      ✅ Parsed Height: \(h)cm")
+                    Log.exif.debug("      ✅ Parsed Height: \(h)cm")
                 } else {
-                    print("      ⚠️ Could not parse Height from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Height from '\(value)'")
                 }
                 
             case "Preset":
                 metadata.lensPreset = value
-                print("      ✅ Parsed Preset: \(value)")
+                Log.exif.debug("      ✅ Parsed Preset: \(value)")
                 
             case "CaptureID":
                 metadata.captureID = value
-                print("      ✅ Parsed CaptureID: \(value)")
+                Log.exif.debug("      ✅ Parsed CaptureID: \(value)")
                 
             case "Type":
                 metadata.captureType = value
-                print("      ✅ Parsed Type: \(value)")
+                Log.exif.debug("      ✅ Parsed Type: \(value)")
             
             // Location/Environment metadata (Top-Down Photos)
             case "Camera Physical Width":
                 if let width = parseNumericDouble(from: value) {
                     metadata.cameraPhysicalWidth = width
-                    print("      ✅ Parsed Camera Physical Width: \(width)cm")
+                    Log.exif.debug("      ✅ Parsed Camera Physical Width: \(width)cm")
                 } else {
-                    print("      ⚠️ Could not parse Camera Physical Width from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Camera Physical Width from '\(value)'")
                 }
             
             case "Camera Physical Length":
                 if let length = parseNumericDouble(from: value) {
                     metadata.cameraPhysicalLength = length
-                    print("      ✅ Parsed Camera Physical Length: \(length)cm")
+                    Log.exif.debug("      ✅ Parsed Camera Physical Length: \(length)cm")
                 } else {
-                    print("      ⚠️ Could not parse Camera Physical Length from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Camera Physical Length from '\(value)'")
                 }
             
             case "Location Model":
                 metadata.locationModel = value
-                print("      ✅ Parsed Location Model: \(value)")
+                Log.exif.debug("      ✅ Parsed Location Model: \(value)")
             
             case "Location Width":
                 if let width = parseNumericDouble(from: value) {
                     metadata.locationWidth = width
-                    print("      ✅ Parsed Location Width: \(width)m")
+                    Log.exif.debug("      ✅ Parsed Location Width: \(width)m")
                 } else {
-                    print("      ⚠️ Could not parse Location Width from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Location Width from '\(value)'")
                 }
             
             case "Location Length":
                 if let length = parseNumericDouble(from: value) {
                     metadata.locationLength = length
-                    print("      ✅ Parsed Location Length: \(length)m")
+                    Log.exif.debug("      ✅ Parsed Location Length: \(length)m")
                 } else {
-                    print("      ⚠️ Could not parse Location Length from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Location Length from '\(value)'")
                 }
             
             case "Location Height":
                 if let height = parseNumericDouble(from: value) {
                     metadata.locationHeight = height
-                    print("      ✅ Parsed Location Height: \(height)m")
+                    Log.exif.debug("      ✅ Parsed Location Height: \(height)m")
                 } else {
-                    print("      ⚠️ Could not parse Location Height from '\(value)'")
+                    Log.exif.notice("      ⚠️ Could not parse Location Height from '\(value)'")
                 }
                 
             default:
-                print("    ⚠️ Unknown key: '\(key)'")
+                Log.exif.notice("    ⚠️ Unknown key: '\(key)'")
                 break
             }
         }
@@ -426,11 +429,11 @@ class EXIFExtractor {
         
         // Debug log
         if filtered != string {
-            print("        🔧 Cleaned '\(string)' → '\(filtered)'")
+            Log.exif.debug("        🔧 Cleaned '\(string)' → '\(filtered)'")
         }
         
         guard let result = Double(filtered) else {
-            print("        ❌ Failed to parse '\(filtered)' as Double")
+            Log.exif.error("        ❌ Failed to parse '\(filtered)' as Double")
             return nil
         }
         

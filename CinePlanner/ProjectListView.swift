@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import os
 
 /// The `.cineplan` content type, shared by the import/export file pickers.
 extension UTType {
@@ -475,7 +476,7 @@ struct ProjectListView: View {
 
         Task { @MainActor in
             guard url.startAccessingSecurityScopedResource() else {
-                print("❌ Unable to access selected script file")
+                Log.app.error("❌ Unable to access selected script file")
                 return
             }
             defer { url.stopAccessingSecurityScopedResource() }
@@ -483,7 +484,7 @@ struct ProjectListView: View {
             do {
                 _ = try await ScriptImporter.importScenes(from: url, into: version, project: newProject)
             } catch {
-                print("❌ Script import failed: \(error.localizedDescription)")
+                Log.app.error("❌ Script import failed: \(error.localizedDescription)")
             }
         }
     }

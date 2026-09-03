@@ -11,6 +11,7 @@ import PDFKit
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import os
 
 /// Result of a script import: how many scenes were created plus any
 /// parser diagnostics worth showing to the user.
@@ -26,11 +27,11 @@ struct ScriptImporter {
     @MainActor
     static func importScenes(from url: URL, into version: ScriptVersion, project: Project) async throws -> ScriptImportResult {
         guard let pdfDocument = PDFDocument(url: url) else {
-            print("❌ Failed to create PDFDocument from URL")
+            Log.script.error("❌ Failed to create PDFDocument from URL")
             throw ScriptImportError.invalidPDF
         }
 
-        print("✅ PDF loaded successfully with \(pdfDocument.pageCount) pages")
+        Log.script.debug("✅ PDF loaded successfully with \(pdfDocument.pageCount) pages")
 
         // Store PDF data in the version for later viewing
         if let pdfData = try? Data(contentsOf: url) {
@@ -57,7 +58,7 @@ struct ScriptImporter {
             }
         }
 
-        print("📝 Extracted \(fullText.count) characters from PDF")
+        Log.script.debug("📝 Extracted \(fullText.count) characters from PDF")
 
         // Detect failed extraction: no text at all, or a large share of U+FFFD
         // replacement characters (what text extraction emits for undecodable glyphs).
@@ -67,7 +68,7 @@ struct ScriptImporter {
         let hasNoText = fullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         if hasNoText || replacementRatio > 0.2 {
-            print("⚠️ PDF text extraction failed (empty: \(hasNoText), replacement ratio: \(Int(replacementRatio * 100))%)")
+            Log.script.notice("⚠️ PDF text extraction failed (empty: \(hasNoText), replacement ratio: \(Int(replacementRatio * 100))%)")
             throw ScriptImportError.textExtractionFailed
         }
 
@@ -76,7 +77,7 @@ struct ScriptImporter {
         let parseResult = ScreenplayParser.parse(lines: lines, lineToPageMap: lineToPageMap)
         let scenes = parseResult.scenes
 
-        print("🎬 Found \(scenes.count) scenes (\(parseResult.skippedLines.count) candidate lines skipped)")
+        Log.script.debug("🎬 Found \(scenes.count) scenes (\(parseResult.skippedLines.count) candidate lines skipped)")
 
         // Separate this version's existing scenes into those with shots and those without
         let scenesWithShots = version.scenes.filter { !$0.shots.isEmpty }
@@ -84,7 +85,7 @@ struct ScriptImporter {
 
         // Remove scenes without shots
         if !scenesWithoutShots.isEmpty {
-            print("🗑️ Removing \(scenesWithoutShots.count) scene\(scenesWithoutShots.count == 1 ? "" : "s") without shots")
+            Log.script.debug("🗑️ Removing \(scenesWithoutShots.count) scene\(scenesWithoutShots.count == 1 ? "" : "s") without shots")
             for scene in scenesWithoutShots {
                 if let index = project.scenes.firstIndex(where: { $0 === scene }) {
                     project.scenes.remove(at: index)
@@ -97,7 +98,7 @@ struct ScriptImporter {
 
         // Keep scenes that have shots, flagged as archived so they list separately
         if !scenesWithShots.isEmpty {
-            print("📦 Preserving \(scenesWithShots.count) scene\(scenesWithShots.count == 1 ? "" : "s") with shots")
+            Log.script.debug("📦 Preserving \(scenesWithShots.count) scene\(scenesWithShots.count == 1 ? "" : "s") with shots")
             for scene in scenesWithShots {
                 scene.isArchived = true
             }
@@ -138,7 +139,7 @@ struct ScriptImporter {
             }
 
             newSceneObjects.append(scene)
-            print("  ✓ Scene \(scene.sceneNumber)\(scene.suffix): \(scene.isInterior ? "INT" : "EXT") - \(scene.nickname) - \(scene.isDay ? "DAY" : "NIGHT") [Scene Page \(scene.scriptPageNumber), PDF Page \(sceneInfo.pageNumber + 1)]")
+            Log.script.debug("  ✓ Scene \(scene.sceneNumber)\(scene.suffix): \(scene.isInterior ? "INT" : "EXT") - \(scene.nickname) - \(scene.isDay ? "DAY" : "NIGHT") [Scene Page \(scene.scriptPageNumber), PDF Page \(sceneInfo.pageNumber + 1)]")
         }
 
         // Update sortOrder for old scenes to place them after new scenes
@@ -155,7 +156,7 @@ struct ScriptImporter {
         // used for the scene map's mannequin markers.
         let characterNames = ScreenplayParser.extractCharacters(lines: lines)
         project.addScriptCharacters(named: characterNames)
-        print("👥 Detected \(characterNames.count) character\(characterNames.count == 1 ? "" : "s"): \(characterNames.joined(separator: ", "))")
+        Log.script.debug("👥 Detected \(characterNames.count) character\(characterNames.count == 1 ? "" : "s"): \(characterNames.joined(separator: ", "))")
 
         // Persist now so the new scenes get permanent, stable persistentModelIDs.
         // Otherwise a later autosave flips their temporary IDs to permanent ones,
@@ -357,7 +358,7 @@ enum ScreenplayParser {
                 continue
 
             case .skipped(let reason):
-                print("  ⚠️ Line \(lineNumber) skipped — \(reason): '\(line.prefix(80))'")
+                Log.script.notice("  ⚠️ Line \(lineNumber) skipped — \(reason): '\(line.prefix(80))'")
                 result.skippedLines.append((lineNumber, reason))
 
             case .heading(var heading):
@@ -394,7 +395,7 @@ enum ScreenplayParser {
                         heading.number = validated.0
                         if heading.suffix.isEmpty { heading.suffix = validated.1 }
                         if isDoubled { scriptUsesSceneNumbers = true }
-                        print("  🔗 Line \(lineNumber): took scene number \(validated.0)\(validated.1) from line \(neighborIndex + 1)")
+                        Log.script.debug("  🔗 Line \(lineNumber): took scene number \(validated.0)\(validated.1) from line \(neighborIndex + 1)")
                         break
                     }
                 }
@@ -1281,7 +1282,7 @@ struct ScriptPDFViewer: View {
             if autoLoadScenes, let version {
                 let importResult = try await ScriptImporter.importScenes(from: url, into: version, project: project)
                 cachedPDFDocument = nil
-                print("✅ Imported PDF and \(importResult.sceneCount) scene\(importResult.sceneCount == 1 ? "" : "s")")
+                Log.script.debug("✅ Imported PDF and \(importResult.sceneCount) scene\(importResult.sceneCount == 1 ? "" : "s")")
                 if importResult.sceneCount > 0 {
                     onScenesImported?(importResult)
                 }
@@ -1309,7 +1310,7 @@ struct ScriptPDFViewer: View {
                 project.scriptPDFData = pdfData
             }
             cachedPDFDocument = nil // Clear cache so it gets recreated
-            print("✅ Imported PDF (\(pdfData.count) bytes) for viewing")
+            Log.script.debug("✅ Imported PDF (\(pdfData.count) bytes) for viewing")
 
         } catch {
             errorMessage = "Import failed: \(error.localizedDescription)"
@@ -1632,7 +1633,7 @@ struct PDFViewerWithCoverageRepresentable {
             }
             coordinator.lastDisplayedPage = pageIndex
             coordinator.lastAlignedScene = scene?.persistentModelID
-            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+            Log.script.debug("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
         }
         
         return containerView
@@ -1665,7 +1666,7 @@ struct PDFViewerWithCoverageRepresentable {
             }
             coordinator.lastDisplayedPage = pageIndex
             coordinator.lastAlignedScene = sceneID
-            print("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
+            Log.script.debug("📄 PDF Viewer: Navigated to page \(pageIndex + 1)")
         }
         
         // Update overlay with current shot and all shots from project.
@@ -1729,7 +1730,7 @@ struct PDFViewerWithCoverageRepresentable {
         }
         
         func enterSelectionMode(for shot: Shot) {
-            print("🎯 Entering text selection mode for shot \(shot.displayNumber)")
+            Log.script.debug("🎯 Entering text selection mode for shot \(shot.displayNumber)")
             isInSelectionMode = true
             currentSelectionShot = shot
 
@@ -1771,13 +1772,13 @@ struct PDFViewerWithCoverageRepresentable {
                   let selection = pdfView.currentSelection,
                   let shot = currentSelectionShot,
                   !(selection.string?.isEmpty ?? true) else {
-                print("⚠️ No text selected or selection is empty")
+                Log.script.notice("⚠️ No text selected or selection is empty")
                 exitSelectionMode()
                 return
             }
             
-            print("📝 Capturing selection for shot \(shot.displayNumber)")
-            print("   Selected text: '\(selection.string?.prefix(50) ?? "")'...")
+            Log.script.debug("📝 Capturing selection for shot \(shot.displayNumber)")
+            Log.script.debug("   Selected text: '\(selection.string?.prefix(50) ?? "")'...")
             
             // Convert selection to our data model
             var pageRanges: [PageTextRange] = []
@@ -1798,7 +1799,7 @@ struct PDFViewerWithCoverageRepresentable {
                         let lineBounds = lineSelection.bounds(for: page)
                         if !lineBounds.isEmpty {
                             boundsForPage.append(PDFSelectionBounds(from: lineBounds))
-                            print("   ✓ Stored bounds in page coords: \(lineBounds)")
+                            Log.script.debug("   ✓ Stored bounds in page coords: \(String(describing: lineBounds))")
                         }
                     }
                 }
@@ -1808,13 +1809,13 @@ struct PDFViewerWithCoverageRepresentable {
                     let bounds = selection.bounds(for: page)
                     if !bounds.isEmpty {
                         boundsForPage.append(PDFSelectionBounds(from: bounds))
-                        print("   ✓ Stored fallback bounds: \(bounds)")
+                        Log.script.debug("   ✓ Stored fallback bounds: \(String(describing: bounds))")
                     }
                 }
                 
                 if !boundsForPage.isEmpty {
                     pageRanges.append(PageTextRange(pageIndex: pageIndex, selections: boundsForPage))
-                    print("   ✓ Page \(pageIndex + 1): \(boundsForPage.count) selection(s)")
+                    Log.script.debug("   ✓ Page \(pageIndex + 1): \(boundsForPage.count) selection(s)")
                 }
             }
             
@@ -1829,13 +1830,13 @@ struct PDFViewerWithCoverageRepresentable {
                 }
                 shot.scriptCoverageSelections?.append(textSelection)
                 
-                print("✅ Saved coverage with \(pageRanges.count) page(s)")
-                print("   📝 Text: \"\(selectedText.prefix(50))...\"")
+                Log.script.debug("✅ Saved coverage with \(pageRanges.count) page(s)")
+                Log.script.debug("   📝 Text: \"\(selectedText.prefix(50))...\"")
                 
                 // Update overlay
                 overlayView?.requestRedraw()
             } else {
-                print("⚠️ No valid page ranges found in selection")
+                Log.script.notice("⚠️ No valid page ranges found in selection")
             }
             
             // Exit selection mode
@@ -1843,7 +1844,7 @@ struct PDFViewerWithCoverageRepresentable {
         }
         
         func cancelSelection() {
-            print("❌ Selection cancelled")
+            Log.script.error("❌ Selection cancelled")
             exitSelectionMode()
         }
         

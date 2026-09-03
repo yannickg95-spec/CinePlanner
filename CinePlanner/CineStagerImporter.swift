@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PhotosUI
+import os
 
 /// A view for importing photos from the CineStager app
 struct CineStagerImporter: View {
@@ -95,6 +96,6 @@ struct CineStagerImporter: View {
 
 #Preview {
     CineStagerImporter(isPresented: .constant(true)) { photos in
-        print("Imported \(photos.count) photos")
+        Log.importer.debug("Imported \(photos.count) photos")
     }
 }

@@ -10,6 +10,7 @@ import SwiftUI
 import PDFKit
 import AVFoundation
 import UniformTypeIdentifiers
+import os
 
 /// Handles exporting project shot lists to PDF and TXT formats
 struct ProjectExporter {
@@ -87,25 +88,25 @@ struct ProjectExporter {
             exportHTMLWithMedia()
             return
         }
-        print("🔵 [EXPORT] Starting export process...")
-        print("🔵 [EXPORT] Current thread: \(Thread.current)")
-        print("🔵 [EXPORT] Is main thread: \(Thread.isMainThread)")
+        Log.export.debug("🔵 [EXPORT] Starting export process...")
+        Log.export.debug("🔵 [EXPORT] Current thread: \(Thread.current)")
+        Log.export.debug("🔵 [EXPORT] Is main thread: \(Thread.isMainThread)")
         
         // CRITICAL: Extract ALL data from SwiftData models BEFORE opening save panel
         // This prevents SwiftData threading violations
-        print("🔵 [EXPORT] About to generate content from SwiftData...")
+        Log.export.debug("🔵 [EXPORT] About to generate content from SwiftData...")
         let content: String
         do {
             content = generateFullTextContent()
-            print("✅ [EXPORT] Content generated successfully (\(content.count) characters)")
+            Log.export.debug("✅ [EXPORT] Content generated successfully (\(content.count) characters)")
         } catch {
-            print("❌ [EXPORT] Error generating content: \(error)")
+            Log.export.error("❌ [EXPORT] Error generating content: \(error)")
             showErrorAlert(error: error)
             return
         }
         
         // Show save panel on main thread
-        print("🔵 [EXPORT] Preparing save panel...")
+        Log.export.debug("🔵 [EXPORT] Preparing save panel...")
         DispatchQueue.main.async {
             let savePanel = NSSavePanel()
             savePanel.title = "Export Shot List"
@@ -127,11 +128,11 @@ struct ProjectExporter {
             savePanel.canCreateDirectories = true
             savePanel.showsTagField = true
             
-            print("🔵 [EXPORT] Showing save panel...")
+            Log.export.debug("🔵 [EXPORT] Showing save panel...")
             let response = savePanel.runModal()
             
             if response == .OK, let url = savePanel.url {
-                print("✅ [EXPORT] User selected save location: \(url.path)")
+                Log.export.debug("✅ [EXPORT] User selected save location: \(url.path)")
                 
                 do {
                     // Create file based on format
@@ -139,7 +140,7 @@ struct ProjectExporter {
                     case .text:
                         // Write text file directly to selected location
                         try content.write(to: url, atomically: true, encoding: .utf8)
-                        print("✅ [EXPORT] Text file saved successfully")
+                        Log.export.debug("✅ [EXPORT] Text file saved successfully")
                         
                     case .pdf:
                         // Convert text to PDF and save
@@ -148,7 +149,7 @@ struct ProjectExporter {
                                         userInfo: [NSLocalizedDescriptionKey: "Failed to create PDF data"])
                         }
                         try pdfData.write(to: url)
-                        print("✅ [EXPORT] PDF file saved successfully")
+                        Log.export.debug("✅ [EXPORT] PDF file saved successfully")
                         
                     case .scriptWithCoverage:
                         // Export script with coverage lines burned in
@@ -157,7 +158,7 @@ struct ProjectExporter {
                                         userInfo: [NSLocalizedDescriptionKey: "Failed to create script with coverage. Make sure a script PDF is imported."])
                         }
                         try pdfData.write(to: url)
-                        print("✅ [EXPORT] Script with coverage saved successfully")
+                        Log.export.debug("✅ [EXPORT] Script with coverage saved successfully")
 
                     case .htmlWithMedia:
                         break // handled earlier via their own methods
@@ -167,11 +168,11 @@ struct ProjectExporter {
                     self.showSuccessNotification(fileURL: url, format: format)
                     
                 } catch {
-                    print("❌ [EXPORT] Error saving file: \(error)")
+                    Log.export.error("❌ [EXPORT] Error saving file: \(error)")
                     self.showErrorAlert(error: error)
                 }
             } else {
-                print("ℹ️ [EXPORT] User cancelled save operation")
+                Log.export.debug("ℹ️ [EXPORT] User cancelled save operation")
             }
         }
     }
@@ -288,7 +289,7 @@ struct ProjectExporter {
             savePanel.canCreateDirectories = true
 
             guard savePanel.runModal() == .OK, let destination = savePanel.url else {
-                print("ℹ️ [EXPORT] HTML export cancelled")
+                Log.export.debug("ℹ️ [EXPORT] HTML export cancelled")
                 return
             }
 
@@ -300,7 +301,7 @@ struct ProjectExporter {
                                         to: destination)
                 self.showSuccessNotification(fileURL: destination, format: .htmlWithMedia)
             } catch {
-                print("❌ [EXPORT] HTML export failed: \(error)")
+                Log.export.error("❌ [EXPORT] HTML export failed: \(error)")
                 self.showErrorAlert(error: error)
             }
         }
@@ -2364,7 +2365,7 @@ struct ProjectExporter {
     // MARK: - Text Generation
 
     private func generateFullTextContent() -> String {
-        print("🔵 [CONTENT] Starting content generation...")
+        Log.export.debug("🔵 [CONTENT] Starting content generation...")
 
         let rule = String(repeating: "=", count: 80)
         let formatter = DateFormatter()
@@ -2423,7 +2424,7 @@ struct ProjectExporter {
         output += "End of shot list · generated by CinePlanner\n"
         output += rule + "\n"
 
-        print("✅ [CONTENT] Content generation complete!")
+        Log.export.debug("✅ [CONTENT] Content generation complete!")
         return output
     }
 
@@ -2519,7 +2520,7 @@ struct ProjectExporter {
     }
     
     private func generateExportText(orderedScenes: [Scene]) -> String {
-        print("🔵 [EXPORT_TEXT] Starting scene breakdown...")
+        Log.export.debug("🔵 [EXPORT_TEXT] Starting scene breakdown...")
 
         // Aligns detail values into a column; survives proportional fonts far
         // better than the old box-drawing frame did.
@@ -2618,7 +2619,7 @@ struct ProjectExporter {
             }
         }
 
-        print("✅ [EXPORT_TEXT] Scene breakdown complete!")
+        Log.export.debug("✅ [EXPORT_TEXT] Scene breakdown complete!")
         return output
     }
 
@@ -2657,40 +2658,40 @@ struct ProjectExporter {
     }
 
     private func buildScriptWithCoverage() -> Data? {
-        print("🔵 [SCRIPT_COVERAGE] Creating script with burned-in coverage")
+        Log.export.debug("🔵 [SCRIPT_COVERAGE] Creating script with burned-in coverage")
         
         // Check if script PDF exists
         guard let scriptPDFData = (version?.pdfData ?? project.scriptPDFData),
               let sourcePDF = PDFDocument(data: scriptPDFData) else {
-            print("❌ [SCRIPT_COVERAGE] No script PDF found")
+            Log.export.error("❌ [SCRIPT_COVERAGE] No script PDF found")
             return nil
         }
         
-        print("✅ [SCRIPT_COVERAGE] Loaded script PDF with \(sourcePDF.pageCount) pages")
+        Log.export.debug("✅ [SCRIPT_COVERAGE] Loaded script PDF with \(sourcePDF.pageCount) pages")
         
         // Create a new PDF document
         let outputData = NSMutableData()
         guard let consumer = CGDataConsumer(data: outputData as CFMutableData) else {
-            print("❌ [SCRIPT_COVERAGE] Failed to create data consumer")
+            Log.export.error("❌ [SCRIPT_COVERAGE] Failed to create data consumer")
             return nil
         }
         
         var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792) // Default US Letter
         guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            print("❌ [SCRIPT_COVERAGE] Failed to create PDF context")
+            Log.export.error("❌ [SCRIPT_COVERAGE] Failed to create PDF context")
             return nil
         }
         
         // Collect all coverage selections organized by page
         var coverageByPage: [Int: [(shot: Shot, selection: ScriptTextSelection)]] = [:]
         
-        print("📋 [EXPORT COLOR] Collecting coverage from all scenes and shots...")
+        Log.export.debug("📋 [EXPORT COLOR] Collecting coverage from all scenes and shots...")
         for scene in exportScenes {
-            print("   🎬 Scene \(scene.sceneNumber)\(scene.suffix): \(scene.shots.count) shots")
+            Log.export.debug("   🎬 Scene \(scene.sceneNumber)\(scene.suffix): \(scene.shots.count) shots")
             for (shotIndex, shot) in scene.shots.enumerated() {
                 guard let selections = shot.scriptCoverageSelections else { continue }
                 
-                print("      📸 Shot \(shot.displayNumber) (index \(shotIndex)): \(selections.count) selection(s)")
+                Log.export.debug("      📸 Shot \(shot.displayNumber) (index \(shotIndex)): \(selections.count) selection(s)")
                 
                 for selection in selections {
                     for pageRange in selection.pageRanges {
@@ -2699,37 +2700,37 @@ struct ProjectExporter {
                             coverageByPage[pageIndex] = []
                         }
                         coverageByPage[pageIndex]?.append((shot: shot, selection: selection))
-                        print("         - Added to page \(pageIndex)")
+                        Log.export.debug("         - Added to page \(pageIndex)")
                     }
                 }
             }
         }
         
-        print("📋 [SCRIPT_COVERAGE] Found coverage on \(coverageByPage.keys.count) pages")
+        Log.export.debug("📋 [SCRIPT_COVERAGE] Found coverage on \(coverageByPage.keys.count) pages")
         
         // Use the same color scheme as the editor tab
         let shotColors: [PlatformColor] = CoveragePalette.colors
         
-        print("🎨 [EXPORT COLOR] Using color palette with \(shotColors.count) colors:")
+        Log.export.debug("🎨 [EXPORT COLOR] Using color palette with \(shotColors.count) colors:")
         for (index, color) in shotColors.enumerated() {
-            print("   \(index): \(color)")
+            Log.export.debug("   \(index): \(color)")
         }
         
         // STEP 1: Assign base colors to each shot based on their sorted position within their scene
         // This ensures the same shot always gets the same base color (matching editor behavior)
         var shotBaseColors: [ObjectIdentifier: (colorIndex: Int, color: PlatformColor)] = [:]
         
-        print("🎨 [EXPORT COLOR] Step 1: Assigning base colors to shots...")
+        Log.export.debug("🎨 [EXPORT COLOR] Step 1: Assigning base colors to shots...")
         for scene in exportScenes {
             for shot in scene.shots {
                 guard let shotIndex = scene.orderedShots.firstIndex(where: { $0 === shot }) else { continue }
                 let colorIndex = shotIndex % shotColors.count
                 shotBaseColors[ObjectIdentifier(shot)] = (colorIndex, shotColors[colorIndex])
-                print("   - Scene \(scene.sceneNumber)\(scene.suffix), Shot \(shot.displayNumber): Base color index \(colorIndex)")
+                Log.export.debug("   - Scene \(scene.sceneNumber)\(scene.suffix), Shot \(shot.displayNumber): Base color index \(colorIndex)")
             }
         }
         
-        print("✅ [EXPORT COLOR] Base color assignment complete")
+        Log.export.debug("✅ [EXPORT COLOR] Base color assignment complete")
 
         // Process each page
         for pageIndex in 0..<sourcePDF.pageCount {
@@ -2749,7 +2750,7 @@ struct ProjectExporter {
             
             // Draw coverage lines if any exist on this page
             if let coverages = coverageByPage[pageIndex] {
-                print("📝 [SCRIPT_COVERAGE] Drawing \(coverages.count) coverage item(s) on page \(pageIndex + 1)")
+                Log.export.debug("📝 [SCRIPT_COVERAGE] Drawing \(coverages.count) coverage item(s) on page \(pageIndex + 1)")
 
                 // Gather this page's bars, then pack them by density and share one
                 // label scale — identical to the editor overlay, the on-screen viewer
@@ -2846,7 +2847,7 @@ struct ProjectExporter {
 
         context.closePDF()
 
-        print("✅ [SCRIPT_COVERAGE] Script with coverage created successfully")
+        Log.export.debug("✅ [SCRIPT_COVERAGE] Script with coverage created successfully")
         return outputData as Data
     }
     
