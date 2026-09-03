@@ -34,7 +34,8 @@ enum GitHubError: LocalizedError {
         case .pagesBuildFailed: return "GitHub couldn't build the page. Check the repository's Pages settings."
         case .fileTooLarge(let name, let bytes):
             let mb = Double(bytes) / 1_048_576
-            return String(format: "“%@” is %.0f MB, over GitHub's 100 MB limit even after compression. Trim or shorten that video, then publish again.", name, mb)
+            let limit = Double(GitHubPublisher.maxUploadBytes) / 1_048_576
+            return String(format: "“%@” is %.0f MB, over the %.0f MB a publish can carry even after compression. Trim or shorten that video, then publish again.", name, mb, limit)
         case .cannotDeleteRepo(let scopes):
             let have = (scopes?.isEmpty ?? true) ? "none" : scopes!
             return "This GitHub token can't delete repositories — its permissions are: \(have). It needs “delete_repo”. Tokens are shared across all your projects, so open the publish window, tap “Change Token”, and create a new one from the pre-filled link (it now requests delete_repo)."
@@ -92,6 +93,19 @@ enum GitHubPublishPhase: Equatable {
 typealias GitHubProgress = (GitHubPublishPhase) -> Void
 
 enum GitHubPublisher {
+
+    /// The largest file a publish may contain.
+    ///
+    /// The Git Data API takes a blob base64-encoded inside a JSON body, which
+    /// inflates it by about a third, so the real ceiling on a *file* sits well
+    /// under the 100 MB the docs quote for a blob. Measured: an 88.5 MB video
+    /// became a ~118 MB request body and was rejected outright (HTTP 400,
+    /// "malformed request"), and an oversized index.html was rejected before
+    /// that with a 422. This leaves room for the encoding and the JSON around it.
+    ///
+    /// Raising it is a measurement, not a guess: publish a file of the new size
+    /// to a throwaway repo first and check it is accepted.
+    static let maxUploadBytes = 50 * 1_024 * 1_024
 
     // MARK: - Token (Keychain)
 
@@ -264,8 +278,7 @@ enum GitHubPublisher {
         // Backstop: an oversized video that even the smallest transcode couldn't
         // shrink (a very long clip) would make GitHub reject the whole push. Catch
         // it here with a clear, per-file message instead.
-        let hardLimit = 100 * 1_024 * 1_024
-        if let big = files.max(by: { $0.value.count < $1.value.count }), big.value.count > hardLimit {
+        if let big = files.max(by: { $0.value.count < $1.value.count }), big.value.count > maxUploadBytes {
             let name = big.key.split(separator: "/").last.map(String.init) ?? big.key
             throw GitHubError.fileTooLarge(name: name, bytes: big.value.count)
         }

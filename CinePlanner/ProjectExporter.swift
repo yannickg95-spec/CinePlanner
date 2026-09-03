@@ -901,11 +901,11 @@ struct ProjectExporter {
 
     // MARK: - Web video compression
 
-    /// GitHub rejects files over 100 MB. Transcode reference videos larger than
-    /// this to a web-friendly H.264 MP4 so a publish can't fail on one big clip.
-    /// Kept below 100 MB for headroom (base64 upload, container overhead). If real
-    /// uploads ever reject smaller blobs, lower this one constant.
-    static let gitHubVideoLimit = 90 * 1_024 * 1_024
+    /// Reference videos above this are transcoded down to a web-friendly H.264
+    /// MP4, so a publish can't fail on one big clip. It is the publisher's own
+    /// upload ceiling — the two must agree, or a clip is either compressed for no
+    /// reason or waved through and then rejected by GitHub.
+    static let gitHubVideoLimit = GitHubPublisher.maxUploadBytes
 
     /// Transcodes video data down to an H.264 MP4 that fits under `maxBytes`,
     /// stepping resolution down until it does. Returns the smallest result it
