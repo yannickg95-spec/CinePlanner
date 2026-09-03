@@ -103,8 +103,10 @@ enum GitHubPublisher {
     /// "malformed request"), and an oversized index.html was rejected before
     /// that with a 422. This leaves room for the encoding and the JSON around it.
     ///
-    /// Raising it is a measurement, not a guess: publish a file of the new size
-    /// to a throwaway repo first and check it is accepted.
+    /// 50 MB is verified: an 88.5 MB clip compresses to fit and publishes fine.
+    /// The true ceiling sits somewhere above this and below 88.5 MB, so raising it
+    /// is a measurement, not a guess — publish a file of the new size to a
+    /// throwaway repo first and check it is accepted.
     static let maxUploadBytes = 50 * 1_024 * 1_024
 
     // MARK: - Token (Keychain)
