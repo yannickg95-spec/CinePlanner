@@ -19,12 +19,18 @@ import CoreGraphics
 
 enum CoverageLineLayout {
 
-    /// One coverage line to place. `extent` is the bar's vertical span (used to
-    /// pack columns). `labelWidth`/`labelBand` describe the shot number at the base
-    /// font; `labelBand` is nil when no number is drawn for this line (e.g. the
-    /// continuation of a multi-page selection), so it never constrains the scale.
+    /// One coverage line to place.
+    ///
+    /// `extent` is the bar's vertical span, used to pack columns. `band` is the
+    /// usable margin x-range for this line, with `upperBound` the edge nearest the
+    /// text (column 0) — it is per line because a selection spanning pages can
+    /// resolve to different page bounds. `labelWidth`/`labelBand` describe the shot
+    /// number at the base font; `labelBand` is nil when no number is drawn for this
+    /// line (the continuation of a multi-page selection), so it never constrains
+    /// the scale.
     struct Line {
         var extent: ClosedRange<CGFloat>
+        var band: ClosedRange<CGFloat>
         var labelWidth: CGFloat = 0
         var labelBand: ClosedRange<CGFloat>? = nil
     }
@@ -35,11 +41,14 @@ enum CoverageLineLayout {
         var scale: CGFloat
     }
 
-    /// Places `lines` within `band` (band.upperBound is the edge nearest the text —
-    /// column 0). Returns each line's X and one uniform label scale in
-    /// `minScale...1`. `pad` is the gap kept between adjacent numbers.
-    static func solve(_ lines: [Line], band: ClosedRange<CGFloat>,
-                      pad: CGFloat = 4, minScale: CGFloat = 0.4) -> [Placed] {
+    /// Places `lines` and returns each one's X plus one uniform label scale in
+    /// `minScale...1`. `spacingPad` is added to the widest shot number to get the
+    /// column spacing; `labelGap` is the clearance kept between two numbers before
+    /// they are scaled down.
+    static func solve(_ lines: [Line],
+                      spacingPad: CGFloat = 4,
+                      labelGap: CGFloat = 2,
+                      minScale: CGFloat = 0.4) -> [Placed] {
         guard !lines.isEmpty else { return [] }
 
         // Column per line — reuse a column once its last bar has ended above this one.
@@ -61,10 +70,13 @@ enum CoverageLineLayout {
         let count = max(1, columnMaxY.count)
 
         // Pack columns from the text edge; only widen to the full band if forced.
-        let width = band.upperBound - band.lowerBound
-        let labelSpacing = (lines.compactMap { $0.labelBand == nil ? nil : $0.labelWidth }.max() ?? 0) + pad
-        let step = count > 1 ? min(labelSpacing, width / CGFloat(count - 1)) : 0
-        let xs = lines.indices.map { band.upperBound - CGFloat(columns[$0]) * step }
+        let labelSpacing = (lines.compactMap { $0.labelBand == nil ? nil : $0.labelWidth }.max() ?? 0) + spacingPad
+        let xs = lines.indices.map { i -> CGFloat in
+            let band = lines[i].band
+            guard count > 1 else { return band.upperBound }
+            let step = min(labelSpacing, (band.upperBound - band.lowerBound) / CGFloat(count - 1))
+            return band.upperBound - CGFloat(columns[i]) * step
+        }
 
         // Largest uniform scale (≤ 1) at which no two drawn numbers overlap.
         var scale: CGFloat = 1
@@ -75,8 +87,8 @@ enum CoverageLineLayout {
                 guard a.lowerBound < b.upperBound, b.lowerBound < a.upperBound else { continue }
                 let dx = abs(xs[i] - xs[j])
                 let needed = (lines[i].labelWidth + lines[j].labelWidth) / 2
-                guard needed > 0, dx < needed + pad else { continue }
-                scale = min(scale, max(0, dx - pad) / needed)
+                guard needed > 0, dx < needed + labelGap else { continue }
+                scale = min(scale, max(0, dx - labelGap) / needed)
             }
         }
         scale = max(minScale, min(1, scale))

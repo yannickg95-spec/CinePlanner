@@ -821,56 +821,26 @@ private final class CoverageBarsView: UIView {
                                label: bar.label, textSize: textSize))
         }
 
-        // Assign columns by true vertical density (earliest-start interval
-        // colouring): bars that don't share vertical space reuse a column, so the
-        // column count is the largest number of bars overlapping at any one point.
-        var columns = [Int](repeating: 0, count: raws.count)
-        var columnMaxY: [CGFloat] = []
-        for idx in raws.indices.sorted(by: { raws[$0].minY < raws[$1].minY }) {
-            var placed = false
-            for c in columnMaxY.indices where columnMaxY[c] <= raws[idx].minY {
-                columnMaxY[c] = raws[idx].maxY; columns[idx] = c; placed = true; break
-            }
-            if !placed { columns[idx] = columnMaxY.count; columnMaxY.append(raws[idx].maxY) }
-        }
-        let columnCount = max(1, columnMaxY.count)
+        // Column packing and the shared label scale — the same maths the editor
+        // overlay and every export use (see CoverageLineLayout). This view is
+        // y-down, so a bar's top is its minY and the number sits just above it.
+        let solved = CoverageLineLayout.solve(raws.map { raw in
+            CoverageLineLayout.Line(
+                extent: raw.minY...raw.maxY,
+                band: xLower...xUpper,
+                labelWidth: raw.textSize.width,
+                labelBand: (raw.minY - 2 - raw.textSize.height)...(raw.minY - 2))
+        })
+        let scale = solved.first?.scale ?? 1
 
-        // Pack columns tightly from the text edge outward, spaced by exactly enough
-        // for a full-size shot number so labels never overlap yet stay compact.
-        // Only when that won't fit do we spread evenly across the whole band — the
-        // crowded case where the numbers then shrink to suit.
-        let band = xUpper - xLower
-        let labelSpacing = (raws.map { $0.textSize.width }.max() ?? 0) + 4
-        func columnX(_ column: Int) -> CGFloat {
-            guard columnCount > 1 else { return xUpper }
-            let step = min(labelSpacing, band / CGFloat(columnCount - 1))
-            return xUpper - CGFloat(column) * step
-        }
         var placements: [Placement] = []
-        for (i, raw) in raws.enumerated() {
-            let x = columnX(columns[i])
-            let padding: CGFloat = 2
-            let baseLabelRect = CGRect(x: x - raw.textSize.width / 2, y: raw.minY - padding - raw.textSize.height,
+        for (raw, placed) in zip(raws, solved) {
+            let baseLabelRect = CGRect(x: placed.x - raw.textSize.width / 2,
+                                       y: raw.minY - 2 - raw.textSize.height,
                                        width: raw.textSize.width, height: raw.textSize.height)
-            placements.append(Placement(x: x, minY: raw.minY, maxY: raw.maxY, color: raw.color,
+            placements.append(Placement(x: placed.x, minY: raw.minY, maxY: raw.maxY, color: raw.color,
                                         label: raw.label, baseLabelRect: baseLabelRect))
         }
-
-        // One scale so each shot number stays centered above its own line yet no
-        // two labels overlap — they shrink together instead of being repositioned.
-        var scale: CGFloat = 1
-        let pad: CGFloat = 2
-        for i in placements.indices {
-            for j in (i + 1)..<placements.count {
-                let a = placements[i].baseLabelRect, b = placements[j].baseLabelRect
-                guard a.minY < b.maxY, b.minY < a.maxY else { continue }
-                let dx = abs(a.midX - b.midX)
-                let needed = (a.width + b.width) / 2
-                guard needed > 0, dx < needed + pad else { continue }
-                scale = min(scale, max(0, dx - pad) / needed)
-            }
-        }
-        scale = max(0.4, min(1, scale))
 
         // Line thickness scales with the coverage-band width — the same for every
         // page (identical pane width), so all bars are equally thick regardless of

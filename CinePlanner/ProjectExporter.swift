@@ -388,14 +388,16 @@ struct ProjectExporter {
                 // editor overlay and the on-screen viewer (see CoverageLineLayout).
                 let bars = byPage[pageIndex] ?? []
                 let baseFont = PlatformFont.systemFont(ofSize: 9, weight: .semibold)
+                let barBand = exportLineRange(for: cropBox)
                 let barLines: [CoverageLineLayout.Line] = bars.map { bar in
                     let w = NSAttributedString(string: bar.label, attributes: [.font: baseFont]).size()
                     return CoverageLineLayout.Line(
                         extent: bar.minY...bar.maxY,
+                        band: barBand,
                         labelWidth: w.width,
                         labelBand: (bar.maxY + 3)...(bar.maxY + 3 + w.height))
                 }
-                let placements = CoverageLineLayout.solve(barLines, band: exportLineRange(for: cropBox))
+                let placements = CoverageLineLayout.solve(barLines)
                 for (bar, placed) in zip(bars, placements) {
                     let x = placed.x
                     ctx.setStrokeColor(bar.color.cgColor)
@@ -2794,13 +2796,15 @@ struct ProjectExporter {
                                     drawsLabel: isFirstPage || !isMultiPage))
                 }
 
+                let pageBand = exportLineRange(for: pageRect)
                 let lines: [CoverageLineLayout.Line] = bars.map { bar in
                     CoverageLineLayout.Line(
                         extent: bar.minY...bar.maxY,
+                        band: pageBand,
                         labelWidth: bar.labelWidth,
                         labelBand: bar.drawsLabel ? (bar.labelTopY + 4)...(bar.labelTopY + 4 + bar.labelHeight) : nil)
                 }
-                let placements = CoverageLineLayout.solve(lines, band: exportLineRange(for: pageRect))
+                let placements = CoverageLineLayout.solve(lines)
 
                 for (bar, placed) in zip(bars, placements) {
                     let x = placed.x

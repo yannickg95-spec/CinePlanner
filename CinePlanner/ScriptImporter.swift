@@ -1968,48 +1968,6 @@ class PDFCoverageOverlayView: PlatformViewBase {
         return shotColors[index % shotColors.count]
     }
     
-    /// Assigns each line to a column so that lines which don't share vertical
-    /// space reuse the same column. The column count equals the largest number of
-    /// lines overlapping at any one point — the true local density — so columns
-    /// can then be spread as far apart as the margin allows. This is earliest-start
-    /// interval-graph colouring, which uses exactly that many columns.
-    private func assignColumns(_ lines: [RawLine]) -> (columns: [Int], count: Int) {
-        var columns = [Int](repeating: 0, count: lines.count)
-        // Track, per column, the lowest point (largest maxY) reached so far.
-        var columnMaxY: [CGFloat] = []
-        // Process lines top-to-bottom (by minY) and give each the first free column.
-        let order = lines.indices.sorted { lines[$0].minY < lines[$1].minY }
-        for idx in order {
-            let line = lines[idx]
-            var placed = false
-            for c in columnMaxY.indices {
-                if columnMaxY[c] <= line.minY {          // that column is now clear
-                    columnMaxY[c] = line.maxY
-                    columns[idx] = c
-                    placed = true
-                    break
-                }
-            }
-            if !placed {
-                columns[idx] = columnMaxY.count
-                columnMaxY.append(line.maxY)
-            }
-        }
-        return (columns, max(1, columnMaxY.count))
-    }
-
-    /// X for a column. Columns are packed as tightly as possible from the text
-    /// edge outward, spaced by exactly enough for a full-size shot number
-    /// (`spacing`) so the labels never overlap yet stay compact. Only when that
-    /// won't fit in the band do we fall back to spreading evenly across the whole
-    /// band — the crowded case where the numbers then shrink to suit.
-    private func columnX(_ column: Int, count: Int, band: ClosedRange<CGFloat>, spacing: CGFloat) -> CGFloat {
-        guard count > 1 else { return band.upperBound }
-        let width = band.upperBound - band.lowerBound
-        let step = min(spacing, width / CGFloat(count - 1))
-        return band.upperBound - CGFloat(column) * step
-    }
-
     private func pageBoundsInOverlay(for pageRange: PageTextRange, document: PDFDocument, pdfView: PDFView) -> CGRect? {
         guard let page = document.page(at: pageRange.pageIndex) else {
             return nil
@@ -2071,17 +2029,24 @@ class PDFCoverageOverlayView: PlatformViewBase {
             }
         }
 
-        // Assign columns by true vertical density, then spread those columns as
-        // far apart as each line's margin band allows. Lines that don't overlap
-        // reuse a column, so a shot number only has to share horizontal room with
-        // lines that genuinely sit beside it.
-        let (columns, columnCount) = assignColumns(rawLines)
-        // Spacing that fits the widest shot number at full size, so packed columns
-        // never overlap while staying as close together as possible.
-        let labelSpacing = (rawLines.map { $0.textSize.width }.max() ?? 0) + 4
+        // Column packing and the shared label scale — the same maths the on-screen
+        // viewer and every export use (see CoverageLineLayout).
+        let solved = CoverageLineLayout.solve(rawLines.map { raw in
+            // The overlay is y-up on macOS (larger Y = top) and y-down on iOS, so
+            // the label sits on the opposite side of the bar's top on each.
+            #if os(macOS)
+            let labelBand = (max(raw.minY, raw.maxY) + 4)...(max(raw.minY, raw.maxY) + 4 + raw.textSize.height)
+            #else
+            let labelBand = (min(raw.minY, raw.maxY) - 4 - raw.textSize.height)...(min(raw.minY, raw.maxY) - 4)
+            #endif
+            return CoverageLineLayout.Line(extent: raw.minY...raw.maxY, band: raw.band,
+                                           labelWidth: raw.textSize.width, labelBand: labelBand)
+        })
+        let scale = solved.first?.scale ?? 1
+
         var placements: [CoveragePlacement] = []
-        for (i, raw) in rawLines.enumerated() {
-            let pageX = columnX(columns[i], count: columnCount, band: raw.band, spacing: labelSpacing)
+        for (raw, placed) in zip(rawLines, solved) {
+            let pageX = placed.x
             #if os(macOS)
             let labelTopY = max(raw.minY, raw.maxY)
             let baseLabelRect = CGRect(x: pageX - raw.textSize.width / 2, y: labelTopY + 4,
@@ -2097,11 +2062,6 @@ class PDFCoverageOverlayView: PlatformViewBase {
                 label: raw.label, baseLabelRect: baseLabelRect,
                 minPageX: raw.minPageX, maxPageX: raw.maxPageX))
         }
-
-        // One scale that keeps every shot number centered above its own line yet
-        // never lets two labels overlap — the numbers shrink together on a narrow
-        // pane instead of being shuffled around.
-        let scale = labelScale(for: placements)
 
         // Pass 2: draw the bars, then the (scaled) shot numbers above them.
         for placement in placements {
@@ -2120,26 +2080,6 @@ class PDFCoverageOverlayView: PlatformViewBase {
                 drawHighlightedText(for: selection, in: context, pdfView: pdfView, document: document)
             }
         }
-    }
-
-    /// The largest uniform label scale (≤ 1) at which no two shot numbers overlap.
-    private func labelScale(for placements: [CoveragePlacement]) -> CGFloat {
-        let minScale: CGFloat = 0.4
-        let pad: CGFloat = 2
-        var scale: CGFloat = 1
-        for i in placements.indices {
-            for j in (i + 1)..<placements.count {
-                let a = placements[i].baseLabelRect
-                let b = placements[j].baseLabelRect
-                // Only labels that share vertical space can collide.
-                guard a.minY < b.maxY, b.minY < a.maxY else { continue }
-                let dx = abs(a.midX - b.midX)
-                let needed = (a.width + b.width) / 2
-                guard needed > 0, dx < needed + pad else { continue }
-                scale = min(scale, max(0, dx - pad) / needed)
-            }
-        }
-        return max(minScale, min(1, scale))
     }
 
     /// Draws a shot number centered above its line at the shared scale.
