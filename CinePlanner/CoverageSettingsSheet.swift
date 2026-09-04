@@ -236,21 +236,17 @@ private struct CoveragePreview: View {
     let palette: CoveragePaletteChoice
     let margin: Double
     var background: PlatformImage? = nil
-    var height: CGFloat = 150
 
     var body: some View {
         let color = palette.displayColors.first ?? .blue
-        ZStack(alignment: .top) {
-            // Background: the real script strip fills the width so the margin
-            // fraction maps to the same place it does on the page; otherwise a
-            // stand-in of grey text lines. Pinned to the top so the scene heading
-            // stays visible — filling crops the bottom of the strip, not the top.
+        // The box takes the strip's own aspect ratio, so the image maps onto it
+        // one-to-one: no cropping, the scene heading stays at the very top, and the
+        // margin fraction lands exactly where it does on the page. (`.fill` cropped
+        // symmetrically, which cut the heading off no matter the alignment.)
+        let aspect = background?.size ?? CGSize(width: 2.5, height: 1)
+        ZStack {
             if let background {
-                Image(platformImage: background)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .clipped()
+                Image(platformImage: background).resizable()
             } else {
                 standInText
             }
@@ -259,22 +255,18 @@ private struct CoveragePreview: View {
                 // The coverage line at the band's right edge — a fraction of page
                 // width — exactly where the real renderer packs it.
                 let barX = max(3, size.width * CGFloat(margin))
-                let top = size.height * 0.16
+                let top = max(9, size.height * 0.22)   // keep its number inside the box
                 var path = Path()
                 path.move(to: CGPoint(x: barX, y: top))
-                path.addLine(to: CGPoint(x: barX, y: size.height * 0.9))
+                path.addLine(to: CGPoint(x: barX, y: size.height * 0.92))
                 ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
                 let label = Text("1.1").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
                 ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
             }
         }
-        // Bound the height HERE, before background/clip/overlay, so they operate on
-        // the final box. Doing it in the caller instead let the greedy image size
-        // the box tall under a ScrollView's unbounded proposal; the clip then ran
-        // at that height and the box spilled over the heading above it.
+        .aspectRatio(aspect, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .frame(height: height)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
@@ -310,7 +302,9 @@ private struct CoveragePreview: View {
         let box = page.bounds(for: .cropBox)
         guard box.width > 1, box.height > 1 else { return nil }
 
-        let stripH = min(box.height, box.width * 0.5)
+        // Wider than tall (~2.6:1) — the preview box takes this aspect, so a
+        // shorter strip keeps the box from getting too tall.
+        let stripH = min(box.height, box.width * 0.38)
         // Where the content starts (y-up), a little above it for breathing room,
         // capped at the page top. Falls back to the page top if nothing is found.
         let contentTop = contentTopY(on: page) ?? box.maxY
