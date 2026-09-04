@@ -252,7 +252,12 @@ extension ProjectExporter {
                     ]
                     let label = NSAttributedString(string: bar.label, attributes: attrs)
                     let ls = label.size()
-                    let labelOrigin = CGPoint(x: x - ls.width / 2, y: bar.maxY + 3)
+                    // Clamp so the number can't run off the page edge (the outermost
+                    // line sits right against it), matching the PDF export.
+                    let minX = cropBox.minX + 2
+                    let maxX = cropBox.maxX - 2 - ls.width
+                    let labelX = min(max(x - ls.width / 2, minX), max(minX, maxX))
+                    let labelOrigin = CGPoint(x: labelX, y: bar.maxY + 3)
                     // The context is y-up (see PlatformGraphics.image). AppKit text
                     // draws upright in it, but UIKit text would be mirrored — the
                     // shot number upside down. On iOS, flip locally about the label
