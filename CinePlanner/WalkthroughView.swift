@@ -261,12 +261,14 @@ private struct WelcomeIllo: View {
                 .fill(.white)
                 .frame(width: 148, height: 148)
                 .overlay(
-                    // The SVG already carries the icon's internal margins, so it
-                    // fills the tile like the real app icon (no extra padding).
+                    // The SVG bakes in wide internal margins, which left the mark
+                    // small and floating in white here. Overscale (negative padding)
+                    // to fill the tile, and clip so it can't spill past the corners.
                     Image("CinePlannerLogo")
                         .resizable().scaledToFit()
-                        .padding(6)
+                        .padding(-8)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 33, style: .continuous))
                 .shadow(color: .black.opacity(0.22), radius: 18, y: 12)
                 .appear()
         }
@@ -378,10 +380,13 @@ private struct CineStagerIllo: View {
                 .fill(.white)
                 .frame(width: 152, height: 152)
                 .overlay(
+                    // Overscale so the rings fill the tile (the SVG has margin
+                    // around them), clipped to the tile's rounded corners.
                     Image("CineStagerLogo")
                         .resizable().scaledToFit()
-                        .padding(6)
+                        .padding(-8)
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
                 .shadow(color: blue.opacity(0.40), radius: 22, y: 12)
                 .appear()
         }
