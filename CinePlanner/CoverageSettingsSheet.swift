@@ -222,9 +222,13 @@ private struct CoveragePreview: View {
             // fraction maps to the same place it does on the page; otherwise a
             // stand-in of grey text lines.
             if let background {
+                // `.fill` overflows its frame; clip it so it can't draw over the
+                // heading above the preview.
                 Image(platformImage: background)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
             } else {
                 standInText
             }
@@ -233,13 +237,14 @@ private struct CoveragePreview: View {
                 // The coverage line at the band's right edge — a fraction of page
                 // width — exactly where the real renderer packs it.
                 let barX = max(3, size.width * CGFloat(margin))
+                let top = size.height * 0.30
                 var path = Path()
-                path.move(to: CGPoint(x: barX, y: size.height * 0.14))
-                path.addLine(to: CGPoint(x: barX, y: size.height * 0.86))
+                path.move(to: CGPoint(x: barX, y: top))
+                path.addLine(to: CGPoint(x: barX, y: size.height * 0.9))
                 ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
                 let label = Text("1.1").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
-                ctx.draw(label, at: CGPoint(x: barX, y: size.height * 0.14 - 5), anchor: .center)
+                ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
             }
         }
         .frame(maxWidth: .infinity)
@@ -267,8 +272,10 @@ private struct CoveragePreview: View {
         }
     }
 
-    /// Renders the top of a script page at full page width — a wide strip whose
-    /// horizontal scale is the page's, so overlaid bars land at the right margin.
+    /// Renders a strip of a script page at full page width — its horizontal scale
+    /// is the page's, so overlaid bars land at the right margin. Starts at the
+    /// first scene heading on the page, trimming the top margin and page number,
+    /// so the preview opens on scene content rather than blank space.
     static func renderStrip(pdfData: Data, pageIndex: Int) -> PlatformImage? {
         guard let doc = PDFDocument(data: pdfData), doc.pageCount > 0 else { return nil }
         let idx = min(max(0, pageIndex), doc.pageCount - 1)
@@ -276,17 +283,46 @@ private struct CoveragePreview: View {
         let box = page.bounds(for: .cropBox)
         guard box.width > 1, box.height > 1 else { return nil }
 
-        // A strip a little wider than it is tall, from the top of the page.
         let stripH = min(box.height, box.width * 0.5)
+        // Where the content starts (y-up), a little above it for breathing room,
+        // capped at the page top. Falls back to the page top if nothing is found.
+        let contentTop = contentTopY(on: page) ?? box.maxY
+        let stripTop = min(box.maxY, contentTop + 10)
+
         let size = CGSize(width: box.width, height: stripH)
         return PlatformGraphics.image(size: size, scale: 2) { ctx in
             ctx.setFillColor(PlatformColor.white.cgColor)
             ctx.fill(CGRect(origin: .zero, size: size))
-            // y-up context: shift so the page's top `stripH` fills the image.
+            // y-up context: shift so the strip [stripTop - stripH ... stripTop]
+            // fills the image, top-aligned.
             ctx.saveGState()
-            ctx.translateBy(x: -box.minX, y: -(box.maxY - stripH))
+            ctx.translateBy(x: -box.minX, y: -(stripTop - stripH))
             page.draw(with: .cropBox, to: ctx)
             ctx.restoreGState()
         }
+    }
+
+    /// The top y (y-up) of the first scene heading on the page, or the first real
+    /// text line when no heading is found — skipping a lone page number at the top.
+    private static func contentTopY(on page: PDFPage) -> CGFloat? {
+        guard let whole = page.selection(for: page.bounds(for: .mediaBox)) else { return nil }
+        let lines = whole.selectionsByLine().compactMap { line -> (top: CGFloat, text: String)? in
+            let text = line.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !text.isEmpty else { return nil }
+            return (line.bounds(for: page).maxY, text)
+        }.sorted { $0.top > $1.top }   // top of page first
+
+        if let heading = lines.first(where: { isSceneHeading($0.text) }) { return heading.top }
+        // No heading (a scene that continues onto this page): first line that isn't
+        // just a page number.
+        return lines.first(where: { !isPageNumber($0.text) })?.top ?? lines.first?.top
+    }
+
+    private static func isSceneHeading(_ line: String) -> Bool {
+        line.uppercased().range(of: "(?<![A-Z])(INT|EXT|I/E)(?![A-Z])", options: .regularExpression) != nil
+    }
+
+    private static func isPageNumber(_ line: String) -> Bool {
+        line.range(of: "^[0-9]{1,4}\\.?$", options: .regularExpression) != nil
     }
 }
