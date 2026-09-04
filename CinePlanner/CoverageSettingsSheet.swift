@@ -252,25 +252,36 @@ private struct CoveragePreview: View {
             }
 
             Canvas { ctx, size in
-                // Three lines packed leftward from the band's right edge (a fraction
-                // of page width), the way the real renderer stacks coverage that
-                // shares vertical space — so the palette's colours and the spacing
-                // between lines are both visible.
-                let step: CGFloat = 15
-                let bandRight = size.width * CGFloat(margin)
-                // Keep all three inside the box even at a small margin.
-                let rightX = max(3 + 2 * step, bandRight)
+                // Three lines placed by the real layout, so the gaps between them and
+                // to the script match the actual renderer. Solve in page points, then
+                // scale the result into the preview: the strip is the full page width,
+                // so preview width maps to page width.
+                let labels = ["1.1", "1.2", "1.3"]
+                let pageW = background?.size.width ?? 595
+                let scale = size.width / pageW
+                let baseFont = PlatformFont.boldSystemFont(ofSize: 11)
+                func labelWidth(_ s: String) -> CGFloat {
+                    NSAttributedString(string: s, attributes: [.font: baseFont]).size().width
+                }
+                // Same band as exportLineRange: page-left edge to pageWidth × margin.
+                let band: ClosedRange<CGFloat> = 0...(pageW * CGFloat(margin))
+                let extent: ClosedRange<CGFloat> = 0...100   // all three overlap → three columns
+                let placed = CoverageLineLayout.solve(labels.map {
+                    CoverageLineLayout.Line(extent: extent, band: band,
+                                            labelWidth: labelWidth($0), labelBand: 0...20)
+                })
+
                 let top = max(9, size.height * 0.22)   // keep the numbers inside the box
                 let bottom = size.height * 0.92
-                for i in 0..<3 {
-                    let x = rightX - CGFloat(i) * step
+                for (i, p) in placed.enumerated() {
+                    let x = p.x * scale
                     let color = colors.isEmpty ? .blue : colors[i % colors.count]
                     var path = Path()
                     path.move(to: CGPoint(x: x, y: top))
                     path.addLine(to: CGPoint(x: x, y: bottom))
                     ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
-                    let label = Text("1.\(i + 1)").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
+                    let label = Text(labels[i]).font(.system(size: 7, weight: .semibold)).foregroundColor(color)
                     ctx.draw(label, at: CGPoint(x: x, y: top - 5), anchor: .center)
                 }
             }
