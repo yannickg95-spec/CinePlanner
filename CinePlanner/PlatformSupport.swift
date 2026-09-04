@@ -80,6 +80,23 @@ extension View {
     }
 }
 
+#if os(iOS)
+/// A narrow, content-height iPad sheet — like the Mac's. Fixes the width and lets
+/// the height follow the content (which reports a real height because its scroll
+/// area is capped at its content), capped at most of the screen so a tall sheet
+/// scrolls instead of overflowing. Avoids `.page` (too wide) and `.fitted`
+/// (collapsed small with a measured scroll cap).
+@available(iOS 18.0, *)
+private struct ColumnSheetSizing: PresentationSizing {
+    let width: CGFloat
+    func proposedSize(for root: PresentationSizingRoot, context: PresentationSizingContext) -> ProposedViewSize {
+        let screen = UIScreen.main.bounds.height
+        let ideal = root.sizeThatFits(ProposedViewSize(width: width, height: screen)).height
+        return ProposedViewSize(width: width, height: min(ideal, screen * 0.92))
+    }
+}
+#endif
+
 private struct AdaptiveSettingsSheet: ViewModifier {
     let width: CGFloat
     func body(content: Content) -> some View {
@@ -87,10 +104,9 @@ private struct AdaptiveSettingsSheet: ViewModifier {
         if DeviceLayout.isPhone {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if #available(iOS 18.0, *) {
-            // Page height, but fit the width to the 460-wide content so the sheet is
-            // a narrow column like the Mac's, not the full width of a page sheet.
-            content.frame(width: width)
-                .presentationSizing(.page.fitted(horizontal: true, vertical: false))
+            // A narrow column like the Mac: fixed width, height driven by the
+            // content but capped to the available space (it scrolls past that).
+            content.presentationSizing(ColumnSheetSizing(width: width))
         } else {
             content.frame(width: width)
         }

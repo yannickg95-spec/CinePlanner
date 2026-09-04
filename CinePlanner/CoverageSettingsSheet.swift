@@ -34,14 +34,13 @@ struct CoverageSettingsSheet: View {
     /// when the window is shorter). Unused on iOS, where the sheet is fixed-size.
     @State private var contentHeight: CGFloat = 0
 
-    /// Mac: cap the scroll area at the measured content height. iOS: no cap — the
-    /// scroll area fills the sheet (full-screen on iPhone, the page sheet on iPad).
-    private var macScrollCap: CGFloat? {
-        #if os(macOS)
+    /// Cap the scroll area at the measured content height on Mac and iPad — where
+    /// the sheet is sized to its content, so the content must report a real height
+    /// (and it scrolls only when the sheet is capped to the screen). iPhone fills
+    /// the screen, so no cap there.
+    private var scrollCap: CGFloat? {
+        if DeviceLayout.isPhone { return nil }
         return contentHeight == 0 ? nil : contentHeight
-        #else
-        return nil
-        #endif
     }
 
     var body: some View {
@@ -61,10 +60,10 @@ struct CoverageSettingsSheet: View {
                 })
             }
             .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-            // Mac sizes the sheet to its content, so cap the scroll area at the
-            // content height (it then scrolls only when the window is shorter). iPad
-            // and iPhone fill their sheet, so the scroll area fills too.
-            .frame(maxHeight: macScrollCap)
+            // Mac and iPad size the sheet to their content, so cap the scroll area
+            // at the content height (it scrolls only when capped to the screen).
+            // iPhone fills the screen.
+            .frame(maxHeight: scrollCap)
             .scrollBounceBehavior(.basedOnSize)
             Divider()
             footer
