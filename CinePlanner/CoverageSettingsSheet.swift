@@ -69,7 +69,7 @@ struct CoverageSettingsSheet: View {
             Divider()
             footer
         }
-        .adaptiveSettingsSheet(macWidth: 460)
+        .adaptiveSettingsSheet(width: 460)
         .onAppear {
             palette = project.coveragePalette
             mode = project.coverageColorMode

@@ -70,30 +70,32 @@ extension View {
         modifier(AdaptiveSheetFitFrame(width: width, maxHeight: maxHeight))
     }
 
-    /// Sizing for a scrolling settings sheet. iPhone fills the screen; iPad uses the
-    /// large system page sheet, so it takes the available space instead of shrinking
-    /// to its content; Mac takes `macWidth` and its natural (content) height. The
-    /// content's `ScrollView` should fill on iPhone/iPad and be capped at its content
-    /// height on Mac, where the sheet is content-sized.
-    func adaptiveSettingsSheet(macWidth: CGFloat) -> some View {
-        modifier(AdaptiveSettingsSheet(macWidth: macWidth))
+    /// Sizing for a scrolling settings sheet. iPhone fills the screen; iPad is a
+    /// narrow (like Mac), tall sheet — page height, but the width fitted to the
+    /// `width`-wide content so it isn't as broad as a full page sheet; Mac takes
+    /// `width` and its natural (content) height. The content's `ScrollView` should
+    /// fill on iPhone/iPad and be capped at its content height on Mac.
+    func adaptiveSettingsSheet(width: CGFloat) -> some View {
+        modifier(AdaptiveSettingsSheet(width: width))
     }
 }
 
 private struct AdaptiveSettingsSheet: ViewModifier {
-    let macWidth: CGFloat
+    let width: CGFloat
     func body(content: Content) -> some View {
         #if os(iOS)
         if DeviceLayout.isPhone {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if #available(iOS 18.0, *) {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
-                .presentationSizing(.page)   // iPad: large bounded sheet, scrolls if needed
+            // Page height, but fit the width to the 460-wide content so the sheet is
+            // a narrow column like the Mac's, not the full width of a page sheet.
+            content.frame(width: width)
+                .presentationSizing(.page.fitted(horizontal: true, vertical: false))
         } else {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+            content.frame(width: width)
         }
         #else
-        content.frame(width: macWidth)   // Mac: fixed width, natural height
+        content.frame(width: width)   // Mac: fixed width, natural height
         #endif
     }
 }
