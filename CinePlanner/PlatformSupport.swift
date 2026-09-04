@@ -70,24 +70,31 @@ extension View {
         modifier(AdaptiveSheetFitFrame(width: width, maxHeight: maxHeight))
     }
 
-    /// Sizes a sheet to exactly its content: `.fitted` on iPad, natural height on
-    /// Mac, full-screen on iPhone. A `ScrollView` inside must be capped at its
-    /// content height (e.g. via a measured `.frame(maxHeight:)`), so `.fitted` sees
-    /// a finite height and the sheet fits — and scrolls only when the screen can't.
-    func adaptiveFittedSheetFrame(maxWidth: CGFloat) -> some View {
-        modifier(AdaptiveFittedSheetFrame(maxWidth: maxWidth))
+    /// Sizing for a scrolling settings sheet. iPhone fills the screen; iPad uses the
+    /// large system page sheet, so it takes the available space instead of shrinking
+    /// to its content; Mac takes `macWidth` and its natural (content) height. The
+    /// content's `ScrollView` should fill on iPhone/iPad and be capped at its content
+    /// height on Mac, where the sheet is content-sized.
+    func adaptiveSettingsSheet(macWidth: CGFloat) -> some View {
+        modifier(AdaptiveSettingsSheet(macWidth: macWidth))
     }
 }
 
-private struct AdaptiveFittedSheetFrame: ViewModifier {
-    let maxWidth: CGFloat
+private struct AdaptiveSettingsSheet: ViewModifier {
+    let macWidth: CGFloat
     func body(content: Content) -> some View {
+        #if os(iOS)
         if DeviceLayout.isPhone {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if #available(iOS 18.0, *) {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .presentationSizing(.page)   // iPad: large bounded sheet, scrolls if needed
         } else {
-            content.frame(maxWidth: maxWidth)
-                .fittedSheetSizing()   // iPad: size to content; Mac: no-op, natural height
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        #else
+        content.frame(width: macWidth)   // Mac: fixed width, natural height
+        #endif
     }
 }
 

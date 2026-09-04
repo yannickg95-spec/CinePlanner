@@ -29,10 +29,20 @@ struct CoverageSettingsSheet: View {
     /// A strip of the real script behind the preview, rendered once. Nil until it
     /// loads, or when there's no script yet — then the preview uses stand-in text.
     @State private var scriptStrip: PlatformImage?
-    /// The scrollable content's natural height, measured so the scroll area is
-    /// capped at it: the sheet is exactly tall enough when the screen allows, and
-    /// scrolls (rather than overflowing) when it doesn't.
+    /// The scrollable content's natural height, measured so that on Mac — where the
+    /// sheet is content-sized — the scroll area is capped at it (and scrolls only
+    /// when the window is shorter). Unused on iOS, where the sheet is fixed-size.
     @State private var contentHeight: CGFloat = 0
+
+    /// Mac: cap the scroll area at the measured content height. iOS: no cap — the
+    /// scroll area fills the sheet (full-screen on iPhone, the page sheet on iPad).
+    private var macScrollCap: CGFloat? {
+        #if os(macOS)
+        return contentHeight == 0 ? nil : contentHeight
+        #else
+        return nil
+        #endif
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,14 +61,15 @@ struct CoverageSettingsSheet: View {
                 })
             }
             .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
-            // A finite cap gives the greedy ScrollView an exact ideal height, so the
-            // sheet fits its content; when the window is shorter it scrolls instead.
-            .frame(maxHeight: contentHeight == 0 ? nil : contentHeight)
+            // Mac sizes the sheet to its content, so cap the scroll area at the
+            // content height (it then scrolls only when the window is shorter). iPad
+            // and iPhone fill their sheet, so the scroll area fills too.
+            .frame(maxHeight: macScrollCap)
             .scrollBounceBehavior(.basedOnSize)
             Divider()
             footer
         }
-        .adaptiveFittedSheetFrame(maxWidth: 460)
+        .adaptiveSettingsSheet(macWidth: 460)
         .onAppear {
             palette = project.coveragePalette
             mode = project.coverageColorMode
