@@ -240,17 +240,16 @@ private struct CoveragePreview: View {
 
     var body: some View {
         let color = palette.displayColors.first ?? .blue
-        ZStack {
+        ZStack(alignment: .top) {
             // Background: the real script strip fills the width so the margin
             // fraction maps to the same place it does on the page; otherwise a
-            // stand-in of grey text lines.
+            // stand-in of grey text lines. Pinned to the top so the scene heading
+            // stays visible — filling crops the bottom of the strip, not the top.
             if let background {
-                // `.fill` overflows its frame; clip it so it can't draw over the
-                // heading above the preview.
                 Image(platformImage: background)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .clipped()
             } else {
                 standInText
@@ -260,7 +259,7 @@ private struct CoveragePreview: View {
                 // The coverage line at the band's right edge — a fraction of page
                 // width — exactly where the real renderer packs it.
                 let barX = max(3, size.width * CGFloat(margin))
-                let top = size.height * 0.30
+                let top = size.height * 0.16
                 var path = Path()
                 path.move(to: CGPoint(x: barX, y: top))
                 path.addLine(to: CGPoint(x: barX, y: size.height * 0.9))
