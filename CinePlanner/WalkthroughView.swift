@@ -20,8 +20,8 @@ struct WalkthroughView: View {
     @State private var index = 0
 
     enum StepKind {
-        case welcome, projects, script, shot, references
-        case cinestager, metadata, blockingMap, schedule, onSet, export, sync
+        case welcome, projects, script, shot
+        case cinestager, blockingMap, schedule, onSet, export
     }
 
     private struct Step: Identifiable {
@@ -37,40 +37,31 @@ struct WalkthroughView: View {
     private let steps: [Step] = [
         Step(kind: .welcome, tint: .accentColor,
              title: "Welcome to CinePlanner",
-             detail: "Plan every shot from your script, then share a clean, filterable shot list with your crew. Here's a quick tour."),
+             detail: "Plan every shot from your script, then share a clean, filterable shot list with your crew."),
         Step(kind: .projects, tint: .blue,
              title: "Projects",
-             detail: "Start a project from a script PDF, or import one you've been sent. A project can be a single film, or a series with episodes and multiple script versions."),
+             detail: "Start from a script PDF or import one you're sent — a single film, or a series with episodes and versions."),
         Step(kind: .script, tint: .purple,
              title: "Script & scenes",
-             detail: "Your script sits beside the scene list. Break each scene into shots, and mark the exact lines a shot covers right on the PDF."),
+             detail: "Break each scene into shots, and mark the exact lines a shot covers right on the PDF."),
         Step(kind: .shot, tint: .orange,
              title: "Set up each shot",
-             detail: "Give a shot its size, type, focal length, grip and camera info. Add a second size or type, or a zoom range, whenever a shot needs it."),
-        Step(kind: .references, tint: .pink,
-             title: "Add references",
-             detail: "Attach reference photos or video, a top-down map, and a short note to each shot — so everyone sees the intended frame at a glance."),
+             detail: "Give a shot its size, type, lens and grip, and attach reference photos, a top-down map and a note."),
         Step(kind: .cinestager, tint: csBlue,
              title: "Better together with CineStager",
-             detail: "Scout and frame your shots in AR on location with CineStager, then pull them straight into a scene. Tap “Add Shot from CineStager” to browse your AR captures — they sync over automatically."),
-        Step(kind: .metadata, tint: csBlue,
-             title: "Everything comes across",
-             detail: "A CineStager shot arrives complete: the framing photo or clip, camera body and format, lens, focal length, sensor size, framelines, tilt and height — and CinePlanner even estimates the shot's size and type for you."),
+             detail: "Frame shots in AR on location, then pull them in complete — photo, camera, lens, framelines and height, even an estimated size and type."),
         Step(kind: .blockingMap, tint: .mint,
              title: "Top-down blocking maps",
-             detail: "Every scene gets a blocking map. CineStager drops in the real camera and actor positions with each camera's field-of-view cone; add a satellite map of your location and drag markers to plan your coverage."),
+             detail: "Every scene gets a blocking map with CineStager's real camera and actor positions; add a satellite image and drag markers to plan coverage."),
         Step(kind: .schedule, tint: .indigo,
              title: "Plan your shoot days",
-             detail: "Group your scenes and shots into shooting days and reorder them freely. Each day shows the location's sunrise, sunset and golden hour, so you can plan around the light."),
+             detail: "Group scenes and shots into shooting days, each showing the location's sunrise, sunset and golden hour."),
         Step(kind: .onSet, tint: .red,
              title: "Shoot with On-Set mode",
-             detail: "On the day, switch to On-Set mode: the shot you're on is shown big with everything you need, and you tick each one off as you get it. On iPhone a Live Activity keeps the current shot on your Lock Screen."),
+             detail: "See the current shot big with everything you need and tick each one off — on iPhone it stays on your Lock Screen with a Live Activity."),
         Step(kind: .export, tint: .green,
-             title: "Export & publish",
-             detail: "Export a PDF, a self-contained webpage, or plain text — or Publish to Web to put a shareable shot list online through your own GitHub account."),
-        Step(kind: .sync, tint: .teal,
-             title: "Safe and in sync",
-             detail: "Your projects sync across your Mac and iPad through iCloud, and CinePlanner snapshots your data at every launch — use “Restore from Backup” to roll back anytime."),
+             title: "Share it, and keep it safe",
+             detail: "Export a PDF, webpage or text, or publish online through your GitHub account — and everything syncs across your devices via iCloud, backed up at every launch."),
     ]
 
     private var step: Step { steps[index] }
@@ -224,14 +215,11 @@ struct WalkthroughView: View {
         case .projects:    ProjectsIllo()
         case .script:      ScriptIllo()
         case .shot:        ShotIllo()
-        case .references:  ReferencesIllo()
         case .cinestager:  CineStagerIllo()
-        case .metadata:    MetadataIllo()
         case .blockingMap: BlockingMapIllo()
         case .schedule:    ScheduleIllo()
         case .onSet:       OnSetIllo()
         case .export:      ExportIllo()
-        case .sync:        SyncIllo()
         }
     }
 }
@@ -375,55 +363,6 @@ private struct ShotIllo: View {
     }
 }
 
-// MARK: - Illustration: References
-
-private struct ReferencesIllo: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(LinearGradient(colors: [Color.pink.opacity(0.55), Color.purple.opacity(0.5)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 280, height: 180)
-                .overlay(shimmer)
-                .overlay(alignment: .topLeading) {
-                    Image(systemName: "photo").foregroundStyle(.white.opacity(0.9)).padding(12)
-                }
-                .overlay {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.black.opacity(0.7))
-                        .frame(width: 56, height: 56)
-                        .background(.white.opacity(0.92), in: Circle())
-                        .shadow(radius: 8, y: 4)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 14, y: 10)
-
-            HStack(spacing: 6) {
-                Image(systemName: "note.text")
-                Text("“Handheld, slow push-in”").italic()
-            }
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
-            .offset(y: 104)
-            .appear(0.2)
-        }
-    }
-    private var shimmer: some View {
-        TimelineView(.animation) { tl in
-            let p = (sin(tl.date.timeIntervalSinceReferenceDate * 1.2) + 1) / 2   // 0…1
-            LinearGradient(colors: [.clear, .white.opacity(0.35), .clear],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .frame(width: 90)
-                .offset(x: CGFloat(p) * 340 - 170)
-                .blendMode(.plusLighter)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
 // MARK: - Illustration: CineStager logo
 
 private struct CineStagerIllo: View {
@@ -446,44 +385,6 @@ private struct CineStagerIllo: View {
                 .shadow(color: blue.opacity(0.40), radius: 22, y: 12)
                 .appear()
         }
-    }
-}
-
-// MARK: - Illustration: Metadata fills in
-
-private struct MetadataIllo: View {
-    private let blue = CineStagerImportSheet.cineStagerBlue
-    private var rows: [[String]] {
-        [["ARRI Alexa 35", "4.6K"], ["35 mm", "Super 35", "2.39:1"], ["Medium", "Two Shot", "Tilt 3°"]]
-    }
-    var body: some View {
-        VStack(spacing: 12) {
-            ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 10) {
-                    ForEach(rows[r].indices, id: \.self) { c in
-                        let delay = 0.08 * Double(r * 3 + c)
-                        chip(rows[r][c], (r + c).isMultiple(of: 2) ? blue : .accentColor)
-                            .appear(delay)
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .glassCard()
-        .overlay(alignment: .topTrailing) {
-            Image(systemName: "wand.and.stars")
-                .font(.title3).foregroundStyle(blue)
-                .padding(12)
-        }
-        .appear()
-    }
-    private func chip(_ text: String, _ color: Color) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 11).padding(.vertical, 7)
-            .background(color.opacity(0.16), in: Capsule())
-            .overlay(Capsule().strokeBorder(color.opacity(0.35)))
-            .foregroundStyle(color)
     }
 }
 
@@ -694,44 +595,6 @@ private struct ExportIllo: View {
             .glassCard(12)
         }
         .appear(delay)
-    }
-}
-
-// MARK: - Illustration: iCloud sync
-
-private struct SyncIllo: View {
-    var body: some View {
-        ZStack {
-            TimelineView(.animation) { tl in
-                Circle()
-                    .trim(from: 0, to: 0.72)
-                    .stroke(.teal.opacity(0.55),
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [2, 12]))
-                    .frame(width: 156, height: 156)
-                    .rotationEffect(.degrees(tl.date.timeIntervalSinceReferenceDate * 55))
-            }
-            Image(systemName: "icloud.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.teal)
-                .appear()
-
-            device("desktopcomputer").offset(x: -132).appear(0.1)
-            device("ipad").offset(x: 132).appear(0.16)
-
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title)
-                .foregroundStyle(.white, .green)
-                .background(Circle().fill(Color.platformControlBackground).padding(3))
-                .offset(y: 66)
-                .appear(0.3)
-        }
-    }
-    private func device(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 34))
-            .foregroundStyle(.secondary)
-            .padding(12)
-            .glassCard(14)
     }
 }
 
