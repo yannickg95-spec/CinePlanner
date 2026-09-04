@@ -1166,10 +1166,10 @@ struct ScriptPDFViewer: View {
             coverageMargin = version?.coverageLineMargin ?? 0.15
         }
         .sheet(isPresented: $showMarginSheet) {
+            // No detents: the sheet sizes itself (a narrow content-height column on
+            // iPad, full-screen on iPhone). A leftover .height(300) detent from the
+            // old margin sheet had been forcing a short bottom card on iPad.
             CoverageSettingsSheet(project: project, version: version, margin: $coverageMargin)
-                #if os(iOS)
-                .presentationDetents([.height(300)])
-                #endif
         }
         .onChange(of: requestImport?.wrappedValue ?? false) { _, shouldImport in
             if shouldImport {
