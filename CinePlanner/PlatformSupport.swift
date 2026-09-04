@@ -100,10 +100,11 @@ private struct AdaptiveScrollingSheetFrame: ViewModifier {
         if DeviceLayout.isPhone {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            // iPad: fill the system form sheet so the ScrollView gets a bounded
+            // iPad: fill the system page sheet so the ScrollView gets a bounded
             // height and scrolls, rather than being fit-sized to its full content.
+            // `.page` (taller than `.form`) keeps scrolling to a minimum.
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-                .modifier(FormSheetSizing())
+                .modifier(PageSheetSizing())
         }
         #else
         content.frame(width: width, height: height)   // Mac sizes to this card
@@ -111,13 +112,14 @@ private struct AdaptiveScrollingSheetFrame: ViewModifier {
     }
 }
 
-/// iPad ≥ 18: pin the sheet to the standard form size. Older iPads already
-/// present a bounded form sheet by default, so this is a no-op there.
-private struct FormSheetSizing: ViewModifier {
+/// iPad ≥ 18: pin the sheet to the standard page size — bounded, so a scroll
+/// view inside scrolls, but taller than `.form` so there is little to scroll.
+/// Older iPads already present a bounded sheet by default, so this is a no-op.
+private struct PageSheetSizing: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
         if #available(iOS 18.0, *) {
-            content.presentationSizing(.form)
+            content.presentationSizing(.page)
         } else {
             content
         }
