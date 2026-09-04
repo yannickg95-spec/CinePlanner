@@ -14,6 +14,7 @@
 
 import SwiftUI
 import SwiftData
+import PDFKit
 
 struct CoverageSettingsSheet: View {
     let project: Project
@@ -25,6 +26,9 @@ struct CoverageSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var palette: CoveragePaletteChoice = .classic
     @State private var mode: CoverageColorMode = .perScene
+    /// A strip of the real script behind the preview, rendered once. Nil until it
+    /// loads, or when there's no script yet — then the preview uses stand-in text.
+    @State private var scriptStrip: PlatformImage?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +49,19 @@ struct CoverageSettingsSheet: View {
         .onAppear {
             palette = project.coveragePalette
             mode = project.coverageColorMode
+            loadScriptStrip()
+        }
+    }
+
+    /// Renders the top of the script's first-scene page once, off the main thread,
+    /// so the preview shows real text at its real left margin.
+    private func loadScriptStrip() {
+        guard scriptStrip == nil,
+              let data = version?.pdfData ?? project.scriptPDFData else { return }
+        let page = version?.pdfPageOffset ?? 0
+        Task.detached(priority: .userInitiated) {
+            let image = CoveragePreview.renderStrip(pdfData: data, pageIndex: page)
+            await MainActor.run { scriptStrip = image }
         }
     }
 
@@ -149,7 +166,7 @@ struct CoverageSettingsSheet: View {
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Preview", "Two scenes of stand-in text, coloured with these settings.")
-            CoveragePreview(palette: palette, mode: mode, margin: margin)
+            CoveragePreview(palette: palette, mode: mode, margin: margin, background: scriptStrip)
                 .frame(height: 150)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)   // decorative; the controls above carry the meaning
@@ -189,70 +206,111 @@ struct CoverageSettingsSheet: View {
 
 // MARK: - Live preview
 
-/// A small stand-in for the script: two scenes of placeholder text with coverage
-/// bars drawn beside them, so the palette, the distribution mode and the margin
-/// can be seen together before leaving the sheet. Not the real renderer — just
-/// enough to read the choices at a glance.
+/// A live preview of the coverage settings: a strip of the real script (or, until
+/// it loads / when there's no script, stand-in text) with coverage bars laid over
+/// it. The bars sit at the same fraction of the page width the real renderer uses,
+/// so the margin reads truthfully against the actual text position.
 private struct CoveragePreview: View {
     let palette: CoveragePaletteChoice
     let mode: CoverageColorMode
     let margin: Double
+    var background: PlatformImage? = nil
 
-    /// Two scenes of two shots. Each entry is the shot's row span within the page.
-    private let scenes: [[ClosedRange<Int>]] = [[0...1, 2...3], [4...5, 6...7]]
-    private let rows = 8
+    /// Four coverage bars — two scenes of two shots — as fractions of the strip
+    /// height, so the distribution mode is legible whatever the background is.
+    private let bars: [(scene: Int, shot: Int, top: CGFloat, bottom: CGFloat)] = [
+        (0, 0, 0.06, 0.24), (0, 1, 0.28, 0.46),
+        (1, 0, 0.54, 0.72), (1, 1, 0.76, 0.94),
+    ]
 
-    /// The palette slot each shot draws in, mirroring CoverageColoring's three
-    /// modes over this fixed two-scene, two-shot layout.
-    private func slot(scene: Int, shot: Int, runningColorIndex: Int) -> Int {
+    /// The palette slot a bar draws in, matching CoverageColoring's three modes.
+    private func slot(scene: Int, shot: Int, running: Int) -> Int {
         switch mode {
         case .perScene:     return shot
-        case .acrossScript: return runningColorIndex
+        case .acrossScript: return running
         case .sceneUniform: return scene
         }
     }
 
     var body: some View {
         let colors = palette.displayColors
-        Canvas { ctx, size in
-            let rowH = size.height / CGFloat(rows)
-            // Right edge of the coverage band, as in the real export: a fraction of
-            // page width. Text sits just past it; bars pack against it.
-            let bandRight = size.width * CGFloat(margin) + 8
-            let textInset = bandRight + 8
-            let barX = bandRight - 5
-
-            // Stand-in script text: grey lines of a few different widths.
-            let widths: [CGFloat] = [0.9, 0.7, 0.82, 0.6, 0.88, 0.66, 0.78, 0.72]
-            for r in 0..<rows {
-                let y = CGFloat(r) * rowH + rowH * 0.32
-                let w = (size.width - textInset - 10) * widths[r % widths.count]
-                let line = Path(roundedRect: CGRect(x: textInset, y: y, width: max(4, w), height: rowH * 0.34),
-                                cornerRadius: 1.5)
-                ctx.fill(line, with: .color(.gray.opacity(0.35)))
+        ZStack {
+            // Background: the real script strip fills the width so the margin
+            // fraction maps to the same place it does on the page; otherwise a
+            // stand-in of grey text lines.
+            if let background {
+                Image(platformImage: background)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                standInText
             }
 
-            // Coverage bars, one per shot, coloured by the current mode.
-            var running = 0
-            for (sceneIndex, shots) in scenes.enumerated() {
-                for span in shots {
-                    let color = colors.isEmpty ? Color.blue : colors[slot(scene: sceneIndex, shot: running, runningColorIndex: running) % colors.count]
-                    let top = CGFloat(span.lowerBound) * rowH + rowH * 0.2
-                    let bottom = CGFloat(span.upperBound) * rowH + rowH * 0.8
-                    var bar = Path()
-                    bar.move(to: CGPoint(x: barX, y: top))
-                    bar.addLine(to: CGPoint(x: barX, y: bottom))
-                    ctx.stroke(bar, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            Canvas { ctx, size in
+                // The coverage band's right edge, exactly as the real renderer:
+                // a fraction of page width, with the lines packed against it.
+                let barX = max(3, size.width * CGFloat(margin))
+                var running = 0
+                for bar in bars {
+                    let color = colors.isEmpty ? Color.blue
+                        : colors[slot(scene: bar.scene, shot: bar.shot, running: running) % colors.count]
+                    var path = Path()
+                    path.move(to: CGPoint(x: barX, y: bar.top * size.height))
+                    path.addLine(to: CGPoint(x: barX, y: bar.bottom * size.height))
+                    ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
-                    let label = Text("\(sceneIndex + 1).\(running % shots.count + 1)")
+                    let label = Text("\(bar.scene + 1).\(bar.shot + 1)")
                         .font(.system(size: 7, weight: .semibold)).foregroundColor(color)
-                    ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
+                    ctx.draw(label, at: CGPoint(x: barX, y: bar.top * size.height - 5), anchor: .center)
                     running += 1
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 8).fill(.white))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
-        .animation(.easeInOut(duration: 0.15), value: margin)
+        .animation(.easeInOut(duration: 0.12), value: margin)
+    }
+
+    private var standInText: some View {
+        Canvas { ctx, size in
+            // Text starts around a screenplay's real left margin, so the bars to its
+            // left read like the actual page even without a rendered strip.
+            let textInset = size.width * 0.22
+            let widths: [CGFloat] = [0.9, 0.7, 0.82, 0.6, 0.88, 0.66, 0.78, 0.72]
+            let rows = 8
+            let rowH = size.height / CGFloat(rows)
+            for r in 0..<rows {
+                let y = CGFloat(r) * rowH + rowH * 0.34
+                let w = (size.width - textInset - 10) * widths[r % widths.count]
+                let line = Path(roundedRect: CGRect(x: textInset, y: y, width: max(4, w), height: rowH * 0.32),
+                                cornerRadius: 1.5)
+                ctx.fill(line, with: .color(.gray.opacity(0.35)))
+            }
+        }
+    }
+
+    /// Renders the top of a script page at full page width — a wide strip whose
+    /// horizontal scale is the page's, so overlaid bars land at the right margin.
+    static func renderStrip(pdfData: Data, pageIndex: Int) -> PlatformImage? {
+        guard let doc = PDFDocument(data: pdfData), doc.pageCount > 0 else { return nil }
+        let idx = min(max(0, pageIndex), doc.pageCount - 1)
+        guard let page = doc.page(at: idx) else { return nil }
+        let box = page.bounds(for: .cropBox)
+        guard box.width > 1, box.height > 1 else { return nil }
+
+        // A strip a little wider than it is tall, from the top of the page.
+        let stripH = min(box.height, box.width * 0.5)
+        let size = CGSize(width: box.width, height: stripH)
+        return PlatformGraphics.image(size: size, scale: 2) { ctx in
+            ctx.setFillColor(PlatformColor.white.cgColor)
+            ctx.fill(CGRect(origin: .zero, size: size))
+            // y-up context: shift so the page's top `stripH` fills the image.
+            ctx.saveGState()
+            ctx.translateBy(x: -box.minX, y: -(box.maxY - stripH))
+            page.draw(with: .cropBox, to: ctx)
+            ctx.restoreGState()
+        }
     }
 }
