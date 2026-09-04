@@ -41,7 +41,7 @@ struct CoverageSettingsSheet: View {
             Divider()
             footer
         }
-        .adaptiveSheetFrame(width: 460, height: 620)
+        .adaptiveScrollingSheetFrame(width: 460, height: 620)
         .onAppear {
             palette = project.coveragePalette
             mode = project.coverageColorMode

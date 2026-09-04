@@ -69,6 +69,14 @@ extension View {
     func adaptiveSheetFrame(width: CGFloat, maxHeight: CGFloat) -> some View {
         modifier(AdaptiveSheetFitFrame(width: width, maxHeight: maxHeight))
     }
+
+    /// For a sheet whose content scrolls. On iPad this uses the standard bounded
+    /// form sheet rather than `.fitted`: fit-sizing measures a `ScrollView` at its
+    /// full un-scrolled height, which overflows the screen and clips the sheet
+    /// instead of letting it scroll. Mac keeps a fixed card; iPhone fills.
+    func adaptiveScrollingSheetFrame(width: CGFloat, height: CGFloat) -> some View {
+        modifier(AdaptiveScrollingSheetFrame(width: width, height: height))
+    }
 }
 
 private struct AdaptiveSheetFrame: ViewModifier {
@@ -81,6 +89,41 @@ private struct AdaptiveSheetFrame: ViewModifier {
             content.frame(width: width, height: height)
                 .fittedSheetSizing()
         }
+    }
+}
+
+private struct AdaptiveScrollingSheetFrame: ViewModifier {
+    let width: CGFloat
+    let height: CGFloat
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if DeviceLayout.isPhone {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            // iPad: fill the system form sheet so the ScrollView gets a bounded
+            // height and scrolls, rather than being fit-sized to its full content.
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .modifier(FormSheetSizing())
+        }
+        #else
+        content.frame(width: width, height: height)   // Mac sizes to this card
+        #endif
+    }
+}
+
+/// iPad ≥ 18: pin the sheet to the standard form size. Older iPads already
+/// present a bounded form sheet by default, so this is a no-op there.
+private struct FormSheetSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            content.presentationSizing(.form)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
