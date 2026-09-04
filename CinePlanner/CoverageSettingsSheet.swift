@@ -180,8 +180,6 @@ struct CoverageSettingsSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Preview", "A coverage line on your script at the chosen colour and margin.")
             CoveragePreview(palette: palette, margin: margin, background: scriptStrip)
-                .frame(height: 150)
-                .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)   // decorative; the controls above carry the meaning
         }
     }
@@ -238,6 +236,7 @@ private struct CoveragePreview: View {
     let palette: CoveragePaletteChoice
     let margin: Double
     var background: PlatformImage? = nil
+    var height: CGFloat = 150
 
     var body: some View {
         let color = palette.displayColors.first ?? .blue
@@ -271,7 +270,12 @@ private struct CoveragePreview: View {
                 ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
             }
         }
+        // Bound the height HERE, before background/clip/overlay, so they operate on
+        // the final box. Doing it in the caller instead let the greedy image size
+        // the box tall under a ScrollView's unbounded proposal; the clip then ran
+        // at that height and the box spilled over the heading above it.
         .frame(maxWidth: .infinity)
+        .frame(height: height)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
