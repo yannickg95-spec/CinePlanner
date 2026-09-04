@@ -29,19 +29,32 @@ struct CoverageSettingsSheet: View {
     /// A strip of the real script behind the preview, rendered once. Nil until it
     /// loads, or when there's no script yet — then the preview uses stand-in text.
     @State private var scriptStrip: PlatformImage?
+    /// The scrollable content's natural height, measured so the scroll area is
+    /// capped at it: the sheet is exactly tall enough when the screen allows, and
+    /// scrolls (rather than overflowing) when it doesn't.
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            VStack(alignment: .leading, spacing: 26) {
-                colourSection
-                distributionSection
-                marginSection
-                previewSection
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    colourSection
+                    distributionSection
+                    marginSection
+                    previewSection
+                }
+                .padding(20)
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: ContentHeightKey.self, value: g.size.height)
+                })
             }
-            .padding(20)
-            .scrollOnPhone()   // iPad/Mac size to content; only a short phone scrolls
+            .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+            // A finite cap gives the greedy ScrollView an exact ideal height, so the
+            // sheet fits its content; when the window is shorter it scrolls instead.
+            .frame(maxHeight: contentHeight == 0 ? nil : contentHeight)
+            .scrollBounceBehavior(.basedOnSize)
             Divider()
             footer
         }
@@ -165,7 +178,7 @@ struct CoverageSettingsSheet: View {
 
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Preview", "Two scenes of stand-in text, coloured with these settings.")
+            sectionTitle("Preview", "A coverage line on your script at the chosen colour and margin.")
             CoveragePreview(palette: palette, margin: margin, background: scriptStrip)
                 .frame(height: 150)
                 .frame(maxWidth: .infinity)
@@ -201,6 +214,17 @@ struct CoverageSettingsSheet: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)
+    }
+}
+
+// MARK: - Content-height measurement
+
+/// Carries the scrollable content's natural height up to the sheet, so the scroll
+/// area can be capped at exactly that.
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

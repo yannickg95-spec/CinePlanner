@@ -71,19 +71,11 @@ extension View {
     }
 
     /// Sizes a sheet to exactly its content: `.fitted` on iPad, natural height on
-    /// Mac, full-screen on iPhone. The content must set its own height — so it must
-    /// NOT contain a greedy `ScrollView` on iPad/Mac, since `.fitted` would then
-    /// measure it at its full un-scrolled height and overflow. Wrap the content in
-    /// a `ScrollView` only on iPhone (see `scrollOnPhone`).
+    /// Mac, full-screen on iPhone. A `ScrollView` inside must be capped at its
+    /// content height (e.g. via a measured `.frame(maxHeight:)`), so `.fitted` sees
+    /// a finite height and the sheet fits — and scrolls only when the screen can't.
     func adaptiveFittedSheetFrame(maxWidth: CGFloat) -> some View {
         modifier(AdaptiveFittedSheetFrame(maxWidth: maxWidth))
-    }
-
-    /// Wraps the view in a `ScrollView` on iPhone only. On iPad/Mac it is returned
-    /// as-is, so a fit-sized sheet can measure its true height.
-    @ViewBuilder
-    func scrollOnPhone() -> some View {
-        if DeviceLayout.isPhone { ScrollView { self } } else { self }
     }
 }
 
