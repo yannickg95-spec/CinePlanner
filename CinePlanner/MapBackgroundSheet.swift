@@ -164,16 +164,15 @@ struct MapBackgroundSheet: View {
     /// The span the panel is meant to show: the capture plus context.
     private var requestedSpan: Double { meters * Self.contextFactor }
 
-    /// How much the map has to be blown up to actually show that span.
+    /// How much the map has to be blown up to actually show that span — a fallback,
+    /// normally 1.
     ///
-    /// MapKit stops zooming at two map points per rendered point — about 76 m across
-    /// a 420-point panel — and below that it quietly shows a *wider* area than asked
-    /// for. Left alone, the panel would then show several times the ground the slider
-    /// claims, the frame would shrink to a stamp, and the capture would come out far
-    /// more zoomed-in than the frame suggested. Magnifying the map instead keeps the
-    /// picker honest: the panel always shows `requestedSpan`, and the blow-up you see
-    /// in the frame is exactly the blow-up the stored capture will have, because
-    /// `MapSnapshot` hits the same limit.
+    /// Widening `cameraZoomRange` lets the map follow the slider to the tightest
+    /// capture, so this stays at 1 in practice. It earns its keep if a platform or a
+    /// future release refuses anyway: rather than let the panel quietly show several
+    /// times the ground the slider claims — which would shrink the frame to a stamp
+    /// and make the capture come out far tighter than the frame promised — the map is
+    /// magnified so the panel always shows `requestedSpan`.
     private var mapMagnification: CGFloat {
         guard requestedSpan > 0, visibleMeters > requestedSpan else { return 1 }
         return CGFloat(visibleMeters / requestedSpan)
@@ -320,6 +319,15 @@ private struct MapPreview {
         let map = MKMapView()
         map.mapType = .satellite
         map.delegate = coordinator
+        // By default a map view refuses to be *set* closer than about 76 m across a
+        // 420-point panel — not because it can't draw it (it happily does when the
+        // region is set before layout), but because `setRegion` honours
+        // `cameraZoomRange`. Left alone, the panel would stop following the capture
+        // slider the moment it was touched. Widening the range lets it follow all
+        // the way down.
+        if let range = MKMapView.CameraZoomRange(minCenterCoordinateDistance: 1) {
+            map.cameraZoomRange = range
+        }
         #if os(macOS)
         map.showsZoomControls = true
         #endif
