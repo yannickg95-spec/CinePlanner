@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CinePlanner — Shot Planning App for Filmmakers | Script to Set</title>
+<meta name="description" content="CinePlanner is a shot-planning app for Mac, iPad & iPhone. Import your script, build shot lists, draw blocking maps with real camera field-of-view, schedule shoot days with golden-hour times, and run the day with an On-Set mode and iPhone Live Activity.">
+<meta name="keywords" content="shot list app, shot planning, blocking software, shooting schedule, call sheet, on set mode, Live Activity, cinematography app, film production planning, storyboard, scene blocking, golden hour, directors, cinematographers">
+<meta name="author" content="Yannick Giraud">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#05050a">
+<link rel="canonical" href="https://cineplanner.com/">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CinePlanner">
+<meta property="og:url" content="https://cineplanner.com/">
+<meta property="og:title" content="CinePlanner — From script to set, in one app">
+<meta property="og:description" content="Shot lists, blocking maps with real camera field-of-view, shooting schedules and an on-set mode that follows you onto the floor. Mac · iPad · iPhone.">
+<meta property="og:image" content="https://cineplanner.com/og.jpg">
+<meta property="og:image:alt" content="CinePlanner shot list, blocking map and On-Set mode across Mac, iPad and iPhone">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CinePlanner — From script to set, in one app">
+<meta name="twitter:description" content="Shot lists, blocking with real field-of-view, schedules and an on-set mode with iPhone Live Activity. Mac · iPad · iPhone.">
+<meta name="twitter:image" content="https://cineplanner.com/og.jpg">
+
+<!-- App Store smart banner: add the CinePlanner app-id once live -->
+<!-- <meta name="apple-itunes-app" content="app-id=XXXXXXXXXX"> -->
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+
+<!-- Structured data: parsed by Google and by AI agents/LLMs -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://cineplanner.com/#app",
+      "name": "CinePlanner",
+      "operatingSystem": "macOS, iPadOS, iOS",
+      "applicationCategory": "MultimediaApplication",
+      "applicationSubCategory": "Film Production Shot Planning",
+      "description": "CinePlanner is a shot-planning app for macOS, iPadOS and iOS. Filmmakers import a script, build shot lists, draw top-down blocking maps with real camera field-of-view, schedule shoot days with sun and golden-hour times, and run the shoot day with an On-Set mode and an iPhone Live Activity.",
+      "url": "https://cineplanner.com/",
+      "image": "https://cineplanner.com/icon.svg",
+      "featureList": [
+        "Import a script as PDF with automatic scene detection",
+        "Shot lists with size, movement, lens, camera, grip and references",
+        "Top-down blocking maps with real camera field-of-view",
+        "Shooting schedule with sun and golden-hour times per shoot day",
+        "On-Set mode with an iPhone Live Activity on the lock screen",
+        "Import AR setups and maps from the companion app CineStager",
+        "iCloud sync across Mac, iPad and iPhone, offline-first"
+      ],
+      "author": {
+        "@type": "Person",
+        "name": "Yannick Giraud"
+      },
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/PreOrder"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://cineplanner.com/#website",
+      "url": "https://cineplanner.com/",
+      "name": "CinePlanner",
+      "description": "Shot-planning app for filmmakers — from script to set.",
+      "publisher": { "@id": "https://cineplanner.com/#app" }
+    }
+  ]
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;700;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #05050a;
+    --surface: #0c0c14;
+    --surface2: #111120;
+    --border: #1a1a2e;
+    --gold: #f5b544;      /* CinePlanner accent — golden hour */
+    --amber: #e8722d;     /* secondary accent for gradients */
+    --text: #e8e8f5;
+    --muted: #6a6a8a;
+    --faint: #2a2a3e;
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "DM Sans", sans-serif; font-weight: 300;
+    line-height: 1.7; overflow-x: hidden;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    padding: 16px 48px; display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(to bottom, rgba(5,5,10,0.97) 0%, transparent 100%);
+  }
+  .nav-logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+  .nav-logo img { height: 32px; width: 32px; border-radius: 8px; }
+  .nav-logo-name { font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; color: var(--text); }
+  .nav-links { display: flex; align-items: center; gap: 30px; list-style: none; }
+  .nav-links a { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color 0.2s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-switch { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 100px; transition: border-color 0.2s !important; }
+  .nav-switch:hover { border-color: var(--gold); }
+  .nav-cta { background: var(--gold) !important; color: var(--bg) !important; padding: 8px 20px; border-radius: 100px; font-weight: 500 !important; transition: opacity 0.2s !important; }
+  .nav-cta:hover { opacity: 0.85 !important; }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center;
+    padding: 130px 48px 80px; position: relative; overflow: hidden;
+  }
+  .hero-glow {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -60%); width: 1000px; height: 1000px;
+    background: radial-gradient(ellipse at center, rgba(245,181,68,0.10) 0%, rgba(232,114,45,0.05) 40%, transparent 70%);
+    pointer-events: none;
+  }
+  .hero-icon {
+    width: min(150px, 34vw);
+    height: auto;
+    border-radius: 34px;
+    box-shadow: 0 0 80px rgba(245,181,68,0.25), 0 40px 80px rgba(0,0,0,0.6);
+    margin-bottom: 30px;
+    opacity: 0; animation: fadeUp 0.9s ease forwards 0.2s;
+  }
+  .hero-eyebrow { font-family: "DM Mono", monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-bottom: 26px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.4s; }
+  .hero-headline { font-family: "Unbounded", sans-serif; font-size: clamp(34px, 6vw, 72px); font-weight: 900; line-height: 1.02; letter-spacing: -0.025em; margin-bottom: 8px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.55s; }
+  .hero-headline-light { font-family: "Unbounded", sans-serif; font-size: clamp(34px, 6vw, 72px); font-weight: 300; line-height: 1.02; letter-spacing: -0.025em; color: var(--gold); margin-bottom: 40px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.7s; }
+  .hero-sub { font-size: clamp(14px, 1.8vw, 17px); color: var(--muted); max-width: 540px; line-height: 1.85; margin-bottom: 40px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.85s; }
+  .hero-sub strong { color: var(--text); font-weight: 400; }
+  .hero-actions { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; justify-content: center; opacity: 0; animation: fadeUp 0.8s ease forwards 1.0s; }
+  .btn-primary { display: inline-flex; align-items: center; gap: 10px; background: var(--gold); color: var(--bg); font-family: "DM Sans", sans-serif; font-size: 14px; font-weight: 500; padding: 14px 28px; border-radius: 100px; text-decoration: none; transition: opacity 0.2s, transform 0.2s; }
+  .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+  .btn-secondary { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-family: "DM Mono", monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none; transition: color 0.2s; padding: 14px 4px; }
+  .btn-secondary:hover { color: var(--text); }
+
+  /* "Coming soon" store pill */
+  .store-soon { display: inline-flex; align-items: center; gap: 12px; padding: 11px 22px 11px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .store-soon svg { width: 22px; height: 22px; opacity: 0.9; }
+  .store-soon .ss-small { font-family: "DM Mono", monospace; font-size: 8.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); display: block; }
+  .store-soon .ss-big { font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.25; }
+
+  .hero-scroll { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0; animation: fadeUp 0.8s ease forwards 1.5s; }
+  .hero-scroll span { font-family: "DM Mono", monospace; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+  .scroll-line { width: 1px; height: 40px; background: linear-gradient(to bottom, var(--gold), transparent); animation: scrollPulse 2s ease-in-out infinite; }
+
+  /* SECTIONS */
+  .section-wrap { padding: 120px 48px; max-width: 1200px; margin: 0 auto; }
+  .section-label { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+  .section-label::after { content: ""; flex: 1; max-width: 48px; height: 1px; background: var(--gold); opacity: 0.4; }
+  .section-title { font-family: "Unbounded", sans-serif; font-size: clamp(26px, 3.5vw, 42px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 16px; }
+  .section-sub { font-size: 15px; color: var(--muted); max-width: 480px; line-height: 1.8; }
+
+  /* TAGLINE STRIP */
+  .tagline-item { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .tagline-num { font-family: "Unbounded", sans-serif; font-size: 11px; font-weight: 700; color: var(--gold); }
+  .tagline-text { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+  /* FEATURE ROWS (how it works) */
+  .feature-row { max-width: 1200px; margin: 0 auto; padding: 100px 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
+  .fr-eyebrow { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+  .fr-eyebrow span { display: block; width: 48px; height: 1px; background: var(--gold); opacity: 0.4; }
+  .fr-emoji { font-size: 48px; margin-bottom: 16px; line-height: 1; }
+  .fr-title { font-family: "Unbounded", sans-serif; font-size: clamp(26px, 3.4vw, 42px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 20px; }
+  .fr-body { font-size: 16px; color: var(--muted); line-height: 1.8; max-width: 440px; }
+  .fr-list { list-style: none; margin-top: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .fr-list li { font-size: 14px; color: var(--muted); display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; }
+  .fr-list li::before { content: ""; margin-top: 8px; flex-shrink: 0; width: 6px; height: 6px; border-radius: 2px; background: linear-gradient(135deg, var(--gold), var(--amber)); }
+  .fr-visual { border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 24px 64px rgba(0,0,0,0.4); background: var(--surface); }
+  .fr-visual svg { width: 100%; height: auto; display: block; }
+
+  /* USE CASES */
+  .usecases-wrap { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .usecases-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 64px; }
+  .usecase-card { border: 1px solid var(--border); border-radius: 12px; padding: 36px 40px; display: flex; gap: 20px; align-items: flex-start; background: var(--bg); transition: border-color 0.3s, background 0.3s; }
+  .usecase-card:hover { border-color: rgba(245,181,68,0.3); background: rgba(245,181,68,0.03); }
+  .usecase-icon { font-size: 26px; flex-shrink: 0; margin-top: 2px; }
+  .usecase-title { font-family: "Unbounded", sans-serif; font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .usecase-body { font-size: 15px; color: var(--muted); line-height: 1.8; }
+
+  /* FEATURES GRID */
+  .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 64px; }
+  .feature-item { padding: 36px 40px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); transition: border-color 0.3s; }
+  .feature-item:hover { border-color: var(--faint); }
+  .feature-dot { width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg, rgba(245,181,68,0.15), rgba(232,114,45,0.15)); border: 1px solid rgba(245,181,68,0.2); margin-bottom: 18px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+  .feature-title { font-family: "Unbounded", sans-serif; font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .feature-body { font-size: 15px; color: var(--muted); line-height: 1.8; }
+
+  /* ECOSYSTEM BAND */
+  .eco-wrap { border-top: 1px solid var(--border); background: linear-gradient(180deg, rgba(62,207,255,0.03), transparent 60%); }
+  .eco-inner { max-width: 1200px; margin: 0 auto; padding: 100px 48px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 72px; align-items: center; }
+  .eco-eyebrow { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #3ecfff; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+  .eco-eyebrow span { display: block; width: 48px; height: 1px; background: #3ecfff; opacity: 0.4; }
+  .eco-title { font-family: "Unbounded", sans-serif; font-size: clamp(26px, 3.4vw, 40px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.12; margin-bottom: 20px; }
+  .eco-body { font-size: 16px; color: var(--muted); line-height: 1.8; max-width: 460px; margin-bottom: 30px; }
+  .eco-cta { display: inline-flex; align-items: center; gap: 10px; font-family: "DM Sans", sans-serif; font-size: 14px; font-weight: 500; color: var(--bg); background: #3ecfff; padding: 13px 24px; border-radius: 100px; text-decoration: none; transition: opacity 0.2s, transform 0.2s; }
+  .eco-cta:hover { opacity: 0.88; transform: translateY(-1px); }
+  .eco-visual { display: flex; align-items: center; justify-content: center; gap: 18px; }
+  .eco-arrow { color: #3ecfff; flex-shrink: 0; }
+
+  /* MAKER STRIP (replaces testimonials pre-launch) */
+  .maker-wrap { border-top: 1px solid var(--border); }
+  .maker-inner { max-width: 900px; margin: 0 auto; padding: 110px 48px; text-align: center; }
+  .maker-quote { font-family: "Unbounded", sans-serif; font-size: clamp(20px, 2.8vw, 30px); font-weight: 300; line-height: 1.4; letter-spacing: -0.01em; color: var(--text); margin-bottom: 30px; }
+  .maker-quote b { font-weight: 700; color: var(--gold); }
+  .maker-attr { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+
+  /* CTA */
+  .cta-wrap { border-top: 1px solid var(--border); }
+  .cta-inner { max-width: 1200px; margin: 0 auto; padding: 120px 48px; text-align: center; position: relative; overflow: hidden; }
+  .cta-glow { position: absolute; bottom: -80px; left: 50%; transform: translateX(-50%); width: 600px; height: 400px; background: radial-gradient(ellipse at center, rgba(245,181,68,0.08) 0%, transparent 70%); pointer-events: none; }
+  .cta-icon { width: min(130px, 30vw); height: auto; border-radius: 28px; margin: 0 auto 40px; display: block; box-shadow: 0 0 60px rgba(245,181,68,0.2), 0 20px 60px rgba(0,0,0,0.5); }
+  .cta-title { font-family: "Unbounded", sans-serif; font-size: clamp(30px, 5vw, 60px); font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; margin-bottom: 20px; }
+  .cta-title span { color: var(--gold); }
+  .cta-sub { font-size: 15px; color: var(--muted); margin-bottom: 40px; max-width: 420px; margin-left: auto; margin-right: auto; line-height: 1.75; }
+  .cta-badge { display: inline-block; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-top: 22px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 100px; }
+
+  /* FOOTER */
+  footer { border-top: 1px solid var(--border); padding: 36px 48px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+  .footer-brand { display: flex; align-items: center; gap: 10px; }
+  .footer-brand img { height: 32px; width: 32px; border-radius: 7px; }
+  .footer-brand span { font-family: "Unbounded", sans-serif; font-size: 11px; font-weight: 700; color: var(--text); }
+  .footer-links { display: flex; gap: 28px; list-style: none; flex-wrap: wrap; }
+  .footer-links a { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color 0.2s; }
+  .footer-links a:hover { color: var(--text); }
+  .footer-copy { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.08em; color: var(--muted); }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes scrollPulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+  /* HERO device trio */
+  .hero-screens { display: flex; gap: 20px; align-items: center; justify-content: center; flex-wrap: nowrap; overflow: hidden; margin-top: 46px; opacity: 0; animation: fadeUp 0.8s ease forwards 1.4s; }
+  .hero-screens .hs-frame { border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 24px 64px rgba(0,0,0,0.6); overflow: hidden; background: var(--surface); flex-shrink: 0; }
+  .hero-screens .hs-side { box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
+  .hero-screens svg { display: block; }
+
+  @media (max-width: 1000px) {
+    .eco-inner { grid-template-columns: 1fr; gap: 40px; }
+  }
+  @media (max-width: 900px) {
+    nav { padding: 16px 24px; }
+    .nav-links { display: none; }
+    .hero { padding: 110px 24px 80px; }
+    .section-wrap { padding: 80px 24px; }
+    .feature-row { grid-template-columns: 1fr !important; gap: 40px; padding: 70px 24px; }
+    .feature-row.reverse .fr-visual { order: -1; }
+    .usecases-grid { grid-template-columns: 1fr; }
+    .features-grid { grid-template-columns: 1fr 1fr; }
+    .eco-inner { padding: 80px 24px; }
+    .maker-inner { padding: 80px 24px; }
+    .cta-inner { padding: 80px 24px; }
+    footer { padding: 28px 24px; flex-direction: column; align-items: flex-start; }
+  }
+  @media (max-width: 680px) {
+    .hero-screens .hs-side { display: none; }
+  }
+  @media (max-width: 560px) {
+    .features-grid { grid-template-columns: 1fr; }
+    .hero-actions { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="#" class="nav-logo">
+    <img src="icon.svg" alt="CinePlanner">
+    <span class="nav-logo-name">CINEPLANNER</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#onset">On set</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#who">Who it's for</a></li>
+    <li><a href="https://cinestager.com" class="nav-switch" target="_blank" rel="noopener">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3ecfff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      CineStager
+    </a></li>
+    <li><a href="#download" class="nav-cta">Coming soon</a></li>
+  </ul>
+</nav>
+
+<div class="hero">
+  <div class="hero-glow"></div>
+  <img src="icon.svg" alt="CinePlanner" class="hero-icon">
+  <div class="hero-eyebrow">For directors &amp; cinematographers</div>
+  <h1 class="hero-headline">From script to set —<span class="hero-headline-light" style="display:block;">in one app.</span></h1>
+  <p class="hero-sub">Shot lists, blocking maps with <strong>real camera field-of-view</strong>, shooting schedules and an on-set mode that follows you onto the floor. <strong>Plan on Mac. Refine on iPad. Shoot with iPhone.</strong></p>
+  <div class="hero-actions">
+    <!-- Pre-launch: no App Store link yet. Swap this pill for the App Store / Mac App Store badges + app-id smart banner once live. -->
+    <div class="store-soon">
+      <svg viewBox="0 0 24 24" fill="var(--gold)" xmlns="http://www.w3.org/2000/svg"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.9-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13M14.53 4.43c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.55-.66.77-1.24 2-1.09 3.18 1.15.09 2.32-.58 3.04-1.45"/></svg>
+      <span><span class="ss-small">Coming soon</span><span class="ss-big">App Store &amp; Mac App Store</span></span>
+    </div>
+    <a href="#how" class="btn-secondary">See how it works →</a>
+  </div>
+
+  <div class="hero-screens">
+    <!-- iPad blocking map (side) -->
+    <div class="hs-frame hs-side" style="-webkit-mask-image:linear-gradient(to right,transparent,black 55%);mask-image:linear-gradient(to right,transparent,black 55%);">
+      <svg width="230" height="172" viewBox="0 0 230 172" xmlns="http://www.w3.org/2000/svg" aria-label="Blocking map">
+        <rect width="230" height="172" fill="#0c0c14"/>
+        <g stroke="#1a1a2e" stroke-width="1">
+          <path d="M0 30 H230 M0 60 H230 M0 90 H230 M0 120 H230 M0 150 H230"/>
+          <path d="M30 0 V172 M60 0 V172 M90 0 V172 M120 0 V172 M150 0 V172 M180 0 V172 M210 0 V172"/>
+        </g>
+        <path d="M150 120 L60 55 A110 110 0 0 1 150 40 Z" fill="rgba(245,181,68,0.14)" stroke="#f5b544" stroke-width="1"/>
+        <circle cx="150" cy="120" r="8" fill="#f5b544"/>
+        <rect x="146" y="116" width="8" height="8" fill="#0c0c14"/>
+        <circle cx="86" cy="66" r="5" fill="#e8e8f5"/>
+        <circle cx="104" cy="52" r="5" fill="#6a6a8a"/>
+      </svg>
+    </div>
+    <!-- Mac shot list (center, hero) -->
+    <div class="hs-frame">
+      <svg width="360" height="230" viewBox="0 0 360 230" xmlns="http://www.w3.org/2000/svg" aria-label="Shot list on Mac">
+        <rect width="360" height="230" fill="#0c0c14"/>
+        <rect width="360" height="30" fill="#111120"/>
+        <circle cx="16" cy="15" r="4" fill="#e8722d"/><circle cx="30" cy="15" r="4" fill="#f5b544"/><circle cx="44" cy="15" r="4" fill="#2a2a3e"/>
+        <text x="180" y="19" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="9" text-anchor="middle">Scene 14 — INT. KITCHEN — NIGHT</text>
+        <g font-family="DM Mono, monospace" font-size="8.5" fill="#6a6a8a">
+          <text x="16" y="52">SHOT</text><text x="70" y="52">SIZE</text><text x="130" y="52">MOVE</text><text x="200" y="52">LENS</text><text x="280" y="52">CAMERA</text>
+        </g>
+        <line x1="12" y1="60" x2="348" y2="60" stroke="#1a1a2e"/>
+        <g font-family="DM Sans, sans-serif" font-size="9.5" fill="#e8e8f5">
+          <rect x="10" y="66" width="340" height="24" rx="4" fill="rgba(245,181,68,0.06)"/>
+          <text x="16" y="82">14A</text><text x="70" y="82">WS</text><text x="130" y="82">Static</text><text x="200" y="82">21mm</text><text x="280" y="82">ALEXA 35</text>
+          <text x="16" y="112">14B</text><text x="70" y="112">MS</text><text x="130" y="112">Dolly in</text><text x="200" y="112">40mm</text><text x="280" y="112">ALEXA 35</text>
+          <text x="16" y="142">14C</text><text x="70" y="142">CU</text><text x="130" y="142">Handheld</text><text x="200" y="142">75mm</text><text x="280" y="142">ALEXA 35</text>
+          <text x="16" y="172">14D</text><text x="70" y="172">OTS</text><text x="130" y="172">Static</text><text x="200" y="172">50mm</text><text x="280" y="172">ALEXA 35</text>
+          <text x="16" y="202">14E</text><text x="70" y="202">Insert</text><text x="130" y="202">Static</text><text x="200" y="202">100mm</text><text x="280" y="202">ALEXA 35</text>
+        </g>
+        <g stroke="#1a1a2e"><line x1="12" y1="96" x2="348" y2="96"/><line x1="12" y1="126" x2="348" y2="126"/><line x1="12" y1="156" x2="348" y2="156"/><line x1="12" y1="186" x2="348" y2="186"/></g>
+      </svg>
+    </div>
+    <!-- iPhone On-Set (side) -->
+    <div class="hs-frame hs-side" style="-webkit-mask-image:linear-gradient(to left,transparent,black 55%);mask-image:linear-gradient(to left,transparent,black 55%);">
+      <svg width="120" height="180" viewBox="0 0 120 180" xmlns="http://www.w3.org/2000/svg" aria-label="On-Set mode on iPhone">
+        <rect width="120" height="180" fill="#0c0c14"/>
+        <rect x="34" y="8" width="52" height="14" rx="7" fill="#111120"/>
+        <text x="60" y="42" fill="#f5b544" font-family="DM Mono, monospace" font-size="7" text-anchor="middle">NOW SHOOTING</text>
+        <rect x="12" y="50" width="96" height="52" rx="8" fill="rgba(245,181,68,0.08)" stroke="#f5b544" stroke-width="1"/>
+        <text x="20" y="68" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="11" font-weight="700">14B · MS</text>
+        <text x="20" y="84" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="7.5">Dolly in · 40mm</text>
+        <text x="20" y="95" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="7.5">ALEXA 35</text>
+        <g>
+          <rect x="12" y="112" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="120" r="4" fill="#f5b544"/><rect x="20" y="118" width="4" height="4" fill="#0c0c14"/><text x="32" y="123" fill="#6a6a8a" font-family="DM Sans" font-size="7">14A · WS · done</text>
+          <rect x="12" y="132" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="140" r="4" fill="none" stroke="#2a2a3e"/><text x="32" y="143" fill="#e8e8f5" font-family="DM Sans" font-size="7">14C · CU · next</text>
+          <rect x="12" y="152" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="160" r="4" fill="none" stroke="#2a2a3e"/><text x="32" y="163" fill="#6a6a8a" font-family="DM Sans" font-size="7">14D · OTS</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="hero-scroll">
+    <span>Scroll</span>
+    <div class="scroll-line"></div>
+  </div>
+</div>
+
+<!-- TAGLINE STRIP -->
+<div style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 28px 48px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center;">
+  <div style="font-family: 'Unbounded', sans-serif; font-size: clamp(20px, 3vw, 32px); font-weight: 900; letter-spacing: -0.01em; color: var(--text);">
+    Plan it. Block it. <span style="color: var(--gold);">Shoot it.</span>
+  </div>
+  <div style="display: flex; gap: 40px; flex-wrap: wrap; justify-content: center;">
+    <div class="tagline-item"><span class="tagline-num">01</span><span class="tagline-text">Import your script</span></div>
+    <div class="tagline-item"><span class="tagline-num">02</span><span class="tagline-text">Build shot lists</span></div>
+    <div class="tagline-item"><span class="tagline-num">03</span><span class="tagline-text">Block &amp; schedule</span></div>
+    <div class="tagline-item"><span class="tagline-num">04</span><span class="tagline-text">Shoot with On-Set mode</span></div>
+    <div class="tagline-item"><span class="tagline-num">✦</span><span class="tagline-text">Built by a filmmaker</span></div>
+  </div>
+</div>
+
+<!-- HOW IT WORKS -->
+<div style="border-top: 1px solid var(--border);" id="how">
+
+  <!-- 1. Import script — text left -->
+  <div class="feature-row">
+    <div>
+      <div class="fr-eyebrow">How it works <span></span></div>
+      <div class="fr-emoji">📄</div>
+      <h2 class="fr-title">Import your<br>script.</h2>
+      <p class="fr-body">Drop in a screenplay as PDF and CinePlanner detects your scenes automatically from the slug lines. Keep the script beside your shot list and work scene by scene — INT/EXT, day/night, characters and all.</p>
+      <ul class="fr-list">
+        <li>Automatic scene detection from INT./EXT. slug lines</li>
+        <li>Multiple script versions side by side, without overwriting</li>
+        <li>Mark script coverage — which shots cover which lines</li>
+      </ul>
+    </div>
+    <div class="fr-visual">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Script with detected scenes">
+        <rect width="440" height="300" fill="#0c0c14"/>
+        <rect x="24" y="24" width="180" height="252" rx="8" fill="#111120"/>
+        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a">
+          <text x="38" y="48">SCENES</text>
+        </g>
+        <g font-family="DM Sans, sans-serif" font-size="10">
+          <rect x="34" y="58" width="160" height="30" rx="5" fill="rgba(245,181,68,0.10)" stroke="#f5b544" stroke-width="1"/>
+          <text x="46" y="77" fill="#e8e8f5">14. INT. KITCHEN — NIGHT</text>
+          <text x="46" y="107" fill="#6a6a8a">15. EXT. DRIVEWAY — NIGHT</text>
+          <text x="46" y="137" fill="#6a6a8a">16. INT. CAR — NIGHT</text>
+          <text x="46" y="167" fill="#6a6a8a">17. EXT. FIELD — DAWN</text>
+          <text x="46" y="197" fill="#6a6a8a">18. INT. HALLWAY — DAY</text>
+          <text x="46" y="227" fill="#6a6a8a">19. INT. BEDROOM — DAY</text>
+        </g>
+        <rect x="220" y="24" width="196" height="252" rx="8" fill="#111120"/>
+        <g font-family="DM Mono, monospace" font-size="9" fill="#f5b544"><text x="236" y="52">INT. KITCHEN — NIGHT</text></g>
+        <g font-family="DM Sans, sans-serif" font-size="8.5" fill="#9a9ab0">
+          <rect x="236" y="66" width="120" height="11" rx="3" fill="rgba(245,181,68,0.14)"/>
+          <text x="236" y="97">MAYA stands at the counter,</text>
+          <text x="236" y="112">the kettle screaming. She</text>
+          <rect x="236" y="120" width="150" height="11" rx="3" fill="rgba(245,181,68,0.14)"/>
+          <text x="236" y="142">doesn't move. Headlights</text>
+          <text x="236" y="157">sweep across the wall.</text>
+          <text x="236" y="187" fill="#6a6a8a">                MAYA</text>
+          <text x="236" y="202">      He's here.</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 2. Shot list — visual left -->
+  <div style="border-top: 1px solid var(--border); background: var(--surface);">
+  <div class="feature-row reverse">
+    <div class="fr-visual">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Shot list detail">
+        <rect width="440" height="300" fill="#0c0c14"/>
+        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a">
+          <text x="24" y="40">SHOT</text><text x="80" y="40">SIZE</text><text x="150" y="40">MOVEMENT</text><text x="248" y="40">LENS</text><text x="320" y="40">GRIP</text><text x="384" y="40">✓</text>
+        </g>
+        <line x1="24" y1="50" x2="416" y2="50" stroke="#1a1a2e"/>
+        <g font-family="DM Sans, sans-serif" font-size="11" fill="#e8e8f5">
+          <rect x="18" y="58" width="404" height="34" rx="5" fill="rgba(245,181,68,0.06)"/>
+          <text x="24" y="80">14A</text><text x="80" y="80">WS</text><text x="150" y="80">Static</text><text x="248" y="80">21mm</text><text x="320" y="80">Sticks</text>
+          <circle cx="388" cy="75" r="6" fill="#f5b544"/><path d="M385 75 l2 2 l4 -4" stroke="#0c0c14" stroke-width="1.5" fill="none"/>
+          <text x="24" y="120">14B</text><text x="80" y="120">MS</text><text x="150" y="120">Dolly in</text><text x="248" y="120">40mm</text><text x="320" y="120">Dolly</text>
+          <circle cx="388" cy="115" r="6" fill="none" stroke="#2a2a3e"/>
+          <text x="24" y="160">14C</text><text x="80" y="160">CU</text><text x="150" y="160">Handheld</text><text x="248" y="160">75mm</text><text x="320" y="160">—</text>
+          <circle cx="388" cy="155" r="6" fill="none" stroke="#2a2a3e"/>
+          <text x="24" y="200">14D</text><text x="80" y="200">OTS</text><text x="150" y="200">Static</text><text x="248" y="200">50mm</text><text x="320" y="200">Sticks</text>
+          <circle cx="388" cy="195" r="6" fill="none" stroke="#2a2a3e"/>
+        </g>
+        <g stroke="#1a1a2e"><line x1="24" y1="98" x2="416" y2="98"/><line x1="24" y1="138" x2="416" y2="138"/><line x1="24" y1="178" x2="416" y2="178"/></g>
+        <rect x="24" y="226" width="392" height="52" rx="8" fill="#111120"/>
+        <g font-family="DM Mono, monospace" font-size="8" fill="#6a6a8a">
+          <text x="36" y="246">FROM EXIF · ALEXA 35 · Super 35 · 40mm</text>
+        </g>
+        <g font-family="DM Sans, sans-serif" font-size="8.5" fill="#f5b544"><text x="36" y="264">▣ Reference frame attached</text></g>
+      </svg>
+    </div>
+    <div>
+      <div class="fr-emoji">🎬</div>
+      <h2 class="fr-title">Build shot lists that speak the language of the set.</h2>
+      <p class="fr-body">Capture size, movement, lens, grip and camera per shot — prime or zoom, with focal length or range. Camera metadata reads itself from your reference photos' EXIF.</p>
+      <ul class="fr-list">
+        <li>Numbering your way — 1.2, 1A or 001</li>
+        <li>Custom info fields for anything your production tracks</li>
+        <li>Built-in film-stock calculator (35 / 16 / 65mm)</li>
+        <li>Reference photos and videos per shot</li>
+      </ul>
+    </div>
+  </div>
+  </div>
+
+  <!-- 3. Blocking — text left -->
+  <div style="border-top: 1px solid var(--border);">
+  <div class="feature-row">
+    <div>
+      <div class="fr-emoji">🗺️</div>
+      <h2 class="fr-title">Block it with<br>real optics.</h2>
+      <p class="fr-body">Draw top-down blocking maps in Shot Designer style — characters and cameras on a canvas. Each camera shows a true field-of-view wedge based on sensor format (Super 16 / Super 35 / Large Format) and the lens you chose. Not symbolic arrows — real coverage.</p>
+      <ul class="fr-list">
+        <li>Drop in your own floor plan as an underlay</li>
+        <li>Labels, markers and walk paths for characters</li>
+      </ul>
+    </div>
+    <div class="fr-visual">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Top-down blocking map with camera field-of-view">
+        <rect width="440" height="300" fill="#0c0c14"/>
+        <g stroke="#141428" stroke-width="1">
+          <path d="M0 30 H440 M0 60 H440 M0 90 H440 M0 120 H440 M0 150 H440 M0 180 H440 M0 210 H440 M0 240 H440 M0 270 H440"/>
+          <path d="M30 0 V300 M60 0 V300 M90 0 V300 M120 0 V300 M150 0 V300 M180 0 V300 M210 0 V300 M240 0 V300 M270 0 V300 M300 0 V300 M330 0 V300 M360 0 V300 M390 0 V300 M420 0 V300"/>
+        </g>
+        <rect x="60" y="50" width="200" height="150" fill="none" stroke="#2a2a3e" stroke-width="2"/>
+        <path d="M340 220 L120 120 A240 240 0 0 1 300 70 Z" fill="rgba(245,181,68,0.12)" stroke="#f5b544" stroke-width="1.5"/>
+        <line x1="340" y1="220" x2="220" y2="140" stroke="#f5b544" stroke-width="1" stroke-dasharray="3 3"/>
+        <circle cx="340" cy="220" r="11" fill="#f5b544"/><rect x="334" y="214" width="12" height="12" rx="2" fill="#0c0c14"/>
+        <text x="356" y="224" fill="#f5b544" font-family="DM Mono, monospace" font-size="9">CAM · 40mm · S35</text>
+        <circle cx="150" cy="120" r="8" fill="#e8e8f5"/><text x="150" y="142" fill="#9a9ab0" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">MAYA</text>
+        <circle cx="205" cy="150" r="8" fill="#6a6a8a"/><text x="205" y="172" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">TOM</text>
+        <path d="M205 150 q40 -20 70 -6" stroke="#6a6a8a" stroke-width="1" stroke-dasharray="4 3" fill="none"/>
+      </svg>
+    </div>
+  </div>
+  </div>
+
+  <!-- 4. Schedule — visual left -->
+  <div style="border-top: 1px solid var(--border); background: var(--surface);">
+  <div class="feature-row reverse">
+    <div class="fr-visual">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Shooting schedule with golden-hour times">
+        <rect width="440" height="300" fill="#0c0c14"/>
+        <!-- day header + sun band -->
+        <rect x="24" y="24" width="392" height="46" rx="8" fill="#111120"/>
+        <text x="38" y="44" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="12" font-weight="700">Day 3 — Fri 12 Sep</text>
+        <text x="38" y="60" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="9">EXT. FIELD · 6 setups</text>
+        <g font-family="DM Mono, monospace" font-size="7.5">
+          <circle cx="250" cy="40" r="3" fill="#e8722d"/><text x="258" y="43" fill="#6a6a8a">Sunrise 06:58</text>
+          <circle cx="250" cy="56" r="3" fill="#f5b544"/><text x="258" y="59" fill="#f5b544">Golden AM 07:02–07:44</text>
+          <circle cx="352" cy="40" r="3" fill="#f5b544"/><text x="360" y="43" fill="#f5b544">Golden PM 19:10</text>
+          <circle cx="352" cy="56" r="3" fill="#e8722d"/><text x="360" y="59" fill="#6a6a8a">Sunset 19:52</text>
+        </g>
+        <!-- scene blocks -->
+        <g font-family="DM Sans, sans-serif" font-size="10" fill="#e8e8f5">
+          <rect x="24" y="82" width="392" height="40" rx="6" fill="rgba(245,181,68,0.08)" stroke="rgba(245,181,68,0.3)"/>
+          <rect x="24" y="82" width="5" height="40" rx="2" fill="#f5b544"/>
+          <text x="40" y="100">Sc 17 — EXT. FIELD — DAWN</text>
+          <text x="40" y="115" fill="#6a6a8a" font-size="8.5">Golden hour · shots 17A–17C</text>
+          <text x="392" y="106" fill="#f5b544" font-family="DM Mono" font-size="9" text-anchor="end">07:00</text>
+
+          <rect x="24" y="130" width="392" height="40" rx="6" fill="#111120"/>
+          <rect x="24" y="130" width="5" height="40" rx="2" fill="#2a2a3e"/>
+          <text x="40" y="148">Sc 15 — EXT. DRIVEWAY</text>
+          <text x="40" y="163" fill="#6a6a8a" font-size="8.5">shots 15A–15D</text>
+          <text x="392" y="154" fill="#6a6a8a" font-family="DM Mono" font-size="9" text-anchor="end">11:30</text>
+
+          <rect x="24" y="178" width="392" height="40" rx="6" fill="#111120"/>
+          <rect x="24" y="178" width="5" height="40" rx="2" fill="#2a2a3e"/>
+          <text x="40" y="196">Sc 19 — INT. BEDROOM</text>
+          <text x="40" y="211" fill="#6a6a8a" font-size="8.5">shots 19A–19B</text>
+          <text x="392" y="202" fill="#6a6a8a" font-family="DM Mono" font-size="9" text-anchor="end">15:00</text>
+        </g>
+        <rect x="24" y="232" width="392" height="42" rx="6" fill="rgba(232,114,45,0.06)" stroke="rgba(232,114,45,0.25)" stroke-dasharray="4 3"/>
+        <text x="40" y="252" fill="#e8722d" font-family="DM Mono, monospace" font-size="8.5">⚠ Shot 17A also scheduled on Day 5</text>
+        <text x="40" y="266" fill="#6a6a8a" font-family="DM Sans" font-size="8.5">Double-booking detected</text>
+      </svg>
+    </div>
+    <div>
+      <div class="fr-emoji">🌅</div>
+      <h2 class="fr-title">A schedule built for the shoot day.</h2>
+      <p class="fr-body">Spread scenes across shoot days by drag-and-drop, pick which shots you take each day and in what order. CinePlanner shows sun and golden-hour times per day from the location and date — and warns you when a shot is double-booked.</p>
+      <ul class="fr-list">
+        <li>Sunrise, golden hour AM/PM and sunset per shoot day</li>
+        <li>Double-booking detection across days</li>
+      </ul>
+    </div>
+  </div>
+  </div>
+
+</div>
+
+<!-- ON-SET (hero feature) -->
+<div style="border-top: 1px solid var(--border); position: relative; overflow: hidden;" id="onset">
+  <div style="position:absolute; top:-100px; right:-100px; width:500px; height:500px; background: radial-gradient(ellipse at center, rgba(245,181,68,0.07), transparent 70%); pointer-events:none;"></div>
+  <div class="feature-row">
+    <div>
+      <div class="fr-eyebrow">On set <span></span></div>
+      <div class="fr-emoji">📱</div>
+      <h2 class="fr-title">Your shoot day,<br>on your lock screen.</h2>
+      <p class="fr-body">Switch to On-Set mode: a full-screen shoot day you check off shot by shot, with the current setup blown up large — size, movement, lens, grip, notes and a framing reference. Tap REF and MAP to pull up the shot's references and scene plan.</p>
+      <ul class="fr-list">
+        <li>Drag to re-order shots right there on the floor</li>
+        <li>Live Activity on iPhone lock screen &amp; Dynamic Island</li>
+        <li>Check off the running and next setup without opening the app</li>
+        <li>Progress at a glance — shots done, scenes wrapped</li>
+      </ul>
+    </div>
+    <div class="fr-visual" style="background:transparent; border:none; box-shadow:none; display:flex; justify-content:center; gap:22px; align-items:center;">
+      <!-- iPhone On-Set full -->
+      <svg width="196" height="400" viewBox="0 0 196 400" xmlns="http://www.w3.org/2000/svg" aria-label="On-Set mode full screen" style="width:auto; max-width:200px; border-radius:28px; border:1px solid var(--border); box-shadow:0 24px 64px rgba(0,0,0,0.6);">
+        <rect width="196" height="400" rx="28" fill="#0c0c14"/>
+        <rect x="66" y="14" width="64" height="18" rx="9" fill="#111120"/>
+        <text x="24" y="60" fill="#f5b544" font-family="DM Mono, monospace" font-size="9">NOW SHOOTING · SCENE 14</text>
+        <rect x="18" y="70" width="160" height="96" rx="12" fill="rgba(245,181,68,0.08)" stroke="#f5b544" stroke-width="1.2"/>
+        <text x="30" y="98" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="18" font-weight="900">14B</text>
+        <text x="30" y="120" fill="#e8e8f5" font-family="DM Sans, sans-serif" font-size="12">MS · Dolly in</text>
+        <text x="30" y="138" fill="#9a9ab0" font-family="DM Sans, sans-serif" font-size="10">40mm · ALEXA 35 · Dolly</text>
+        <text x="30" y="156" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="9">"Push as the kettle screams."</text>
+        <g font-family="DM Mono, monospace" font-size="8">
+          <rect x="18" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="56" y="190" fill="#f5b544" text-anchor="middle">REF</text>
+          <rect x="102" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="140" y="190" fill="#f5b544" text-anchor="middle">MAP</text>
+        </g>
+        <g font-family="DM Sans, sans-serif" font-size="10">
+          <rect x="18" y="212" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="225" r="6" fill="#f5b544"/><path d="M31 225 l2 2 l4 -4" stroke="#0c0c14" stroke-width="1.4" fill="none"/><text x="48" y="229" fill="#6a6a8a">14A · WS · Static</text>
+          <rect x="18" y="244" width="160" height="26" rx="7" fill="#15152a" stroke="rgba(245,181,68,0.3)"/><circle cx="34" cy="257" r="6" fill="none" stroke="#f5b544"/><text x="48" y="261" fill="#e8e8f5">14C · CU · Handheld</text>
+          <rect x="18" y="276" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="289" r="6" fill="none" stroke="#2a2a3e"/><text x="48" y="293" fill="#6a6a8a">14D · OTS · Static</text>
+          <rect x="18" y="308" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="321" r="6" fill="none" stroke="#2a2a3e"/><text x="48" y="325" fill="#6a6a8a">14E · Insert · Static</text>
+        </g>
+        <rect x="18" y="348" width="160" height="34" rx="10" fill="#111120"/>
+        <rect x="18" y="348" width="96" height="34" rx="10" fill="rgba(245,181,68,0.12)"/>
+        <text x="30" y="369" fill="#e8e8f5" font-family="DM Mono, monospace" font-size="8">2 / 5 SHOTS · SCENE 14</text>
+      </svg>
+      <!-- Live Activity card -->
+      <svg width="176" height="120" viewBox="0 0 176 120" xmlns="http://www.w3.org/2000/svg" aria-label="Live Activity on lock screen" style="width:auto; max-width:180px; border-radius:20px; border:1px solid var(--border); box-shadow:0 16px 40px rgba(0,0,0,0.55);">
+        <rect width="176" height="120" rx="20" fill="#08080f"/>
+        <rect x="12" y="12" width="26" height="26" rx="7" fill="url(#lg)"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5b544"/><stop offset="1" stop-color="#e8722d"/></linearGradient></defs>
+        <text x="46" y="24" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="7">CINEPLANNER · ON SET</text>
+        <text x="46" y="37" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="11" font-weight="700">14B · MS · 40mm</text>
+        <text x="12" y="60" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="8">Next · 14C · CU · Handheld</text>
+        <rect x="12" y="70" width="152" height="6" rx="3" fill="#1a1a2e"/>
+        <rect x="12" y="70" width="60" height="6" rx="3" fill="#f5b544"/>
+        <g font-family="DM Mono, monospace" font-size="8">
+          <rect x="12" y="86" width="72" height="24" rx="8" fill="#15152a"/><text x="48" y="102" fill="#f5b544" text-anchor="middle">✓ DONE</text>
+          <rect x="92" y="86" width="72" height="24" rx="8" fill="#15152a"/><text x="128" y="102" fill="#e8e8f5" text-anchor="middle">NEXT →</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- ECOSYSTEM BAND -> CineStager -->
+<div class="eco-wrap">
+  <div class="eco-inner">
+    <div>
+      <div class="eco-eyebrow">Part of the same toolkit <span></span></div>
+      <h2 class="eco-title">Scout it in AR.<br>Plan it. Shoot it.</h2>
+      <p class="eco-body">Plan a shot on location in augmented reality with <strong style="color:#3ecfff;font-weight:500;">CineStager</strong> — real cameras, lenses and framelines — and its AR setups and top-down maps flow straight into CinePlanner to finish and shoot. One shared iCloud folder, read-only, no double work.</p>
+      <a href="https://cinestager.com" class="eco-cta" target="_blank" rel="noopener">Discover CineStager →</a>
+    </div>
+    <div class="eco-visual">
+      <!-- AR previz -->
+      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CineStager AR previz" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
+        <rect width="150" height="200" rx="12" fill="#0c0c14"/>
+        <rect x="0" y="120" width="150" height="80" fill="rgba(62,207,255,0.04)"/>
+        <path d="M20 120 L130 120 L110 200 L40 200 Z" fill="none" stroke="rgba(62,207,255,0.25)" stroke-width="1"/>
+        <rect x="30" y="30" width="90" height="60" rx="4" fill="none" stroke="#3ecfff" stroke-width="1" stroke-dasharray="4 3"/>
+        <line x1="30" y1="60" x2="120" y2="60" stroke="rgba(62,207,255,0.3)" stroke-width="0.6"/>
+        <line x1="75" y1="30" x2="75" y2="90" stroke="rgba(62,207,255,0.3)" stroke-width="0.6"/>
+        <circle cx="62" cy="140" r="7" fill="#3ecfff"/>
+        <circle cx="90" cy="150" r="7" fill="#e8e8f5"/>
+        <text x="12" y="18" fill="#3ecfff" font-family="DM Mono, monospace" font-size="7">AR · 35mm</text>
+      </svg>
+      <svg class="eco-arrow" width="42" height="24" viewBox="0 0 42 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 H36 M30 5 l7 7 l-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <!-- CinePlanner map -->
+      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CinePlanner blocking map" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
+        <rect width="150" height="200" rx="12" fill="#0c0c14"/>
+        <g stroke="#141428" stroke-width="1"><path d="M0 40 H150 M0 80 H150 M0 120 H150 M0 160 H150 M40 0 V200 M80 0 V200 M120 0 V200"/></g>
+        <path d="M110 150 L40 90 A90 90 0 0 1 110 60 Z" fill="rgba(245,181,68,0.14)" stroke="#f5b544" stroke-width="1"/>
+        <circle cx="110" cy="150" r="8" fill="#f5b544"/><rect x="106" y="146" width="8" height="8" fill="#0c0c14"/>
+        <circle cx="62" cy="94" r="6" fill="#e8e8f5"/>
+        <circle cx="80" cy="80" r="6" fill="#6a6a8a"/>
+        <text x="12" y="18" fill="#f5b544" font-family="DM Mono, monospace" font-size="7">PLAN · 40mm</text>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES GRID -->
+<div class="section-wrap" id="features">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Everything from prep<br>to the shoot day.</h2>
+  <p class="section-sub">One continuous chain — script, shot list, blocking, schedule, set — instead of a spreadsheet, a drawing tool, some PDFs and a group chat.</p>
+  <div class="features-grid">
+    <div class="feature-item"><div class="feature-dot">🎬</div><h3 class="feature-title">Shot lists</h3><p class="feature-body">Size, movement, lens, grip and camera per shot. Numbering as 1.2, 1A or 001. Custom fields and a film-stock calculator built in.</p></div>
+    <div class="feature-item"><div class="feature-dot">🗺️</div><h3 class="feature-title">Blocking with real optics</h3><p class="feature-body">Top-down maps where each camera shows a true field-of-view wedge from sensor format and lens — not symbolic arrows.</p></div>
+    <div class="feature-item"><div class="feature-dot">🌅</div><h3 class="feature-title">Schedule with golden hour</h3><p class="feature-body">Spread scenes across shoot days with sun and golden-hour times per day, plus double-booking detection.</p></div>
+    <div class="feature-item"><div class="feature-dot">📱</div><h3 class="feature-title">On-Set mode &amp; Live Activity</h3><p class="feature-body">A full-screen, check-it-off shoot day with the current setup large — and a Live Activity on your iPhone lock screen.</p></div>
+    <div class="feature-item"><div class="feature-dot">📷</div><h3 class="feature-title">Camera metadata, automatically</h3><p class="feature-body">EXIF from your reference photos fills in camera family, format, focal length and framelines for you.</p></div>
+    <div class="feature-item"><div class="feature-dot">📤</div><h3 class="feature-title">Share without the fuss</h3><p class="feature-body">PDF shot lists per day or scene, a self-contained web export with media, or publish a shareable online page.</p></div>
+    <div class="feature-item"><div class="feature-dot">🖥️</div><h3 class="feature-title">Across your Apple devices</h3><p class="feature-body">Mac is the planning office, iPad refines and presents, iPhone is the set companion. One universal app, same projects everywhere.</p></div>
+    <div class="feature-item"><div class="feature-dot">🔒</div><h3 class="feature-title">Reliable on the floor</h3><p class="feature-body">iCloud sync, offline-first, automatic local backups and recovery, and full undo/redo on every edit.</p></div>
+    <div class="feature-item"><div class="feature-dot">◐</div><h3 class="feature-title">CineStager bridge</h3><p class="feature-body">Import AR setups and top-down maps from the companion app CineStager through a shared iCloud folder, read-only.</p></div>
+  </div>
+</div>
+
+<!-- WHO IT'S FOR -->
+<div class="usecases-wrap" id="who">
+  <div class="section-wrap">
+    <div class="section-label">Who it's for</div>
+    <h2 class="section-title">For anyone who designs<br>their shots in advance.</h2>
+    <p class="section-sub">From commercials and music videos to shorts, features and series — wherever shots are planned before they're shot.</p>
+    <div class="usecases-grid">
+      <div class="usecase-card"><span class="usecase-icon">🎥</span><div><h3 class="usecase-title">Directors</h3><p class="usecase-body">Capture your visual plan and follow it on the set, shot by shot, with the current setup always in front of you.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">🎞️</span><div><h3 class="usecase-title">Cinematographers &amp; DPs</h3><p class="usecase-body">Prep sizes, lenses, cameras and blocking with structure — and block with true field-of-view, not guesswork.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">📋</span><div><h3 class="usecase-title">1st ADs &amp; production</h3><p class="usecase-body">A workable shooting schedule and a reliable shoot-day checklist that hold up on the floor.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">🎦</span><div><h3 class="usecase-title">Indie filmmakers &amp; small crews</h3><p class="usecase-body">Go from screenplay to shoot day without heavy software — and look professional with a shareable page.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">🎓</span><div><h3 class="usecase-title">Students &amp; film schools</h3><p class="usecase-body">Learn the craft of shot planning with a tool that speaks the real language of the set.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">📺</span><div><h3 class="usecase-title">Commercials, videos &amp; series</h3><p class="usecase-body">High ambition, tight turnaround — design every setup in advance and shoot your plan with confidence.</p></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAKER STRIP -->
+<div class="maker-wrap">
+  <div class="maker-inner">
+    <div class="section-label" style="justify-content:center;">Built by a filmmaker</div>
+    <p class="maker-quote">"I wanted one place to go <b>from a script to a shoot day</b> — shot lists, blocking with real lenses, a schedule that knows the golden hour, and a mode that actually works <b>in my hand on the floor</b>. So I built it."</p>
+    <div class="maker-attr">Yannick Giraud · Cinematographer &amp; maker of CinePlanner</div>
+  </div>
+</div>
+
+<!-- DOWNLOAD / CTA -->
+<div class="cta-wrap" id="download">
+  <div class="cta-inner">
+    <div class="cta-glow"></div>
+    <img src="icon.svg" alt="CinePlanner" class="cta-icon">
+    <h2 class="cta-title">Design your shots.<br><span>Shoot your plan.</span></h2>
+    <p class="cta-sub">CinePlanner is coming to the App Store and the Mac App Store. One universal app for Mac, iPad and iPhone.</p>
+    <!-- Pre-launch: replace this pill with the App Store / Mac App Store badges once live. -->
+    <div class="store-soon" style="margin: 0 auto;">
+      <svg viewBox="0 0 24 24" fill="var(--gold)" xmlns="http://www.w3.org/2000/svg" style="width:26px;height:26px;"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.9-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13M14.53 4.43c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.55-.66.77-1.24 2-1.09 3.18 1.15.09 2.32-.58 3.04-1.45"/></svg>
+      <span><span class="ss-small">Coming soon</span><span class="ss-big">App Store &amp; Mac App Store</span></span>
+    </div>
+    <div><span class="cta-badge">Mac · iPad · iPhone · universal app</span></div>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-brand">
+    <img src="icon.svg" alt="CinePlanner">
+    <span>CINEPLANNER</span>
+  </div>
+  <ul class="footer-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://cinestager.com" target="_blank" rel="noopener">Also try CineStager</a></li>
+    <li><a href="privacy.html">Privacy Policy</a></li>
+  </ul>
+  <span class="footer-copy">© 2026 CinePlanner by Yannick Giraud</span>
+</footer>
+
+</body>
+</html>
