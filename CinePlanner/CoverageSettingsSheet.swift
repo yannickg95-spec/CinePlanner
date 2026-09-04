@@ -30,18 +30,18 @@ struct CoverageSettingsSheet: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    colourSection
-                    distributionSection
-                    marginSection
-                }
-                .padding(20)
+            VStack(alignment: .leading, spacing: 26) {
+                colourSection
+                distributionSection
+                marginSection
+                previewSection
             }
+            .padding(20)
+            .scrollOnPhone()   // iPad/Mac size to content; only a short phone scrolls
             Divider()
             footer
         }
-        .adaptiveScrollingSheetFrame(width: 460, height: 620)
+        .adaptiveFittedSheetFrame(maxWidth: 460)
         .onAppear {
             palette = project.coveragePalette
             mode = project.coverageColorMode
@@ -144,6 +144,18 @@ struct CoverageSettingsSheet: View {
         }
     }
 
+    // MARK: Preview
+
+    private var previewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Preview", "Two scenes of stand-in text, coloured with these settings.")
+            CoveragePreview(palette: palette, mode: mode, margin: margin)
+                .frame(height: 150)
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)   // decorative; the controls above carry the meaning
+        }
+    }
+
     // MARK: Chrome
 
     private func sectionTitle(_ title: String, _ note: String) -> some View {
@@ -172,5 +184,75 @@ struct CoverageSettingsSheet: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)
+    }
+}
+
+// MARK: - Live preview
+
+/// A small stand-in for the script: two scenes of placeholder text with coverage
+/// bars drawn beside them, so the palette, the distribution mode and the margin
+/// can be seen together before leaving the sheet. Not the real renderer — just
+/// enough to read the choices at a glance.
+private struct CoveragePreview: View {
+    let palette: CoveragePaletteChoice
+    let mode: CoverageColorMode
+    let margin: Double
+
+    /// Two scenes of two shots. Each entry is the shot's row span within the page.
+    private let scenes: [[ClosedRange<Int>]] = [[0...1, 2...3], [4...5, 6...7]]
+    private let rows = 8
+
+    /// The palette slot each shot draws in, mirroring CoverageColoring's three
+    /// modes over this fixed two-scene, two-shot layout.
+    private func slot(scene: Int, shot: Int, runningColorIndex: Int) -> Int {
+        switch mode {
+        case .perScene:     return shot
+        case .acrossScript: return runningColorIndex
+        case .sceneUniform: return scene
+        }
+    }
+
+    var body: some View {
+        let colors = palette.displayColors
+        Canvas { ctx, size in
+            let rowH = size.height / CGFloat(rows)
+            // Right edge of the coverage band, as in the real export: a fraction of
+            // page width. Text sits just past it; bars pack against it.
+            let bandRight = size.width * CGFloat(margin) + 8
+            let textInset = bandRight + 8
+            let barX = bandRight - 5
+
+            // Stand-in script text: grey lines of a few different widths.
+            let widths: [CGFloat] = [0.9, 0.7, 0.82, 0.6, 0.88, 0.66, 0.78, 0.72]
+            for r in 0..<rows {
+                let y = CGFloat(r) * rowH + rowH * 0.32
+                let w = (size.width - textInset - 10) * widths[r % widths.count]
+                let line = Path(roundedRect: CGRect(x: textInset, y: y, width: max(4, w), height: rowH * 0.34),
+                                cornerRadius: 1.5)
+                ctx.fill(line, with: .color(.gray.opacity(0.35)))
+            }
+
+            // Coverage bars, one per shot, coloured by the current mode.
+            var running = 0
+            for (sceneIndex, shots) in scenes.enumerated() {
+                for span in shots {
+                    let color = colors.isEmpty ? Color.blue : colors[slot(scene: sceneIndex, shot: running, runningColorIndex: running) % colors.count]
+                    let top = CGFloat(span.lowerBound) * rowH + rowH * 0.2
+                    let bottom = CGFloat(span.upperBound) * rowH + rowH * 0.8
+                    var bar = Path()
+                    bar.move(to: CGPoint(x: barX, y: top))
+                    bar.addLine(to: CGPoint(x: barX, y: bottom))
+                    ctx.stroke(bar, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+
+                    let label = Text("\(sceneIndex + 1).\(running % shots.count + 1)")
+                        .font(.system(size: 7, weight: .semibold)).foregroundColor(color)
+                    ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
+                    running += 1
+                }
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 8).fill(.white))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
+        .animation(.easeInOut(duration: 0.15), value: margin)
     }
 }
