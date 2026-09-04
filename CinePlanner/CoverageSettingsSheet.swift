@@ -238,7 +238,7 @@ private struct CoveragePreview: View {
     var background: PlatformImage? = nil
 
     var body: some View {
-        let color = palette.displayColors.first ?? .blue
+        let colors = palette.displayColors
         // The box takes the strip's own aspect ratio, so the image maps onto it
         // one-to-one: no cropping, the scene heading stays at the very top, and the
         // margin fraction lands exactly where it does on the page. (`.fill` cropped
@@ -252,17 +252,27 @@ private struct CoveragePreview: View {
             }
 
             Canvas { ctx, size in
-                // The coverage line at the band's right edge — a fraction of page
-                // width — exactly where the real renderer packs it.
-                let barX = max(3, size.width * CGFloat(margin))
-                let top = max(9, size.height * 0.22)   // keep its number inside the box
-                var path = Path()
-                path.move(to: CGPoint(x: barX, y: top))
-                path.addLine(to: CGPoint(x: barX, y: size.height * 0.92))
-                ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                // Three lines packed leftward from the band's right edge (a fraction
+                // of page width), the way the real renderer stacks coverage that
+                // shares vertical space — so the palette's colours and the spacing
+                // between lines are both visible.
+                let step: CGFloat = 15
+                let bandRight = size.width * CGFloat(margin)
+                // Keep all three inside the box even at a small margin.
+                let rightX = max(3 + 2 * step, bandRight)
+                let top = max(9, size.height * 0.22)   // keep the numbers inside the box
+                let bottom = size.height * 0.92
+                for i in 0..<3 {
+                    let x = rightX - CGFloat(i) * step
+                    let color = colors.isEmpty ? .blue : colors[i % colors.count]
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: top))
+                    path.addLine(to: CGPoint(x: x, y: bottom))
+                    ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
-                let label = Text("1.1").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
-                ctx.draw(label, at: CGPoint(x: barX, y: top - 5), anchor: .center)
+                    let label = Text("1.\(i + 1)").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
+                    ctx.draw(label, at: CGPoint(x: x, y: top - 5), anchor: .center)
+                }
             }
         }
         .aspectRatio(aspect, contentMode: .fit)
