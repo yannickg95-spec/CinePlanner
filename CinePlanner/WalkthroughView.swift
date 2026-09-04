@@ -21,7 +21,7 @@ struct WalkthroughView: View {
 
     enum StepKind {
         case welcome, projects, script, shot, references
-        case cinestager, metadata, blockingMap, export, sync
+        case cinestager, metadata, blockingMap, schedule, onSet, export, sync
     }
 
     private struct Step: Identifiable {
@@ -59,6 +59,12 @@ struct WalkthroughView: View {
         Step(kind: .blockingMap, tint: .mint,
              title: "Top-down blocking maps",
              detail: "Every scene gets a blocking map. CineStager drops in the real camera and actor positions with each camera's field-of-view cone; add a satellite map of your location and drag markers to plan your coverage."),
+        Step(kind: .schedule, tint: .indigo,
+             title: "Plan your shoot days",
+             detail: "Group your scenes and shots into shooting days and reorder them freely. Each day shows the location's sunrise, sunset and golden hour, so you can plan around the light."),
+        Step(kind: .onSet, tint: .red,
+             title: "Shoot with On-Set mode",
+             detail: "On the day, switch to On-Set mode: the shot you're on is shown big with everything you need, and you tick each one off as you get it. On iPhone a Live Activity keeps the current shot on your Lock Screen."),
         Step(kind: .export, tint: .green,
              title: "Export & publish",
              detail: "Export a PDF, a self-contained webpage, or plain text — or Publish to Web to put a shareable shot list online through your own GitHub account."),
@@ -222,6 +228,8 @@ struct WalkthroughView: View {
         case .cinestager:  CineStagerIllo()
         case .metadata:    MetadataIllo()
         case .blockingMap: BlockingMapIllo()
+        case .schedule:    ScheduleIllo()
+        case .onSet:       OnSetIllo()
         case .export:      ExportIllo()
         case .sync:        SyncIllo()
         }
@@ -570,6 +578,87 @@ private struct MapGrid: Shape {
 }
 
 // MARK: - Illustration: Export & publish
+
+// MARK: - Illustration: shooting schedule
+
+private struct ScheduleIllo: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            dayCard("Day 1", ["1.1", "1.2", "2.3"], 0)
+            dayCard("Day 2", ["4.1", "5.2"], 0.14)
+        }
+    }
+
+    private func dayCard(_ title: String, _ shots: [String], _ delay: Double) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 6) {
+                Text(title).font(.subheadline.weight(.bold))
+                Spacer(minLength: 6)
+                Image(systemName: "sunrise.fill").font(.caption2).foregroundStyle(.orange)
+                Image(systemName: "sunset.fill").font(.caption2).foregroundStyle(.indigo)
+            }
+            // Golden-hour band.
+            Capsule()
+                .fill(LinearGradient(colors: [.orange.opacity(0.7), .yellow.opacity(0.5)],
+                                     startPoint: .leading, endPoint: .trailing))
+                .frame(height: 5)
+            ForEach(shots.indices, id: \.self) { i in
+                HStack(spacing: 7) {
+                    Text(shots[i])
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.indigo)
+                    Capsule().fill(.secondary.opacity(0.25)).frame(height: 6)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 120, height: 150)
+        .glassCard()
+        .appear(delay)
+    }
+}
+
+// MARK: - Illustration: On-Set mode
+
+private struct OnSetIllo: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            // The current shot, shown big.
+            HStack(spacing: 12) {
+                Text("1.2")
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .frame(width: 46, height: 46)
+                    .background(Circle().fill(.red))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("NOW").font(.caption2.weight(.bold)).foregroundStyle(.red)
+                    Capsule().fill(.secondary.opacity(0.35)).frame(width: 96, height: 7)
+                    Capsule().fill(.secondary.opacity(0.25)).frame(width: 66, height: 7)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title).foregroundStyle(.white, .green)
+            }
+            .padding(14)
+            .frame(width: 250)
+            .glassCard()
+            .appear()
+
+            // Upcoming shots, ticked off as you go.
+            ForEach(Array(["1.3", "1.4"].enumerated()), id: \.offset) { i, num in
+                HStack(spacing: 10) {
+                    Image(systemName: "circle").font(.body).foregroundStyle(.secondary)
+                    Text(num).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(.secondary)
+                    Capsule().fill(.secondary.opacity(0.2)).frame(height: 6)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .frame(width: 250)
+                .glassCard(12)
+                .appear(0.14 + Double(i) * 0.08)
+            }
+        }
+    }
+}
 
 private struct ExportIllo: View {
     var body: some View {
