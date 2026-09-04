@@ -9,7 +9,9 @@
 //     through to the SwiftUI content below.
 //   • macOS: a local scrollWheel monitor handles scrolls; hitTest returns nil so
 //     clicks pass through untouched.
-//  `enabled` gates whether scrolls are consumed (only while zoomed in).
+//  `enabled` gates whether scrolls are consumed. On macOS an optional `onZoom`
+//  routes mouse-wheel (and ⌘-) scrolls to zooming instead, so a mouse user can
+//  zoom a map that otherwise needs a trackpad pinch.
 //
 
 import SwiftUI
@@ -19,6 +21,9 @@ import UIKit
 
 struct TrackpadScrollCatcher: UIViewRepresentable {
     var enabled: Bool
+    /// Unused on iOS — a pointer's scroll is always a precise (pan) scroll here.
+    /// Present so call sites compile on both platforms.
+    var onZoom: ((CGFloat) -> Void)? = nil
     var onScroll: (CGSize) -> Void
 
     func makeUIView(context: Context) -> ScrollCatchView {
@@ -78,22 +83,28 @@ import AppKit
 
 struct TrackpadScrollCatcher: NSViewRepresentable {
     var enabled: Bool
+    /// When set, a mouse wheel (or ⌘-scroll) zooms instead of panning — the only way
+    /// to zoom without a trackpad. The value is a magnification factor around 1.
+    var onZoom: ((CGFloat) -> Void)? = nil
     var onScroll: (CGSize) -> Void
 
     func makeNSView(context: Context) -> ScrollMonitorView {
         let view = ScrollMonitorView()
         view.onScroll = onScroll
+        view.onZoom = onZoom
         view.enabled = enabled
         return view
     }
 
     func updateNSView(_ nsView: ScrollMonitorView, context: Context) {
         nsView.onScroll = onScroll
+        nsView.onZoom = onZoom
         nsView.enabled = enabled
     }
 
     final class ScrollMonitorView: NSView {
         var onScroll: ((CGSize) -> Void)?
+        var onZoom: ((CGFloat) -> Void)?
         var enabled = false
         private var monitor: Any?
 
@@ -108,6 +119,15 @@ struct TrackpadScrollCatcher: NSViewRepresentable {
                 guard let self, self.enabled, let win = self.window, event.window === win else { return event }
                 let local = self.convert(event.locationInWindow, from: nil)
                 guard self.bounds.contains(local) else { return event }
+                // A mouse wheel (no precise deltas) or ⌘-scroll zooms — otherwise a
+                // mouse user has no way to zoom at all. Everything else pans.
+                if let onZoom = self.onZoom,
+                   !event.hasPreciseScrollingDeltas || event.modifierFlags.contains(.command) {
+                    let steps = event.scrollingDeltaY
+                    guard steps != 0 else { return nil }
+                    onZoom(pow(1.06, steps))
+                    return nil
+                }
                 // Match the iPad "grab and move" feel: the map tracks the swipe. The
                 // vertical delta is inverted from AppKit's convention; the horizontal
                 // already matches.

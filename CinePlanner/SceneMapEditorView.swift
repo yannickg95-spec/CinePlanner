@@ -38,8 +38,6 @@ struct SceneMapEditorView: View {
 
     enum DrawTool: String, CaseIterable { case wall = "Wall"; case door = "Door"; case window = "Window" }
     enum MoveDirection { case to, from }
-    /// How the satellite map-background sheet was opened.
-    enum MapBackgroundMode: Int, Identifiable { case new, rescale; var id: Int { rawValue } }
 
     @State private var doc: SceneMapDoc
     /// Selected camera/mannequin markers. Usually one, but a marquee drag over the
@@ -68,10 +66,27 @@ struct SceneMapEditorView: View {
     /// holds it between pinches; `pan` offsets the zoomed content, `lastPan` its
     /// committed value. The coordinate space stays logical (unscaled) so every marker
     /// gesture keeps working — only the rendering is scaled.
+    ///
+    /// On a satellite background these double as the reframe gesture: zooming out
+    /// past 1× and panning past the image edge are allowed, a sharp satellite render
+    /// of the new framing is fetched behind the markers, and the pill offers to make
+    /// it the scene's background (see `commitReframe`).
     @State private var zoom: CGFloat = 1
     @State private var lastZoom: CGFloat = 1
     @State private var pan: CGSize = .zero
     @State private var lastPan: CGSize = .zero
+    /// Sharp satellite render of the area the canvas currently frames, fetched while
+    /// reframing so the map doesn't just magnify the stored capture's pixels. Drawn
+    /// under the markers, positioned by `reframePreviewRect` — the world rect it was
+    /// rendered for — so it stays glued to the ground as the pan continues.
+    /// True while the reframe tool is on. Panning and zooming only move the
+    /// satellite background in this mode — otherwise they are the plain look-closer
+    /// gestures they have always been, so nobody re-frames their map by accident.
+    @State private var isReframeMode = false
+    @State private var reframePreview: PlatformImage?
+    @State private var reframePreviewRect: MKMapRect?
+    @State private var reframeTask: Task<Void, Never>?
+    @State private var isCommittingReframe = false
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
     /// segments match the trash / sun buttons. Shrinks in iPhone landscape to give
     /// the map more room.
@@ -99,11 +114,9 @@ struct SceneMapEditorView: View {
     @State private var backgroundImage: PlatformImage?
     @State private var showingImagePicker = false
     @State private var showingModelPicker = false
-    /// Non-nil when the satellite map-background sheet is open. `.new` sets a fresh
-    /// location; `.rescale` re-captures the current one, preserving marker
-    /// positions. Driving the sheet with the mode (not a shared flag) guarantees
-    /// the callback always knows which path to take.
-    @State private var mapBackgroundMode: MapBackgroundMode?
+    /// The satellite location picker. Framing an already-set map is done on the
+    /// canvas, so this is only for choosing where in the world the map is.
+    @State private var showingMapPicker = false
     @State private var isRenderingModel = false
     @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
@@ -161,7 +174,7 @@ struct SceneMapEditorView: View {
             canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; refreshMapScale() }
+        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; calibrateSatelliteCapture(); refreshMapScale() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -185,7 +198,12 @@ struct SceneMapEditorView: View {
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(PlatformImage.init(data:))
             refreshMapScale()
+            // A new background — whether just committed here or arrived from a sync —
+            // makes any in-flight framing meaningless.
+            resetReframe()
+            isReframeMode = false
         }
+        .onDisappear { reframeTask?.cancel() }
         .onChange(of: scene.sceneFloorPlanJSON) { _, newValue in
             let incoming = FloorPlan.load(from: newValue)
             guard incoming != floorPlan, !(incoming.isEmpty && !floorPlan.isEmpty) else { return }
@@ -226,13 +244,16 @@ struct SceneMapEditorView: View {
             SunSettingsSheet(settings: $sun, onChange: saveSun,
                              isNorthLocked: scene.sceneMapBackgroundIsSatellite)
         }
-        .sheet(item: $mapBackgroundMode) { mode in
+        .sheet(isPresented: $showingMapPicker) {
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
-                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil,
-                               lockToCenter: mode == .rescale) { data, coordinate, meters, label in
-                switch mode {
-                case .rescale: rescaleSatelliteBackground(data, coordinate: coordinate, meters: meters, label: label)
-                case .new:     setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil) { data, coordinate, meters, label in
+                // Nudging the same location keeps every marker on its real-world
+                // spot; jumping somewhere else entirely is a fresh start, where
+                // carrying the markers along would only fling them off the map.
+                if capturesOverlap(coordinate: coordinate, meters: meters) {
+                    rescaleSatelliteBackground(data, coordinate: coordinate, meters: meters, label: label)
+                } else {
+                    setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
                 }
             }
         }
@@ -386,18 +407,11 @@ struct SceneMapEditorView: View {
                 segmentDivider
                 Menu {
                     Button { showingImagePicker = true } label: { Label("Image…", systemImage: "photo") }
-                    if scene.sceneMapBackgroundIsSatellite {
-                        // With a satellite map already set, offer New vs Rescale.
-                        Menu {
-                            Button { mapBackgroundMode = .new } label: { Label("New…", systemImage: "globe.europe.africa.fill") }
-                            Button { mapBackgroundMode = .rescale } label: {
-                                Label("Rescale…", systemImage: "arrow.up.left.and.down.right.magnifyingglass")
-                            }
-                        } label: {
-                            Label("Satellite Map", systemImage: "globe.europe.africa.fill")
-                        }
-                    } else {
-                        Button { mapBackgroundMode = .new } label: { Label("Satellite Map…", systemImage: "globe.europe.africa.fill") }
+                    // One item: the picker is for choosing a *place*. Adjusting the
+                    // framing of a map that's already set happens on the canvas
+                    // itself — pan and zoom, then keep it.
+                    Button { showingMapPicker = true } label: {
+                        Label("Satellite Map…", systemImage: "globe.europe.africa.fill")
                     }
                     Button { showingModelPicker = true } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
@@ -512,6 +526,16 @@ struct SceneMapEditorView: View {
         try? scene.modelContext?.save()
     }
 
+    /// Corrects a satellite capture whose recorded size predates the measured
+    /// snapshot scale — a one-off, on first open of the scene map. Without it the
+    /// stored metres understate the ground the image covers, so markers draw too
+    /// large and reframing drifts by the size of the error.
+    private func calibrateSatelliteCapture() {
+        guard !scene.sceneMapSatelliteCalibrated else { return }
+        SatelliteCalibration.calibrate(scene)
+        try? scene.modelContext?.save()
+    }
+
     /// Re-reads the background's real-world scale into local state so markers
     /// re-scale whenever the background (and its scale) changes.
     private func refreshMapScale() {
@@ -557,240 +581,519 @@ struct SceneMapEditorView: View {
         GeometryReader { geo in
             let rect = contentRect(in: geo.size)
             ZStack {
-                if let backgroundImage {
-                    Image(platformImage: backgroundImage)
-                        .resizable()
-                        .frame(width: rect.width, height: rect.height)
-                        .position(x: rect.midX, y: rect.midY)
-                        .allowsHitTesting(false)
-                } else {
-                    // A grid stands in for the (missing) background. Kept free of
-                    // `doc` so it never redraws while a marker is being dragged.
-                    Canvas { ctx, _ in drawGrid(ctx, rect) }
+                Color.platformTextBackground
+                // The background art rides the same transform as the content, but in
+                // its own layer so the sharp reframe render can slot in between it
+                // and the markers.
+                backgroundArt(in: rect)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scaleEffect(zoom, anchor: .center)
+                    .offset(pan)
+                    .clipped()
+                    .allowsHitTesting(false)
+                reframeRender(in: rect, canvas: geo.size)
+                canvasContent(in: rect, geo: geo)
+            }
+            .overlay { reframeButton(in: rect) }
+            .overlay { reframeChrome(in: rect, canvas: geo.size) }
+            .onChange(of: reframeKey) { scheduleReframeRender(in: rect, canvas: geo.size) }
+        }
+    }
+
+    /// The stored background image, or a grid standing in for a missing one.
+    @ViewBuilder
+    private func backgroundArt(in rect: CGRect) -> some View {
+        if let backgroundImage {
+            Image(platformImage: backgroundImage)
+                .resizable()
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+        } else {
+            // A grid stands in for the (missing) background. Kept free of
+            // `doc` so it never redraws while a marker is being dragged.
+            Canvas { ctx, _ in drawGrid(ctx, rect) }
+        }
+    }
+
+    private func canvasContent(in rect: CGRect, geo: GeometryProxy) -> some View {
+        ZStack {
+            // Drawn floor plan (walls + doors/windows), behind the markers.
+            if !floorPlan.isEmpty || isDrawing {
+                Canvas { ctx, _ in drawFloorPlan(ctx, in: rect) }
+                    .allowsHitTesting(false)
+            }
+            // Wall edit handles (below markers/openings), when not drawing.
+            if !isDrawing {
+                ForEach(floorPlan.walls) { wall in
+                    wallHandle(wall, in: rect)
                 }
-                // Drawn floor plan (walls + doors/windows), behind the markers.
-                if !floorPlan.isEmpty || isDrawing {
-                    Canvas { ctx, _ in drawFloorPlan(ctx, in: rect) }
-                        .allowsHitTesting(false)
-                }
-                // Wall edit handles (below markers/openings), when not drawing.
-                if !isDrawing {
-                    ForEach(floorPlan.walls) { wall in
-                        wallHandle(wall, in: rect)
-                    }
-                    // Selecting any wall reveals every corner point for editing.
-                    if wallSelectedID != nil {
-                        ForEach(floorPlan.vertices) { vertex in
-                            vertexHandle(vertex, in: rect)
-                        }
-                    }
-                }
-                // Furniture, below the people/cameras so they read as "on" it.
-                if !isDrawing {
-                    ForEach(doc.furniture) { item in
-                        FurnitureView(
-                            furniture: item,
-                            isSelected: furnitureSelectedID == item.id,
-                            contentRect: rect,
-                            zoom: zoom,
-                            onSelect: { selectFurniture(item.id) },
-                            onMove: { normalized in moveFurniture(item.id, to: normalized) },
-                            onRotate: { r in rotateFurniture(item.id, to: r) },
-                            onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
-                            onSetColor: { hex in setFurnitureColor(item.id, hex) },
-                            onReorder: { move in reorderFurniture(item.id, move) },
-                            onDuplicate: { duplicateFurniture(item.id) },
-                            onEditLabel: {
-                                furnitureToLabel = item.id
-                                furnitureLabelText = item.label
-                            },
-                            onMoveLabel: { offset in moveFurnitureLabel(item.id, to: offset) },
-                            metersWide: mapMetersWide,
-                            onDelete: { deleteFurniture(item.id) }
-                        )
-                        .allowsHitTesting(pendingMove == nil)
+                // Selecting any wall reveals every corner point for editing.
+                if wallSelectedID != nil {
+                    ForEach(floorPlan.vertices) { vertex in
+                        vertexHandle(vertex, in: rect)
                     }
                 }
-                // Camera field-of-view wedges, under the arrows and markers.
-                // Reads the scene flag directly so toggling it re-renders here.
-                if scene.sceneMapShowCameraFOV {
-                    Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
-                        .allowsHitTesting(false)
-                }
-                // Movement arrows are drawn crisply in a screen-space overlay outside
-                // the zoom (see below); only their right-click hit areas live here.
-                if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
-                    ForEach(doc.arrows) { arrow in
-                        arrowHitView(arrow, in: rect)
-                    }
-                }
-                ForEach(doc.elements) { element in
-                    MapMarkerView(
-                        element: element,
-                        label: resolvedLabel(for: element),
-                        zoom: zoom,
-                        isSelected: selectedIDs.contains(element.id),
+            }
+            // Furniture, below the people/cameras so they read as "on" it.
+            if !isDrawing {
+                ForEach(doc.furniture) { item in
+                    FurnitureView(
+                        furniture: item,
+                        isSelected: furnitureSelectedID == item.id,
                         contentRect: rect,
-                        onSelect: { selectMarker(element.id) },
-                        onMove: { normalized in moveElement(element.id, to: normalized) },
-                        onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
-                        onSetColor: { hex in setColor(element.id, hex) },
-                        onDelete: { deleteMarkerOrSelection(element.id) },
-                        onMoveTo: { startMove(element.id, .to) },
-                        onMoveFrom: { startMove(element.id, .from) },
-                        onMoveLabel: { offset in moveLabel(element.id, to: offset) },
-                        onTap: {
-                            // Left-clicking a camera opens its shot-info card;
-                            // clicking any other marker closes it.
-                            cameraInfoElementID = (element.kind == .camera) ? element.id : nil
+                        zoom: zoom,
+                        onSelect: { selectFurniture(item.id) },
+                        onMove: { normalized in moveFurniture(item.id, to: normalized) },
+                        onRotate: { r in rotateFurniture(item.id, to: r) },
+                        onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
+                        onSetColor: { hex in setFurnitureColor(item.id, hex) },
+                        onReorder: { move in reorderFurniture(item.id, move) },
+                        onDuplicate: { duplicateFurniture(item.id) },
+                        onEditLabel: {
+                            furnitureToLabel = item.id
+                            furnitureLabelText = item.label
                         },
-                        onDragStart: { cameraInfoElementID = nil },
-                        characters: scene.project?.scriptCharacters ?? [],
-                        onSetCharacter: { character in setCharacter(element.id, character) },
-                        onRequestLabel: { markerToLabel = element.id; markerLabelText = element.label },
-                        onToggleLabelHidden: { toggleLabelHidden(element.id) },
-                        showsFOV: scene.sceneMapShowCameraFOV,
-                        onToggleFOV: { toggleCameraFOV() },
-                        fovBasis: effectiveBasis(for: element),
-                        onSetFOVBasis: { setFOVBasis($0, for: element) },
-                        fovProfiles: fovProfileRows,
-                        selectedFOVProfileID: selectedFOVProfileID(for: element),
-                        onSelectFOVProfile: { selectFOVProfile($0, for: element) },
-                        showsRotationHandle: selectedIDs.count == 1,
-                        selectedCount: (selectedIDs.count > 1 && selectedIDs.contains(element.id)) ? selectedIDs.count : 1,
-                        isGroupMember: selectedIDs.count > 1 && selectedIDs.contains(element.id),
-                        groupDragOffset: (selectedIDs.count > 1 && selectedIDs.contains(element.id))
-                            ? (groupDragTranslation ?? .zero) : .zero,
-                        onGroupDragChanged: { groupDragTranslation = $0 },
-                        onGroupDragEnded: { commitGroupDrag($0, in: rect) },
-                        scale: sceneMarkerScale(kind: element.kind,
-                                                metersWide: mapMetersWide,
-                                                cameraMeters: mapCameraMeters,
-                                                mapWidthPoints: rect.width,
-                                                viewable: scene.sceneMapViewableMarkerSize)
+                        onMoveLabel: { offset in moveFurnitureLabel(item.id, to: offset) },
+                        metersWide: mapMetersWide,
+                        onDelete: { deleteFurniture(item.id) }
                     )
-                    .allowsHitTesting(!isDrawing && pendingMove == nil)
-                }
-                // Door/window edit handles (tap to select, right-click to edit).
-                if !isDrawing {
-                    ForEach(floorPlan.openings) { opening in
-                        openingHandle(opening, in: rect)
-                    }
-                }
-                // Arrow pivot handles, only for the selected arrow.
-                if !isDrawing && pendingMove == nil, let selectedArrow = arrowSelectedID {
-                    if let arrow = doc.arrows.first(where: { $0.id == selectedArrow }) {
-                        ForEach(Array(arrow.pivots.indices), id: \.self) { index in
-                            pivotHandle(arrowID: arrow.id, index: index, in: rect)
-                        }
-                    }
-                }
-                // While drawing, a top layer captures clicks so the markers below
-                // don't intercept them; hover drives the rubber-band preview.
-                if isDrawing {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                            .onEnded { value in handleDrawClick(value.location, in: rect) })
-                        .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasSpace)) { phase in
-                            switch phase {
-                            case .active(let location): drawHover = location
-                            case .ended: drawHover = nil
-                            }
-                        }
-                }
-                // Placing the second (moved) marker: the next click drops it and
-                // draws the connecting arrow.
-                if pendingMove != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                            .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
-                }
-                // Marquee (rubber-band) selection box, above the markers.
-                if let start = marqueeStart, let current = marqueeCurrent {
-                    let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
-                                     width: abs(current.x - start.x), height: abs(current.y - start.y))
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.12))
-                        .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
-                        .frame(width: box.width, height: box.height)
-                        .position(x: box.midX, y: box.midY)
-                        .allowsHitTesting(false)
-                }
-                // Sun-direction overlay (non-interactive), above the map content.
-                sunOverlay(in: rect)
-                // Apple Maps attribution on satellite backgrounds.
-                if scene.sceneMapBackgroundIsSatellite, backgroundImage != nil {
-                    AppleMapsAttribution(rect: rect)
+                    .allowsHitTesting(pendingMove == nil && !reframeActive)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.platformTextBackground)
-            .contentShape(Rectangle())
-            .coordinateSpace(name: SceneMapEditorView.canvasSpace)
-            // Pinch-to-zoom (all platforms). Applied after the coordinate space so
-            // the canvasSpace stays in logical points — marker/selection gestures,
-            // which read `.named(canvasSpace)`, are unaffected by the zoom.
-            .scaleEffect(zoom, anchor: .center)
-            .offset(pan)
-            .clipped()
-            // scaleEffect also scales the canvas's hit region, so when zoomed in it
-            // spilled over the toolbar above and swallowed its taps. Reset the
-            // interactive shape to the (unscaled) frame so touches outside it — the
-            // toolbar — pass through again.
-            .contentShape(Rectangle())
-            // Movement arrows: drawn OUTSIDE the zoom in a screen-space Canvas so the
-            // vector rasterizes crisply at any zoom (a Canvas inside scaleEffect would
-            // just be a magnified 1x bitmap). The zoom/pan is applied to the graphics
-            // context instead. Their markers are trimmed away, so drawing on top reads
-            // the same as under them.
-            .overlay {
-                if !doc.arrows.isEmpty {
-                    Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
-                        .allowsHitTesting(false)
-                        .clipped()
+            // Camera field-of-view wedges, under the arrows and markers.
+            // Reads the scene flag directly so toggling it re-renders here.
+            if scene.sceneMapShowCameraFOV {
+                Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
+                    .allowsHitTesting(false)
+            }
+            // Movement arrows are drawn crisply in a screen-space overlay outside
+            // the zoom (see below); only their right-click hit areas live here.
+            if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
+                ForEach(doc.arrows) { arrow in
+                    arrowHitView(arrow, in: rect)
                 }
             }
-            // Camera shot-info card — a plain overlay (not a system popover), so the
-            // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
-            // it's a constant on-screen size and always fits, tracking the marker's
-            // transformed screen position at any zoom.
-            .overlay { cameraShotCard(in: rect, canvas: geo.size) }
-            // Two-finger trackpad swipe pans the zoomed map. macOS only: on iPad the
-            // transparent catcher overlay sat on the touch/pinch path and is the
-            // suspected cause of a zoom crash — touch devices pan by dragging anyway.
-            #if os(macOS)
-            .overlay(
-                TrackpadScrollCatcher(enabled: zoom > 1) { delta in
-                    panBy(delta, size: geo.size)
-                }
-            )
-            #endif
-            .onAppear { mapContentWidth = rect.width }
-            .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-            // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
-            // recognizer — a separate `.simultaneousGesture` for the pinch made iOS
-            // defer the drag's continuous updates, so panning only jumped on release.
-            // Attached with `.gesture`, so markers still capture their own drags.
-            .gesture(
-                SimultaneousGesture(
-                    magnifyGesture(size: geo.size),
-                    canvasPanOrMarquee(in: rect, size: geo.size,
-                                       canvasOrigin: geo.frame(in: .global).origin)
+            ForEach(doc.elements) { element in
+                MapMarkerView(
+                    element: element,
+                    label: resolvedLabel(for: element),
+                    zoom: zoom,
+                    isSelected: selectedIDs.contains(element.id),
+                    contentRect: rect,
+                    onSelect: { selectMarker(element.id) },
+                    onMove: { normalized in moveElement(element.id, to: normalized) },
+                    onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
+                    onSetColor: { hex in setColor(element.id, hex) },
+                    onDelete: { deleteMarkerOrSelection(element.id) },
+                    onMoveTo: { startMove(element.id, .to) },
+                    onMoveFrom: { startMove(element.id, .from) },
+                    onMoveLabel: { offset in moveLabel(element.id, to: offset) },
+                    onTap: {
+                        // Left-clicking a camera opens its shot-info card;
+                        // clicking any other marker closes it.
+                        cameraInfoElementID = (element.kind == .camera) ? element.id : nil
+                    },
+                    onDragStart: { cameraInfoElementID = nil },
+                    characters: scene.project?.scriptCharacters ?? [],
+                    onSetCharacter: { character in setCharacter(element.id, character) },
+                    onRequestLabel: { markerToLabel = element.id; markerLabelText = element.label },
+                    onToggleLabelHidden: { toggleLabelHidden(element.id) },
+                    showsFOV: scene.sceneMapShowCameraFOV,
+                    onToggleFOV: { toggleCameraFOV() },
+                    fovBasis: effectiveBasis(for: element),
+                    onSetFOVBasis: { setFOVBasis($0, for: element) },
+                    fovProfiles: fovProfileRows,
+                    selectedFOVProfileID: selectedFOVProfileID(for: element),
+                    onSelectFOVProfile: { selectFOVProfile($0, for: element) },
+                    showsRotationHandle: selectedIDs.count == 1,
+                    selectedCount: (selectedIDs.count > 1 && selectedIDs.contains(element.id)) ? selectedIDs.count : 1,
+                    isGroupMember: selectedIDs.count > 1 && selectedIDs.contains(element.id),
+                    groupDragOffset: (selectedIDs.count > 1 && selectedIDs.contains(element.id))
+                        ? (groupDragTranslation ?? .zero) : .zero,
+                    onGroupDragChanged: { groupDragTranslation = $0 },
+                    onGroupDragEnded: { commitGroupDrag($0, in: rect) },
+                    scale: sceneMarkerScale(kind: element.kind,
+                                            metersWide: mapMetersWide,
+                                            cameraMeters: mapCameraMeters,
+                                            mapWidthPoints: rect.width,
+                                            viewable: scene.sceneMapViewableMarkerSize)
                 )
-            )
-            .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
-            #if os(macOS)
-            .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
-            #endif
-            .overlay(alignment: .top) {
-                if pendingMove != nil { moveBanner }
+                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive)
             }
-            .overlay(alignment: .bottom) {
-                if sun.enabled && sun.hasLocation { sunTimeBar }
+            // Door/window edit handles (tap to select, right-click to edit).
+            if !isDrawing {
+                ForEach(floorPlan.openings) { opening in
+                    openingHandle(opening, in: rect)
+                }
+            }
+            // Arrow pivot handles, only for the selected arrow.
+            if !isDrawing && pendingMove == nil, let selectedArrow = arrowSelectedID {
+                if let arrow = doc.arrows.first(where: { $0.id == selectedArrow }) {
+                    ForEach(Array(arrow.pivots.indices), id: \.self) { index in
+                        pivotHandle(arrowID: arrow.id, index: index, in: rect)
+                    }
+                }
+            }
+            // While drawing, a top layer captures clicks so the markers below
+            // don't intercept them; hover drives the rubber-band preview.
+            if isDrawing {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                        .onEnded { value in handleDrawClick(value.location, in: rect) })
+                    .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasSpace)) { phase in
+                        switch phase {
+                        case .active(let location): drawHover = location
+                        case .ended: drawHover = nil
+                        }
+                    }
+            }
+            // Placing the second (moved) marker: the next click drops it and
+            // draws the connecting arrow.
+            if pendingMove != nil {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                        .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
+            }
+            // Marquee (rubber-band) selection box, above the markers.
+            if let start = marqueeStart, let current = marqueeCurrent {
+                let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
+                                 width: abs(current.x - start.x), height: abs(current.y - start.y))
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
+                    .frame(width: box.width, height: box.height)
+                    .position(x: box.midX, y: box.midY)
+                    .allowsHitTesting(false)
+            }
+            // Sun-direction overlay (non-interactive), above the map content.
+            sunOverlay(in: rect)
+            // Apple Maps attribution on satellite backgrounds.
+            if scene.sceneMapBackgroundIsSatellite, backgroundImage != nil {
+                AppleMapsAttribution(rect: rect)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .coordinateSpace(name: SceneMapEditorView.canvasSpace)
+        // Pinch-to-zoom (all platforms). Applied after the coordinate space so
+        // the canvasSpace stays in logical points — marker/selection gestures,
+        // which read `.named(canvasSpace)`, are unaffected by the zoom.
+        .scaleEffect(zoom, anchor: .center)
+        .offset(pan)
+        .clipped()
+        // scaleEffect also scales the canvas's hit region, so when zoomed in it
+        // spilled over the toolbar above and swallowed its taps. Reset the
+        // interactive shape to the (unscaled) frame so touches outside it — the
+        // toolbar — pass through again.
+        .contentShape(Rectangle())
+        // Movement arrows: drawn OUTSIDE the zoom in a screen-space Canvas so the
+        // vector rasterizes crisply at any zoom (a Canvas inside scaleEffect would
+        // just be a magnified 1x bitmap). The zoom/pan is applied to the graphics
+        // context instead. Their markers are trimmed away, so drawing on top reads
+        // the same as under them.
+        .overlay {
+            if !doc.arrows.isEmpty {
+                Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
+                    .allowsHitTesting(false)
+                    .clipped()
+            }
+        }
+        // Camera shot-info card — a plain overlay (not a system popover), so the
+        // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
+        // it's a constant on-screen size and always fits, tracking the marker's
+        // transformed screen position at any zoom.
+        .overlay { cameraShotCard(in: rect, canvas: geo.size) }
+        // Two-finger trackpad swipe pans the zoomed map (and any satellite map,
+        // where panning reframes it); a mouse wheel zooms. macOS only: on iPad the
+        // transparent catcher overlay sat on the touch/pinch path and is the
+        // suspected cause of a zoom crash — touch devices pan by dragging anyway.
+        #if os(macOS)
+        .overlay(
+            TrackpadScrollCatcher(
+                enabled: zoom > 1 || canReframe,
+                onZoom: { factor in zoomBy(factor, size: geo.size) },
+                onScroll: { delta in panBy(delta, size: geo.size) }
+            )
+        )
+        #endif
+        .onAppear { mapContentWidth = rect.width }
+        .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
+        // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
+        // recognizer — a separate `.simultaneousGesture` for the pinch made iOS
+        // defer the drag's continuous updates, so panning only jumped on release.
+        // Attached with `.gesture`, so markers still capture their own drags.
+        .gesture(
+            SimultaneousGesture(
+                magnifyGesture(size: geo.size),
+                canvasPanOrMarquee(in: rect, size: geo.size,
+                                   canvasOrigin: geo.frame(in: .global).origin)
+            )
+        )
+        .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
+        #if os(macOS)
+        .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
+        #endif
+        .overlay(alignment: .top) {
+            if pendingMove != nil { moveBanner }
+        }
+        .overlay(alignment: .bottom) {
+            if sun.enabled && sun.hasLocation { sunTimeBar }
+        }
+    }
+
+    // MARK: - Reframing a satellite background
+
+    /// The stored capture's geo-anchor: where its centre is and how many metres it
+    /// spans. Present only for a satellite background, which is the only kind that
+    /// can be reframed — a photo or a drawn plan has no world behind its edges.
+    private var satelliteAnchor: SatelliteFraming? {
+        guard scene.sceneMapBackgroundIsSatellite,
+              let lat = scene.sceneMapSatelliteLat,
+              let lon = scene.sceneMapSatelliteLon,
+              let meters = scene.sceneMapSatelliteMeters, meters > 0 else { return nil }
+        return SatelliteFraming(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                meters: meters)
+    }
+
+    /// Whether this map *could* be reframed — the toolbar button's condition.
+    private var canReframe: Bool { satelliteAnchor != nil }
+
+    /// Whether the reframe tool is actually running.
+    private var reframeActive: Bool { isReframeMode && canReframe }
+
+    /// True once the canvas frames something other than the stored capture.
+    private var isReframing: Bool { reframeActive && (zoom != 1 || pan != .zero) }
+
+    /// Zooming out below 1× only means something when there's more world to show.
+    private var minZoom: CGFloat { reframeActive ? 0.3 : 1 }
+
+    /// Slider range for the reframe zoom, widest to tightest.
+    private static let reframeZoomRange: ClosedRange<CGFloat> = 0.3...4
+
+    /// How far the content may be panned. Normally just enough to reach the edges of
+    /// the zoomed image; while reframing, freely — panning *is* the point, and the
+    /// stored capture's edge is no longer a wall.
+    private func panLimits(_ size: CGSize, zoom z: CGFloat) -> CGSize {
+        if reframeActive { return CGSize(width: size.width * 1.5, height: size.height * 1.5) }
+        return CGSize(width: size.width * (z - 1) / 2, height: size.height * (z - 1) / 2)
+    }
+
+    /// Whether an empty-canvas drag pans. While reframing it always does — dragging
+    /// the map is the whole point of the tool, and marker edits are suspended anyway.
+    private var dragPansCanvas: Bool { reframeActive || zoom > 1 }
+
+    /// The world rect the whole canvas is showing at the current zoom/pan.
+    private func liveCanvasRect(in rect: CGRect, canvas: CGSize) -> MKMapRect? {
+        satelliteAnchor?.canvasRect(contentWidth: rect.width, canvas: canvas, zoom: zoom, pan: pan)
+    }
+
+    /// The capture the current framing would produce — exactly what the crop frame
+    /// draws. At rest this is identical to the stored capture, so committing without
+    /// having moved is a no-op.
+    private func pendingCapture(in rect: CGRect, canvas: CGSize) -> SatelliteFraming? {
+        satelliteAnchor?.capture(contentWidth: rect.width, canvas: canvas, zoom: zoom, pan: pan)
+    }
+
+    /// Coarse key so a new satellite render is fetched only when the framing has
+    /// meaningfully moved, not on every sub-pixel of a drag.
+    private var reframeKey: String {
+        "\(Int(zoom * 100))-\(Int(pan.width))-\(Int(pan.height))"
+    }
+
+    /// The sharp render of the framed area, drawn under the markers. Positioned by
+    /// the world rect it was rendered for, so it stays pinned to the ground while a
+    /// later pan is still in flight — it goes stale by drifting off-canvas, never by
+    /// sliding out of register with the markers.
+    @ViewBuilder
+    private func reframeRender(in rect: CGRect, canvas: CGSize) -> some View {
+        if let image = reframePreview, let shot = reframePreviewRect,
+           let live = liveCanvasRect(in: rect, canvas: canvas), live.width > 0 {
+            let scale = Double(canvas.width) / live.width
+            Image(platformImage: image)
+                .resizable()
+                .frame(width: CGFloat(shot.width * scale), height: CGFloat(shot.height * scale))
+                .position(x: CGFloat((shot.midX - live.minX) * scale),
+                          y: CGFloat((shot.midY - live.minY) * scale))
+                .clipped()
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Picks up the reframe tool. It sits on the map rather than in the toolbar:
+    /// it acts on the map, only a satellite background has any use for it, and the
+    /// toolbar row is long enough already. Hidden once the tool is running — the
+    /// reframe bar carries its own way out.
+    @ViewBuilder
+    private func reframeButton(in rect: CGRect) -> some View {
+        if canReframe, !isReframeMode, !isDrawing, pendingMove == nil {
+            let inset: CGFloat = 25
+            Button { isReframeMode = true } label: {
+                Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 30, height: 30)
+                    .background(.regularMaterial, in: Circle())
+                    .overlay(Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+            }
+            .buttonStyle(.plain)
+            .help("Reframe the satellite map")
+            // Pinned to the map's own top-right corner, not the canvas's — on a wide
+            // window the square map leaves empty canvas beside it, and a button
+            // floating out there reads as belonging to nothing. Placed outside the
+            // zoom transform so it stays put while the map moves under it.
+            .position(x: rect.maxX - inset, y: rect.minY + inset)
+        }
+    }
+
+    /// The reframe tool's furniture: the square that will be captured, everything
+    /// outside it dimmed, and a bar to zoom, keep or cancel. Shown for as long as the
+    /// tool is on — not only once something has moved — so it is always clear which
+    /// mode the map is in.
+    @ViewBuilder
+    private func reframeChrome(in rect: CGRect, canvas: CGSize) -> some View {
+        if reframeActive, !isDrawing, pendingMove == nil,
+           let pending = pendingCapture(in: rect, canvas: canvas) {
+            let side = min(canvas.width, canvas.height)
+            let frame = CGRect(x: (canvas.width - side) / 2, y: (canvas.height - side) / 2,
+                               width: side, height: side)
+            ZStack {
+                Path { p in
+                    p.addRect(CGRect(origin: .zero, size: canvas))
+                    p.addRect(frame)
+                }
+                .fill(Color.black.opacity(0.22), style: FillStyle(eoFill: true))
+                Rectangle()
+                    .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                    .frame(width: side, height: side)
+            }
+            .allowsHitTesting(false)
+            .overlay(alignment: .top) { reframeBar(meters: pending.meters, rect: rect, canvas: canvas) }
+        }
+    }
+
+    /// Maps the zoom onto the slider's 0…1 geometrically, so the tight and wide ends
+    /// both get usable travel and 1× (the stored framing) sits near the middle.
+    private func reframeZoomBinding(canvas: CGSize) -> Binding<Double> {
+        let low = Self.reframeZoomRange.lowerBound, high = Self.reframeZoomRange.upperBound
+        return Binding(
+            get: {
+                let t = log(zoom / low) / log(high / low)
+                return Double(min(max(t, 0), 1))
+            },
+            set: { t in
+                let target = low * pow(high / low, CGFloat(t))
+                guard zoom > 0 else { return }
+                zoomBy(target / zoom, size: canvas)
+            }
+        )
+    }
+
+    private func reframeBar(meters: Double, rect: CGRect, canvas: CGSize) -> some View {
+        // The full bar needs about 480 pt; below that it drops the magnifier icons
+        // and shortens the slider rather than running off a narrow canvas.
+        let compact = isPhone || canvas.width < 520
+        return HStack(spacing: compact ? 7 : 10) {
+            Image(systemName: "viewfinder").foregroundStyle(.secondary)
+            Text("\(Int(meters.rounded())) m").monospacedDigit()
+            Divider().frame(height: 14)
+            if !compact { Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary) }
+            Slider(value: reframeZoomBinding(canvas: canvas), in: 0...1)
+                .frame(width: compact ? 90 : 140)
+            if !compact { Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary) }
+            Divider().frame(height: 14)
+            Button("Cancel") { cancelReframe() }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+            Button {
+                commitReframe(in: rect, canvas: canvas)
+            } label: {
+                if isCommittingReframe {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(compact ? "Keep" : "Use This Framing")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(isCommittingReframe)
+        }
+        .font(.callout)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .padding(.top, 10)
+    }
+
+    /// How much wider than the canvas each render reaches. The overshoot is what the
+    /// next pan slides into, so a drag doesn't drag a bare edge along with it.
+    private static let reframeRenderMargin = 1.4
+
+    /// Debounced: fetches a satellite render of the framed area shortly after the
+    /// gesture settles, so panning stays smooth and only one render is in flight.
+    private func scheduleReframeRender(in rect: CGRect, canvas: CGSize) {
+        reframeTask?.cancel()
+        guard isReframing, let live = liveCanvasRect(in: rect, canvas: canvas) else {
+            reframePreview = nil
+            reframePreviewRect = nil
+            return
+        }
+        let margin = Self.reframeRenderMargin
+        let area = MKMapRect(x: live.midX - live.width * margin / 2,
+                             y: live.midY - live.height * margin / 2,
+                             width: live.width * margin, height: live.height * margin)
+        reframeTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+            let pixels = CGSize(width: max(canvas.width, 320) * margin,
+                                height: max(canvas.height, 320) * margin)
+            let image = try? await MapSnapshot.satelliteImage(mapRect: area, pixelSize: pixels)
+            if Task.isCancelled { return }
+            if let image {
+                reframePreview = image
+                reframePreviewRect = area
+            }
+        }
+    }
+
+    /// Makes the framed area the scene's background. `rescaleSatelliteBackground`
+    /// carries every marker, arrow, furniture piece and floor-plan vertex to the same
+    /// real-world spot in the new capture, so nothing moves on screen — the ground
+    /// under it just becomes the map.
+    private func commitReframe(in rect: CGRect, canvas: CGSize) {
+        guard !isCommittingReframe, let target = pendingCapture(in: rect, canvas: canvas) else { return }
+        isCommittingReframe = true
+        Task {
+            defer { isCommittingReframe = false }
+            do {
+                let image = try await MapSnapshot.satelliteImage(coordinate: target.center,
+                                                                meters: target.meters)
+                guard let data = image.pngRepresentation() else { return }
+                rescaleSatelliteBackground(data, coordinate: target.center,
+                                           meters: target.meters, label: nil)
+                resetReframe()
+                isReframeMode = false
+            } catch {
+                Log.sceneMap.error("Reframe capture failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Leaves the tool, putting the map back exactly as it was.
+    private func cancelReframe() {
+        resetReframe()
+        isReframeMode = false
+    }
+
+    /// Back to the stored capture, exactly as it was.
+    private func resetReframe() {
+        reframeTask?.cancel()
+        reframeTask = nil
+        reframePreview = nil
+        reframePreviewRect = nil
+        zoom = 1; lastZoom = 1
+        pan = .zero; lastPan = .zero
     }
 
     /// The sun as a yellow ball on a ring around the map centre, in its compass
@@ -1090,15 +1393,16 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
-    /// Pinch-to-zoom the whole map, clamped 1…4×. Zooms about the pinch/cursor
+    /// Pinch-to-zoom the whole map, clamped `minZoom`…4×. Zooms about the pinch/cursor
     /// point (not the map centre): the scale stays anchored at `.center`, but `pan`
-    /// is adjusted each step so the content under the pinch stays put. Pinching back
-    /// to 1× recenters.
+    /// is adjusted each step so the content under the pinch stays put. On a plain
+    /// background, pinching back to 1× recenters; on a satellite map 1× is just
+    /// another framing, so only the scale snaps.
     private func magnifyGesture(size: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 let z0 = zoom
-                let z1 = min(max(lastZoom * value.magnification, 1), 4)
+                let z1 = min(max(lastZoom * value.magnification, minZoom), 4)
                 guard z1 != z0 else { return }
                 // Offset of the pinch point from the map centre.
                 let dx = value.startAnchor.x * size.width - size.width / 2
@@ -1106,23 +1410,38 @@ struct SceneMapEditorView: View {
                 let ratio = z1 / z0
                 var newPan = CGSize(width: dx - ratio * (dx - pan.width),
                                     height: dy - ratio * (dy - pan.height))
-                // Keep the map within the frame.
-                let maxX = size.width * (z1 - 1) / 2
-                let maxY = size.height * (z1 - 1) / 2
-                newPan.width = min(max(newPan.width, -maxX), maxX)
-                newPan.height = min(max(newPan.height, -maxY), maxY)
+                let limits = panLimits(size, zoom: z1)
+                newPan.width = min(max(newPan.width, -limits.width), limits.width)
+                newPan.height = min(max(newPan.height, -limits.height), limits.height)
                 zoom = z1
                 pan = newPan
             }
             .onEnded { _ in
                 lastZoom = zoom
                 lastPan = pan
-                if zoom <= 1.02 {
+                if reframeActive {
+                    if abs(zoom - 1) < 0.02 { zoom = 1; lastZoom = 1 }
+                } else if zoom <= 1.02 {
                     zoom = 1; lastZoom = 1
                     withAnimation(.easeOut(duration: 0.15)) { pan = .zero }
                     lastPan = .zero
                 }
             }
+    }
+
+    /// Zoom a step from a mouse wheel, about the map centre (a wheel has no anchor
+    /// the way a pinch does). `pan` scales with the zoom so the ground under the
+    /// centre stays put.
+    private func zoomBy(_ factor: CGFloat, size: CGSize) {
+        let z1 = min(max(zoom * factor, minZoom), 4)
+        guard z1 != zoom else { return }
+        let ratio = z1 / zoom
+        var newPan = CGSize(width: pan.width * ratio, height: pan.height * ratio)
+        let limits = panLimits(size, zoom: z1)
+        newPan.width = min(max(newPan.width, -limits.width), limits.width)
+        newPan.height = min(max(newPan.height, -limits.height), limits.height)
+        zoom = z1; lastZoom = z1
+        pan = newPan; lastPan = newPan
     }
 
     /// One empty-canvas drag: pans the zoomed map when zoomed in, else (macOS) draws
@@ -1132,12 +1451,11 @@ struct SceneMapEditorView: View {
     private func canvasPanOrMarquee(in rect: CGRect, size: CGSize, canvasOrigin: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .onChanged { value in
-                if zoom > 1 {
-                    let maxX = size.width * (zoom - 1) / 2
-                    let maxY = size.height * (zoom - 1) / 2
+                if dragPansCanvas {
+                    let limits = panLimits(size, zoom: zoom)
                     pan = CGSize(
-                        width: min(max(lastPan.width + value.translation.width, -maxX), maxX),
-                        height: min(max(lastPan.height + value.translation.height, -maxY), maxY))
+                        width: min(max(lastPan.width + value.translation.width, -limits.width), limits.width),
+                        height: min(max(lastPan.height + value.translation.height, -limits.height), limits.height))
                     return
                 }
                 #if os(macOS)
@@ -1152,7 +1470,7 @@ struct SceneMapEditorView: View {
                 #endif
             }
             .onEnded { value in
-                if zoom > 1 { lastPan = pan; return }
+                if dragPansCanvas { lastPan = pan; return }
                 #if os(macOS)
                 defer { marqueeStart = nil; marqueeCurrent = nil }
                 guard !isDrawing, pendingMove == nil, let start = marqueeStart else { return }
@@ -1168,12 +1486,11 @@ struct SceneMapEditorView: View {
     /// same bounds as the drag pan. `lastPan` is kept in sync so a following drag
     /// continues from here.
     private func panBy(_ delta: CGSize, size: CGSize) {
-        guard zoom > 1 else { return }
-        let maxX = size.width * (zoom - 1) / 2
-        let maxY = size.height * (zoom - 1) / 2
+        guard zoom > 1 || reframeActive else { return }
+        let limits = panLimits(size, zoom: zoom)
         pan = CGSize(
-            width: min(max(pan.width + delta.width, -maxX), maxX),
-            height: min(max(pan.height + delta.height, -maxY), maxY))
+            width: min(max(pan.width + delta.width, -limits.width), limits.width),
+            height: min(max(pan.height + delta.height, -limits.height), limits.height))
         lastPan = pan
     }
 
@@ -1764,26 +2081,13 @@ struct SceneMapEditorView: View {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    /// Re-maps a normalized (0…1) point from one satellite capture (centre +
-    /// metres-across) to another, so it keeps the same real-world spot. Works in
-    /// MapKit's projected `MKMapPoint` space — the exact space the capture image is
-    /// built in (`MapSnapshot`: a square `meters × pointsPerMeterAtLatitude(centre)`
-    /// centred on the coordinate) — so markers stick precisely under both zoom and
-    /// pan, with no projection drift.
-    private func remapNormalized(_ p: CGPoint,
-                                 oldCenter: CLLocationCoordinate2D, oldMeters: Double,
-                                 newCenter: CLLocationCoordinate2D, newMeters: Double) -> CGPoint {
-        let oldSide = oldMeters * MKMapPointsPerMeterAtLatitude(oldCenter.latitude)
-        let newSide = newMeters * MKMapPointsPerMeterAtLatitude(newCenter.latitude)
-        guard newSide > 0 else { return p }
-        let oldC = MKMapPoint(oldCenter)
-        let newC = MKMapPoint(newCenter)
-        // The marker's absolute world point, from where it sat in the old capture…
-        let worldX = oldC.x + (Double(p.x) - 0.5) * oldSide
-        let worldY = oldC.y + (Double(p.y) - 0.5) * oldSide
-        // …projected into the new capture's square.
-        return CGPoint(x: 0.5 + (worldX - newC.x) / newSide,
-                       y: 0.5 + (worldY - newC.y) / newSide)
+    /// Whether a new capture covers any of the same ground as the current one —
+    /// the test for whether markers should be carried across to it (they belong to
+    /// a place) or left where they sit on the map (a different place entirely, where
+    /// remapping would push every one of them out of frame).
+    private func capturesOverlap(coordinate: CLLocationCoordinate2D, meters: Double) -> Bool {
+        guard let anchor = satelliteAnchor else { return false }
+        return anchor.overlaps(SatelliteFraming(center: coordinate, meters: meters))
     }
 
     /// Replaces the satellite background with a new capture (a different zoom
@@ -1797,11 +2101,12 @@ struct SceneMapEditorView: View {
             setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
             return
         }
-        let oldCenter = CLLocationCoordinate2D(latitude: oldLat, longitude: oldLon)
-        let ratio = oldMeters / meters   // normalized sizes scale by this to keep real size
+        let old = SatelliteFraming(center: CLLocationCoordinate2D(latitude: oldLat, longitude: oldLon),
+                                   meters: oldMeters)
+        let new = SatelliteFraming(center: coordinate, meters: meters)
+        let ratio = old.sizeRatio(to: new)   // normalized sizes scale by this to keep real size
         func remap(_ x: Double, _ y: Double) -> (Double, Double) {
-            let p = remapNormalized(CGPoint(x: x, y: y), oldCenter: oldCenter, oldMeters: oldMeters,
-                                    newCenter: coordinate, newMeters: meters)
+            let p = old.remap(CGPoint(x: x, y: y), to: new)
             return (Double(p.x), Double(p.y))
         }
 
@@ -1825,6 +2130,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapSatelliteLat = coordinate.latitude
         scene.sceneMapSatelliteLon = coordinate.longitude
         scene.sceneMapSatelliteMeters = meters
+        scene.sceneMapSatelliteCalibrated = true   // rendered by the measuring pipeline
         scene.sceneMapMetersWide = meters
         backgroundImage = PlatformImage(data: data)
         scene.sceneMapJSON = doc.jsonString
@@ -1846,6 +2152,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapSatelliteLat = coordinate.latitude
         scene.sceneMapSatelliteLon = coordinate.longitude
         scene.sceneMapSatelliteMeters = meters
+        scene.sceneMapSatelliteCalibrated = true   // rendered by the measuring pipeline
         scene.sceneMapMetersWide = meters          // satellite square is `meters` across
         scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
         backgroundImage = PlatformImage(data: data)

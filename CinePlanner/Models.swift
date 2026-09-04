@@ -359,6 +359,12 @@ final class Scene {
     var sceneMapSatelliteLat: Double?
     var sceneMapSatelliteLon: Double?
     var sceneMapSatelliteMeters: Double?
+    /// False for captures made before the snapshot scale was measured rather than
+    /// assumed. Those images cover more ground than `sceneMapSatelliteMeters` says
+    /// (MapKit silently widens anything past its zoom limit), which draws markers
+    /// too large and makes a reframe drift. `SatelliteCalibration` corrects them
+    /// once, on open, and sets this. New captures are calibrated by construction.
+    var sceneMapSatelliteCalibrated: Bool = false
 
     /// Real-world width (metres) the background represents, when known (satellite
     /// capture size, or CineStager location width). nil for backgrounds with no
@@ -561,6 +567,7 @@ extension Scene {
         copy.sceneMapSatelliteLat = sceneMapSatelliteLat
         copy.sceneMapSatelliteLon = sceneMapSatelliteLon
         copy.sceneMapSatelliteMeters = sceneMapSatelliteMeters
+        copy.sceneMapSatelliteCalibrated = sceneMapSatelliteCalibrated
         copy.sceneMapMetersWide = sceneMapMetersWide
         copy.sceneMapCameraSizeMeters = sceneMapCameraSizeMeters
         copy.sceneMapShowCameraFOV = sceneMapShowCameraFOV
