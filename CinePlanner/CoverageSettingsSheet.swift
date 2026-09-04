@@ -166,7 +166,7 @@ struct CoverageSettingsSheet: View {
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Preview", "Two scenes of stand-in text, coloured with these settings.")
-            CoveragePreview(palette: palette, mode: mode, margin: margin, background: scriptStrip)
+            CoveragePreview(palette: palette, margin: margin, background: scriptStrip)
                 .frame(height: 150)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)   // decorative; the controls above carry the meaning
@@ -207,33 +207,16 @@ struct CoverageSettingsSheet: View {
 // MARK: - Live preview
 
 /// A live preview of the coverage settings: a strip of the real script (or, until
-/// it loads / when there's no script, stand-in text) with coverage bars laid over
-/// it. The bars sit at the same fraction of the page width the real renderer uses,
-/// so the margin reads truthfully against the actual text position.
+/// it loads / when there's no script, stand-in text) with a single coverage line
+/// laid over it. The line sits at the same fraction of the page width the real
+/// renderer uses, so the margin reads truthfully against the actual text.
 private struct CoveragePreview: View {
     let palette: CoveragePaletteChoice
-    let mode: CoverageColorMode
     let margin: Double
     var background: PlatformImage? = nil
 
-    /// Four coverage bars — two scenes of two shots — as fractions of the strip
-    /// height, so the distribution mode is legible whatever the background is.
-    private let bars: [(scene: Int, shot: Int, top: CGFloat, bottom: CGFloat)] = [
-        (0, 0, 0.06, 0.24), (0, 1, 0.28, 0.46),
-        (1, 0, 0.54, 0.72), (1, 1, 0.76, 0.94),
-    ]
-
-    /// The palette slot a bar draws in, matching CoverageColoring's three modes.
-    private func slot(scene: Int, shot: Int, running: Int) -> Int {
-        switch mode {
-        case .perScene:     return shot
-        case .acrossScript: return running
-        case .sceneUniform: return scene
-        }
-    }
-
     var body: some View {
-        let colors = palette.displayColors
+        let color = palette.displayColors.first ?? .blue
         ZStack {
             // Background: the real script strip fills the width so the margin
             // fraction maps to the same place it does on the page; otherwise a
@@ -247,26 +230,19 @@ private struct CoveragePreview: View {
             }
 
             Canvas { ctx, size in
-                // The coverage band's right edge, exactly as the real renderer:
-                // a fraction of page width, with the lines packed against it.
+                // The coverage line at the band's right edge — a fraction of page
+                // width — exactly where the real renderer packs it.
                 let barX = max(3, size.width * CGFloat(margin))
-                var running = 0
-                for bar in bars {
-                    let color = colors.isEmpty ? Color.blue
-                        : colors[slot(scene: bar.scene, shot: bar.shot, running: running) % colors.count]
-                    var path = Path()
-                    path.move(to: CGPoint(x: barX, y: bar.top * size.height))
-                    path.addLine(to: CGPoint(x: barX, y: bar.bottom * size.height))
-                    ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                var path = Path()
+                path.move(to: CGPoint(x: barX, y: size.height * 0.14))
+                path.addLine(to: CGPoint(x: barX, y: size.height * 0.86))
+                ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
 
-                    let label = Text("\(bar.scene + 1).\(bar.shot + 1)")
-                        .font(.system(size: 7, weight: .semibold)).foregroundColor(color)
-                    ctx.draw(label, at: CGPoint(x: barX, y: bar.top * size.height - 5), anchor: .center)
-                    running += 1
-                }
+                let label = Text("1.1").font(.system(size: 7, weight: .semibold)).foregroundColor(color)
+                ctx.draw(label, at: CGPoint(x: barX, y: size.height * 0.14 - 5), anchor: .center)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
