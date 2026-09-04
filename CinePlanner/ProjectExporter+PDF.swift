@@ -20,14 +20,26 @@ import os
 extension ProjectExporter {
     // MARK: - Helper Functions
 
+    /// Whether coverage lines are drawn down the right margin for this version.
+    var coverageOnRight: Bool { version?.coverageLinesOnRight ?? false }
+
+    /// The x-range the coverage lines occupy, measured from the near-text edge of
+    /// the chosen margin: left band [pageEdge ... pageWidth×fraction], or its mirror
+    /// on the right. `CoverageLineLayout.solve(onRight:)` anchors at the near-text
+    /// end (upper for left, lower for right).
     func exportLineRange(for pageRect: CGRect) -> ClosedRange<CGFloat> {
-        let minimumPageX = pageRect.minX
-        let maximumPageX = pageRect.maxX - 6
+        let inset: CGFloat = 6
         let marginFraction = CGFloat(version?.coverageLineMargin ?? 0.15)
-        let marginLimitX = pageRect.minX + (pageRect.width * marginFraction)
-        let upperBound = min(maximumPageX, marginLimitX)
-        let lowerBound = min(minimumPageX, upperBound)
-        return lowerBound...upperBound
+        let span = pageRect.width * marginFraction
+        if coverageOnRight {
+            let lowerBound = pageRect.maxX - span            // near the text
+            let upperBound = max(lowerBound, pageRect.maxX - inset)
+            return lowerBound...upperBound
+        } else {
+            let upperBound = min(pageRect.maxX - inset, pageRect.minX + span)   // near the text
+            let lowerBound = min(pageRect.minX, upperBound)
+            return lowerBound...upperBound
+        }
     }
 
     
@@ -168,7 +180,7 @@ extension ProjectExporter {
                         labelWidth: bar.labelWidth,
                         labelBand: bar.drawsLabel ? (bar.labelTopY + 4)...(bar.labelTopY + 4 + bar.labelHeight) : nil)
                 }
-                let placements = CoverageLineLayout.solve(lines)
+                let placements = CoverageLineLayout.solve(lines, onRight: coverageOnRight)
 
                 for (bar, placed) in zip(bars, placements) {
                     let x = placed.x

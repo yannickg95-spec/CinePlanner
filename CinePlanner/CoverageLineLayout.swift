@@ -44,11 +44,14 @@ enum CoverageLineLayout {
     /// Places `lines` and returns each one's X plus one uniform label scale in
     /// `minScale...1`. `spacingPad` is added to the widest shot number to get the
     /// column spacing; `labelGap` is the clearance kept between two numbers before
-    /// they are scaled down.
+    /// they are scaled down. `onRight` packs the columns rightward from the band's
+    /// lower (near-text) edge — for lines drawn down the right margin — instead of
+    /// leftward from the upper edge.
     static func solve(_ lines: [Line],
                       spacingPad: CGFloat = 4,
                       labelGap: CGFloat = 2,
-                      minScale: CGFloat = 0.4) -> [Placed] {
+                      minScale: CGFloat = 0.4,
+                      onRight: Bool = false) -> [Placed] {
         guard !lines.isEmpty else { return [] }
 
         // Column per line — reuse a column once its last bar has ended above this one.
@@ -69,13 +72,16 @@ enum CoverageLineLayout {
         }
         let count = max(1, columnMaxY.count)
 
-        // Pack columns from the text edge; only widen to the full band if forced.
+        // Pack columns from the near-text edge; only widen to the full band if
+        // forced. Left margin: anchor at the band's upper edge, columns go left.
+        // Right margin: anchor at the lower edge, columns go right.
         let labelSpacing = (lines.compactMap { $0.labelBand == nil ? nil : $0.labelWidth }.max() ?? 0) + spacingPad
         let xs = lines.indices.map { i -> CGFloat in
             let band = lines[i].band
-            guard count > 1 else { return band.upperBound }
+            let anchor = onRight ? band.lowerBound : band.upperBound
+            guard count > 1 else { return anchor }
             let step = min(labelSpacing, (band.upperBound - band.lowerBound) / CGFloat(count - 1))
-            return band.upperBound - CGFloat(columns[i]) * step
+            return anchor + (onRight ? 1 : -1) * CGFloat(columns[i]) * step
         }
 
         // Largest uniform scale (≤ 1) at which no two drawn numbers overlap.

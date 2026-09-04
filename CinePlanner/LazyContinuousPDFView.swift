@@ -29,6 +29,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
     let project: Project
     let version: ScriptVersion?
     var coverageMargin: CGFloat = 0.15
+    var coverageOnRight: Bool = false
     @Binding var currentPageIndex: Int
 
     struct Bar { let color: UIColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
@@ -108,7 +109,9 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         c.project = project
         c.version = version
         c.coverageMargin = coverageMargin
+        c.coverageOnRight = coverageOnRight
         markingOverlay.marginFraction = coverageMargin
+        markingOverlay.onRight = coverageOnRight
         c.selectedShot = selectedShot
         c.refreshPageAspect()
         c.recomputeBars()
@@ -124,9 +127,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         c.selectedShot = selectedShot
         c.onPageChange = { idx in if currentPageIndex != idx { currentPageIndex = idx } }
 
-        let marginChanged = c.coverageMargin != coverageMargin
+        let marginChanged = c.coverageMargin != coverageMargin || c.coverageOnRight != coverageOnRight
         c.coverageMargin = coverageMargin
+        c.coverageOnRight = coverageOnRight
         c.markingOverlay?.marginFraction = coverageMargin
+        c.markingOverlay?.onRight = coverageOnRight
         if marginChanged { c.markingOverlay?.requestRedraw() }
 
         let changedDocument = c.document !== document
@@ -142,6 +147,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 guard let pc = cell as? PageCell, let ip = cv.indexPath(for: cell) else { continue }
                 pc.setBars(c.bars[ip.item] ?? [])
                 pc.setMarginFraction(coverageMargin)
+                pc.setOnRight(coverageOnRight)
             }
         }
 
@@ -206,6 +212,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
         weak var project: Project?
         var version: ScriptVersion?
         var coverageMargin: CGFloat = 0.15
+        var coverageOnRight: Bool = false
         var selectedShot: Shot?
         var bars: [Int: [Bar]] = [:]
         var onPageChange: ((Int) -> Void)?
@@ -295,6 +302,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let index = indexPath.item
             cell.setBars(bars[index] ?? [])
             cell.setMarginFraction(coverageMargin)
+            cell.setOnRight(coverageOnRight)
             cell.overlayPageBounds = document?.page(at: index)?.bounds(for: .cropBox) ?? .zero
             loadImage(for: cell, at: index, in: collectionView)
             return cell
@@ -769,6 +777,11 @@ private final class PageCell: UICollectionViewCell {
         overlay.marginFraction = fraction
         overlay.setNeedsDisplay()
     }
+    func setOnRight(_ onRight: Bool) {
+        guard overlay.onRight != onRight else { return }
+        overlay.onRight = onRight
+        overlay.setNeedsDisplay()
+    }
     func setImage(_ image: UIImage?) { imageView.image = image }
 
     override func prepareForReuse() {
@@ -784,6 +797,8 @@ private final class CoverageBarsView: UIView {
     var pageBounds: CGRect = .zero
     /// Right edge of the coverage-line band, as a fraction of page width.
     var marginFraction: CGFloat = 0.15
+    /// Draw the lines down the right margin instead of the left.
+    var onRight: Bool = false
 
     override func draw(_ rect: CGRect) {
         guard pageBounds.width > 0, pageBounds.height > 0,
@@ -792,14 +807,18 @@ private final class CoverageBarsView: UIView {
         let sy = bounds.height / pageBounds.height
         func viewY(_ pageY: CGFloat) -> CGFloat { bounds.height - (pageY - pageBounds.minY) * sy }
 
-        // Left-margin x-range in view coords — mirrors the Mac overlay:
-        // pageMinX + 6 ... pageMinX + pageWidth * 0.15 (clamped).
+        // Coverage-band x-range in view coords, measured from the near-text edge of
+        // the chosen margin — mirrors the Mac overlay and the exporters.
         let horizontalInset: CGFloat = 6
-        let minimumPageX = horizontalInset
-        let maximumPageX = bounds.width - horizontalInset
-        let marginLimitX = bounds.width * marginFraction
-        let xUpper = min(maximumPageX, marginLimitX)
-        let xLower = min(minimumPageX, xUpper)
+        let span = bounds.width * marginFraction
+        let xLower: CGFloat, xUpper: CGFloat
+        if onRight {
+            xLower = bounds.width - span                             // near the text
+            xUpper = max(xLower, bounds.width - horizontalInset)
+        } else {
+            xUpper = min(bounds.width - horizontalInset, span)       // near the text
+            xLower = min(horizontalInset, xUpper)
+        }
 
         struct Placement {
             let x: CGFloat, minY: CGFloat, maxY: CGFloat
@@ -829,7 +848,7 @@ private final class CoverageBarsView: UIView {
                 band: xLower...xUpper,
                 labelWidth: raw.textSize.width,
                 labelBand: (raw.minY - 2 - raw.textSize.height)...(raw.minY - 2))
-        })
+        }, onRight: onRight)
         let scale = solved.first?.scale ?? 1
 
         var placements: [Placement] = []

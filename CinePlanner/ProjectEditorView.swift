@@ -67,6 +67,7 @@ struct ProjectEditorView: View {
     // coverage-margin state (passed down for a live preview) and forces a PDF reload
     // when the script is deleted from here.
     @State private var scriptCoverageMargin: Double = 0.15
+    @State private var scriptCoverageOnRight: Bool = false
     @State private var showScriptMarginSheet = false
     @State private var scriptReloadToken = 0
     @State private var showExportSheet = false
@@ -265,6 +266,7 @@ struct ProjectEditorView: View {
                 selectedVersion = selectedEpisode?.orderedVersions.last
             }
             scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
+            scriptCoverageOnRight = selectedVersion?.coverageLinesOnRight ?? false
 
             // Select first scene and shot automatically
             if selectedScenes.isEmpty, let firstScene = orderedScenes.first {
@@ -281,6 +283,7 @@ struct ProjectEditorView: View {
         .onChange(of: selectedVersion) {
             // Switching script versions invalidates the scene/shot selection
             scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
+            scriptCoverageOnRight = selectedVersion?.coverageLinesOnRight ?? false
             selectedShots = []
             if let firstScene = orderedScenes.first {
                 selectedScenes = [firstScene.uid]
@@ -438,7 +441,8 @@ struct ProjectEditorView: View {
             }
         }
         .sheet(isPresented: $showScriptMarginSheet) {
-            CoverageSettingsSheet(project: project, version: selectedVersion, margin: $scriptCoverageMargin)
+            CoverageSettingsSheet(project: project, version: selectedVersion,
+                                  margin: $scriptCoverageMargin, onRight: $scriptCoverageOnRight)
         }
         .alert("Delete the published page?", isPresented: $showingDeletePageConfirm) {
             Button("Delete", role: .destructive) { deletePublishedPage() }
@@ -1127,7 +1131,8 @@ struct ProjectEditorView: View {
             markingSceneLabel: "",
             onFinishMarking: { _ in },
             onCancelMarking: { },
-            coverageMarginOverride: scriptCoverageMargin
+            coverageMarginOverride: scriptCoverageMargin,
+            coverageOnRightOverride: scriptCoverageOnRight
         )
         .id(scriptReloadToken)
     }

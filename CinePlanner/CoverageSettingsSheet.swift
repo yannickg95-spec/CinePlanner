@@ -19,9 +19,10 @@ import PDFKit
 struct CoverageSettingsSheet: View {
     let project: Project
     let version: ScriptVersion?
-    /// The host's live-preview value. Bound rather than copied so dragging the
-    /// slider redraws the coverage lines behind the sheet, as it always has.
+    /// The host's live-preview values. Bound rather than copied so changing them
+    /// redraws the coverage lines behind the sheet, as the margin always has.
     @Binding var margin: Double
+    @Binding var onRight: Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var palette: CoveragePaletteChoice = .classic
@@ -168,20 +169,33 @@ struct CoverageSettingsSheet: View {
         }
     }
 
-    // MARK: Margin
+    // MARK: Placement
 
     private var marginSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("Margin", "Only this script version — it follows the page layout.")
+            sectionTitle("Placement", "Only this script version — it follows the page layout.")
+
+            Picker("Side", selection: sideBinding) {
+                Text("Left margin").tag(false)
+                Text("Right margin").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             HStack(spacing: 12) {
                 Image(systemName: "text.alignleft").foregroundStyle(.secondary)
                 Slider(value: $margin, in: 0.05...0.35)
                     .onChange(of: margin) { _, new in version?.coverageLineMargin = new }
                 Image(systemName: "text.alignright").foregroundStyle(.secondary)
             }
-            Text("\(Int((margin * 100).rounded()))% of page width")
+            Text("\(Int((margin * 100).rounded()))% of page width from the \(onRight ? "right" : "left") edge")
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
+    }
+
+    /// Writes the side to both the live preview binding and the model.
+    private var sideBinding: Binding<Bool> {
+        Binding(get: { onRight }, set: { onRight = $0; version?.coverageLinesOnRight = $0 })
     }
 
     // MARK: Preview
@@ -189,7 +203,7 @@ struct CoverageSettingsSheet: View {
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Preview", "A coverage line on your script at the chosen colour and margin.")
-            CoveragePreview(palette: palette, margin: margin, background: scriptStrip)
+            CoveragePreview(palette: palette, margin: margin, onRight: onRight, background: scriptStrip)
                 .accessibilityHidden(true)   // decorative; the controls above carry the meaning
         }
     }
@@ -207,9 +221,11 @@ struct CoverageSettingsSheet: View {
         HStack {
             Button("Reset") {
                 margin = 0.15
+                onRight = false
                 palette = .classic
                 mode = .perScene
                 version?.coverageLineMargin = 0.15
+                version?.coverageLinesOnRight = false
                 project.coveragePalette = .classic
                 project.coverageColorMode = .perScene
             }
@@ -245,6 +261,7 @@ private struct ContentHeightKey: PreferenceKey {
 private struct CoveragePreview: View {
     let palette: CoveragePaletteChoice
     let margin: Double
+    var onRight: Bool = false
     var background: PlatformImage? = nil
 
     var body: some View {
@@ -273,13 +290,15 @@ private struct CoveragePreview: View {
                 func labelWidth(_ s: String) -> CGFloat {
                     NSAttributedString(string: s, attributes: [.font: baseFont]).size().width
                 }
-                // Same band as exportLineRange: page-left edge to pageWidth × margin.
-                let band: ClosedRange<CGFloat> = 0...(pageW * CGFloat(margin))
+                // Same band as exportLineRange, on the chosen side: a fraction of
+                // page width in from the near edge.
+                let span = pageW * CGFloat(margin)
+                let band: ClosedRange<CGFloat> = onRight ? (pageW - span)...pageW : 0...span
                 let extent: ClosedRange<CGFloat> = 0...100   // all three overlap → three columns
                 let placed = CoverageLineLayout.solve(labels.map {
                     CoverageLineLayout.Line(extent: extent, band: band,
                                             labelWidth: labelWidth($0), labelBand: 0...20)
-                })
+                }, onRight: onRight)
 
                 let top = max(9, size.height * 0.22)   // keep the numbers inside the box
                 let bottom = size.height * 0.92

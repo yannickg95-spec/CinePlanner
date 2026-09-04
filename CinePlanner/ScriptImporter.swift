@@ -979,6 +979,7 @@ struct ScriptPDFViewer: View {
     /// iPhone: the coverage margin is owned by the editor (its gear lives beside the
     /// tabs), so it's passed in and the in-view gear/margin sheet aren't used here.
     var coverageMarginOverride: Double? = nil
+    var coverageOnRightOverride: Bool? = nil
 
     @State private var isImporting = false
     @State private var showError = false
@@ -991,6 +992,8 @@ struct ScriptPDFViewer: View {
     /// Live copy of the version's coverage-line margin, so the slider updates the
     /// PDF overlay immediately (SwiftUI can't observe the model class directly).
     @State private var coverageMargin: Double = 0.15
+    /// Live copy of the version's left/right side, for the same reason.
+    @State private var coverageOnRight: Bool = false
     @State private var currentPageIndex = 0
 
     private var currentPDFData: Data? {
@@ -1139,6 +1142,7 @@ struct ScriptPDFViewer: View {
                         project: project,
                         version: version,
                         coverageMargin: CGFloat(coverageMarginOverride ?? coverageMargin),
+                        coverageOnRight: coverageOnRightOverride ?? coverageOnRight,
                         cachedDocument: $cachedPDFDocument,
                         currentPageIndex: $currentPageIndex
                     )
@@ -1149,6 +1153,7 @@ struct ScriptPDFViewer: View {
         }
         .onAppear {
             coverageMargin = version?.coverageLineMargin ?? 0.15
+            coverageOnRight = version?.coverageLinesOnRight ?? false
             // Consume a pending import request set before this viewer mounted (iPhone
             // opens the script sheet on "New Version"); onChange only sees changes
             // that happen while mounted, so catch an already-true flag here.
@@ -1164,12 +1169,14 @@ struct ScriptPDFViewer: View {
             // Setting a new document keeps the same view and updates it in place.
             cachedPDFDocument = currentPDFData.flatMap { PDFDocument(data: $0) }
             coverageMargin = version?.coverageLineMargin ?? 0.15
+            coverageOnRight = version?.coverageLinesOnRight ?? false
         }
         .sheet(isPresented: $showMarginSheet) {
             // No detents: the sheet sizes itself (a narrow content-height column on
             // iPad, full-screen on iPhone). A leftover .height(300) detent from the
             // old margin sheet had been forcing a short bottom card on iPad.
-            CoverageSettingsSheet(project: project, version: version, margin: $coverageMargin)
+            CoverageSettingsSheet(project: project, version: version,
+                                  margin: $coverageMargin, onRight: $coverageOnRight)
         }
         .onChange(of: requestImport?.wrappedValue ?? false) { _, shouldImport in
             if shouldImport {
@@ -1335,6 +1342,7 @@ private struct PDFContentView: View {
     let project: Project
     let version: ScriptVersion?
     var coverageMargin: CGFloat = 0.15
+    var coverageOnRight: Bool = false
     @Binding var cachedDocument: PDFDocument?
     @Binding var currentPageIndex: Int
 
@@ -1354,6 +1362,7 @@ private struct PDFContentView: View {
                         project: project,
                         version: version,
                         coverageMargin: coverageMargin,
+                        coverageOnRight: coverageOnRight,
                         currentPageIndex: $currentPageIndex
                     )
                     #else
@@ -1365,6 +1374,7 @@ private struct PDFContentView: View {
                         project: project,
                         version: version,
                         coverageMargin: coverageMargin,
+                        coverageOnRight: coverageOnRight,
                         currentPageIndex: $currentPageIndex
                     )
                     #endif
@@ -1394,7 +1404,8 @@ struct PDFViewerWithCoverageRepresentable {
     let selectedShot: Shot? // Currently selected shot
     let project: Project // Need project to get all shots for vertical lines
     let version: ScriptVersion? // Scope coverage lines to this script version's scenes
-    var coverageMargin: CGFloat = 0.15 // Right edge of the coverage-line band (fraction of page width)
+    var coverageMargin: CGFloat = 0.15 // Near-text edge of the coverage-line band (fraction of page width)
+    var coverageOnRight: Bool = false  // Draw the lines down the right margin
     /// The page the user is currently looking at (0-based). Reported upward so the
     /// editor can capture it when placing a new scene's script page.
     @Binding var currentPageIndex: Int
@@ -1523,6 +1534,7 @@ struct PDFViewerWithCoverageRepresentable {
         let overlayView = PDFCoverageOverlayView()
         overlayView.pdfView = pdfView
         overlayView.marginFraction = coverageMargin
+        overlayView.onRight = coverageOnRight
         coordinator.overlayView = overlayView
         containerView.addSubview(overlayView)
         overlayView.translatesAutoresizingMaskIntoConstraints = false
@@ -1629,6 +1641,7 @@ struct PDFViewerWithCoverageRepresentable {
         if let overlayView = coordinator.overlayView {
             overlayView.selectedShot = selectedShot
             overlayView.marginFraction = coverageMargin
+            overlayView.onRight = coverageOnRight
 
             // Collect all shots with coverage from all scenes
             var allShotsWithCoverage: [Shot] = []
@@ -1878,8 +1891,10 @@ class PDFCoverageOverlayView: PlatformViewBase {
     /// Resolves each shot's colour from the project's settings; replaced whenever
     /// the drawn set changes, so the overlay never recomputes it while drawing.
     var coloring = CoverageColoring(version: nil, project: nil)
-    /// Right edge of the coverage-line band, as a fraction of page width.
+    /// Near-text edge of the coverage-line band, as a fraction of page width.
     var marginFraction: CGFloat = 0.15
+    /// Draw the lines down the right margin instead of the left.
+    var onRight: Bool = false
 
     // Color palette for different shots within the same scene
 
@@ -1997,7 +2012,7 @@ class PDFCoverageOverlayView: PlatformViewBase {
             #endif
             return CoverageLineLayout.Line(extent: raw.minY...raw.maxY, band: raw.band,
                                            labelWidth: raw.textSize.width, labelBand: labelBand)
-        })
+        }, onRight: onRight)
         let scale = solved.first?.scale ?? 1
 
         var placements: [CoveragePlacement] = []
@@ -2107,10 +2122,21 @@ class PDFCoverageOverlayView: PlatformViewBase {
             let horizontalInset: CGFloat = 6
             let minimumPageX = pageMinX.isFinite ? pageMinX + horizontalInset : horizontalInset
             let maximumPageX = pageMaxX.isFinite ? pageMaxX - horizontalInset : bounds.maxX - horizontalInset
-            let pageWidth = max(0, pageMaxX - pageMinX)
-            let marginLimitX = pageMinX + (pageWidth * marginFraction)
-            let lineRangeUpperBound = min(maximumPageX, marginLimitX)
-            let lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
+            let pageLeft = pageMinX.isFinite ? pageMinX : 0
+            let pageRight = pageMaxX.isFinite ? pageMaxX : bounds.maxX
+            let pageWidth = max(0, pageRight - pageLeft)
+            let span = pageWidth * marginFraction
+            // Band measured from the near-text edge of the chosen margin. solve
+            // anchors at the upper edge for the left margin, the lower for the right.
+            let lineRangeLowerBound: CGFloat
+            let lineRangeUpperBound: CGFloat
+            if onRight {
+                lineRangeLowerBound = pageRight - span            // near the text
+                lineRangeUpperBound = max(lineRangeLowerBound, maximumPageX)
+            } else {
+                lineRangeUpperBound = min(maximumPageX, pageLeft + span)   // near the text
+                lineRangeLowerBound = min(minimumPageX, lineRangeUpperBound)
+            }
 
             // Deterministic per-shot colour (matches iPad viewer and exporters).
             let lineColor = color(for: shot)

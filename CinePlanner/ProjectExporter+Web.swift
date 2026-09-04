@@ -237,7 +237,7 @@ extension ProjectExporter {
                         labelWidth: w.width,
                         labelBand: (bar.maxY + 3)...(bar.maxY + 3 + w.height))
                 }
-                let placements = CoverageLineLayout.solve(barLines)
+                let placements = CoverageLineLayout.solve(barLines, onRight: coverageOnRight)
                 for (bar, placed) in zip(bars, placements) {
                     let x = placed.x
                     ctx.setStrokeColor(bar.color.cgColor)

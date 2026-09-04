@@ -66,6 +66,22 @@ final class CoverageLineLayoutTests: XCTestCase {
         XCTAssertNotEqual(placed[0].x, placed[1].x)
     }
 
+    func testRightMarginPacksFromTheLowerEdgeGoingRight() {
+        // Left (default): anchor at the band's upper edge, columns go left.
+        let left = CoverageLineLayout.solve([line(0, 100, band: 0...100), line(50, 150, band: 0...100)])
+        XCTAssertEqual(left[0].x, 100, accuracy: 0.001, "Left anchors at the upper (near-text) edge.")
+        XCTAssertLessThan(left[1].x, left[0].x, "Left columns go leftward.")
+
+        // Right: anchor at the band's lower (near-text) edge, columns go right.
+        let right = CoverageLineLayout.solve([line(0, 100, band: 0...100), line(50, 150, band: 0...100)],
+                                             onRight: true)
+        XCTAssertEqual(right[0].x, 0, accuracy: 0.001, "Right anchors at the lower (near-text) edge.")
+        XCTAssertGreaterThan(right[1].x, right[0].x, "Right columns go rightward.")
+
+        // Same spacing either way, just mirrored direction.
+        XCTAssertEqual(abs(left[0].x - left[1].x), abs(right[0].x - right[1].x), accuracy: 0.001)
+    }
+
     func testColumnsArePackedNotSpreadWhenThereIsRoom() {
         // A wide band could spread these to opposite edges; it must not.
         let placed = CoverageLineLayout.solve([line(0, 100, width: 14, band: 0...500),

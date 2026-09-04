@@ -283,10 +283,13 @@ final class ScriptVersion {
     @Attribute(.externalStorage)
     var pdfData: Data?
     var pdfPageOffset: Int = 0  // Absolute PDF page index (0-based) of the first scene
-    /// How far the script-coverage lines sit from the page's left edge, as a
-    /// fraction of page width (the right edge of the coverage-line band). Larger =
-    /// closer to the text, for scripts with a wider left margin. Default 0.15.
+    /// How far the script-coverage lines sit from the page edge, as a fraction of
+    /// page width (the near-text edge of the coverage-line band). Larger = closer to
+    /// the text, for scripts with a wider margin. Default 0.15.
     var coverageLineMargin: Double = 0.15
+    /// Draw the coverage lines down the right margin instead of the left. Defaulted
+    /// (CloudKit-safe); the margin fraction is measured from whichever edge.
+    var coverageLinesOnRight: Bool = false
 
     var project: Project?   // Legacy (nil after migration; ownership is via `episode`)
     var episode: Episode?
