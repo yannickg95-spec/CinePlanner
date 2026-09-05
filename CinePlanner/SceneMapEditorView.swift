@@ -616,6 +616,16 @@ struct SceneMapEditorView: View {
             // the transform so it stays in its corner while the map moves under it,
             // and reading the framing being previewed so it turns as the map is
             // turned rather than after the fact.
+            // Chrome, outside the turn: the sun's time bar and the move banner belong
+            // to the pane, not to the ground, so they stay upright and in place while
+            // the map turns under them. The sun's rays and ball do turn — those are
+            // map content, tied to the compass rather than to the screen.
+            .overlay(alignment: .top) {
+                if pendingMove != nil { moveBanner }
+            }
+            .overlay(alignment: .bottom) {
+                if sun.enabled && sun.hasLocation { sunTimeBar }
+            }
             .overlay { mapCompass(in: rect) }
             .overlay { reframeButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
@@ -871,12 +881,6 @@ struct SceneMapEditorView: View {
         #if os(macOS)
         .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
         #endif
-        .overlay(alignment: .top) {
-            if pendingMove != nil { moveBanner }
-        }
-        .overlay(alignment: .bottom) {
-            if sun.enabled && sun.hasLocation { sunTimeBar }
-        }
     }
 
     // MARK: - Reframing a satellite background
@@ -980,6 +984,9 @@ struct SceneMapEditorView: View {
             let inset: CGFloat = 25
             Button {
                 reframeHeading = Compass.normalized(satelliteAnchor?.heading ?? 0)
+                // The shot card is positioned from the marker's unturned screen spot,
+                // so it would hang in the wrong place for the whole session.
+                cameraInfoElementID = nil
                 isReframeMode = true
             } label: {
                 Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
