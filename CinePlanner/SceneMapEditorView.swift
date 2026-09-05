@@ -589,21 +589,28 @@ struct SceneMapEditorView: View {
         GeometryReader { geo in
             let rect = contentRect(in: geo.size)
             ZStack {
-                Color.platformTextBackground
+                // A dark surround while framing: whatever the render hasn't reached
+                // yet reads as being outside the map, where the page white read as a
+                // hole punched in it.
+                (reframeActive ? Color(white: 0.12) : Color.platformTextBackground)
                 // The background art rides the same transform as the content, but in
                 // its own layer so the sharp reframe render can slot in between it
                 // and the markers.
-                backgroundArt(in: rect)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .scaleEffect(zoom, anchor: .center)
-                    .offset(pan)
-                    .rotationEffect(.degrees(-reframeTurn))
-                    .clipped()
-                    .allowsHitTesting(false)
-                reframeRender(in: rect, canvas: geo.size)
-                    .rotationEffect(.degrees(-reframeTurn))
-                canvasContent(in: rect, geo: geo)
-                    .rotationEffect(.degrees(-reframeTurn))
+                // Turned as one group, and clipped *after* the turn. Clipping each
+                // layer first and turning it afterwards rotates the clipped square
+                // itself, which throws the map's corners across the scene list and
+                // the script while the dial is being dragged.
+                ZStack {
+                    backgroundArt(in: rect)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .scaleEffect(zoom, anchor: .center)
+                        .offset(pan)
+                        .allowsHitTesting(false)
+                    reframeRender(in: rect, canvas: geo.size)
+                    canvasContent(in: rect, geo: geo)
+                }
+                .rotationEffect(.degrees(-reframeTurn))
+                .clipped()
             }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
@@ -613,6 +620,7 @@ struct SceneMapEditorView: View {
             .overlay { reframeButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
             .onChange(of: reframeKey) { scheduleReframeRender(in: rect, canvas: geo.size) }
+            .onChange(of: isReframeMode) { scheduleReframeRender(in: rect, canvas: geo.size) }
         }
     }
 
@@ -808,7 +816,9 @@ struct SceneMapEditorView: View {
         // which read `.named(canvasSpace)`, are unaffected by the zoom.
         .scaleEffect(zoom, anchor: .center)
         .offset(pan)
-        .clipped()
+        // No clip here: the canvas clips the whole stack after the turn instead.
+        // Clipping at this level cuts to the *unturned* frame, which reappears as a
+        // diagonal edge across the map the moment anything is rotated.
         // scaleEffect also scales the canvas's hit region, so when zoomed in it
         // spilled over the toolbar above and swallowed its taps. Reset the
         // interactive shape to the (unscaled) frame so touches outside it — the
@@ -900,6 +910,17 @@ struct SceneMapEditorView: View {
     /// How far the content may be panned. Normally just enough to reach the edges of
     /// the zoomed image; while reframing, freely — panning *is* the point, and the
     /// stored capture's edge is no longer a wall.
+    /// A drag is measured on screen, but `pan` is applied inside the turn — so a
+    /// screen movement has to be rotated into the image's frame, or dragging right
+    /// on a quarter-turned map walks the ground downward.
+    private func panDelta(fromScreen delta: CGSize) -> CGSize {
+        guard reframeTurn != 0 else { return delta }
+        let r = reframeTurn * .pi / 180
+        let c = CGFloat(cos(r)), s = CGFloat(sin(r))
+        return CGSize(width: delta.width * c - delta.height * s,
+                      height: delta.width * s + delta.height * c)
+    }
+
     private func panLimits(_ size: CGSize, zoom z: CGFloat) -> CGSize {
         if reframeActive { return CGSize(width: size.width * 1.5, height: size.height * 1.5) }
         return CGSize(width: size.width * (z - 1) / 2, height: size.height * (z - 1) / 2)
@@ -945,7 +966,6 @@ struct SceneMapEditorView: View {
                 .resizable()
                 .frame(width: side, height: side)
                 .position(x: canvas.width / 2 + offset.width, y: canvas.height / 2 + offset.height)
-                .clipped()
                 .allowsHitTesting(false)
         }
     }
@@ -1092,10 +1112,12 @@ struct SceneMapEditorView: View {
     /// gesture settles, so panning stays smooth and only one render is in flight.
     private func scheduleReframeRender(in rect: CGRect, canvas: CGSize) {
         reframeTask?.cancel()
-        // A turned canvas reaches into the corners of the area it covers, so the
-        // render has to be a diagonal's worth wider.
-        let margin = Self.reframeRenderMargin * (reframeTurn == 0 ? 1 : 2.0.squareRoot())
-        guard isReframing, let area = liveCanvasCover(in: rect, canvas: canvas, margin: margin) else {
+        // Always a diagonal's worth wider than the canvas while the tool is up, not
+        // only once something has turned: a square only covers a turned canvas out to
+        // its inscribed circle, so anything less leaves bare corners for as long as
+        // the fetch takes — which is exactly while the dial is being dragged.
+        let margin = Self.reframeRenderMargin * 2.0.squareRoot()
+        guard reframeActive, let area = liveCanvasCover(in: rect, canvas: canvas, margin: margin) else {
             reframePreview = nil
             reframePreviewArea = nil
             return
@@ -1508,9 +1530,10 @@ struct SceneMapEditorView: View {
             .onChanged { value in
                 if dragPansCanvas {
                     let limits = panLimits(size, zoom: zoom)
+                    let moved = panDelta(fromScreen: value.translation)
                     pan = CGSize(
-                        width: min(max(lastPan.width + value.translation.width, -limits.width), limits.width),
-                        height: min(max(lastPan.height + value.translation.height, -limits.height), limits.height))
+                        width: min(max(lastPan.width + moved.width, -limits.width), limits.width),
+                        height: min(max(lastPan.height + moved.height, -limits.height), limits.height))
                     return
                 }
                 #if os(macOS)
@@ -1543,9 +1566,10 @@ struct SceneMapEditorView: View {
     private func panBy(_ delta: CGSize, size: CGSize) {
         guard zoom > 1 || reframeActive else { return }
         let limits = panLimits(size, zoom: zoom)
+        let moved = panDelta(fromScreen: delta)
         pan = CGSize(
-            width: min(max(pan.width + delta.width, -limits.width), limits.width),
-            height: min(max(pan.height + delta.height, -limits.height), limits.height))
+            width: min(max(pan.width + moved.width, -limits.width), limits.width),
+            height: min(max(pan.height + moved.height, -limits.height), limits.height))
         lastPan = pan
     }
 
