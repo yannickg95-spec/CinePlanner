@@ -436,3 +436,41 @@ final class MapCompassLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(0.5 - letterTop, 0.03)
     }
 }
+
+// MARK: - A cleared map leaves nothing behind
+
+extension SatelliteCaptureStorageTests {
+
+    func testClearingTheSatelliteFlagHidesTheCaptureEvenIfFieldsLinger() {
+        // What the picker reads. The raw heading field can still hold a number from
+        // a map that has since been replaced or cleared; going through the capture
+        // means no satellite map, no heading, and the picker opens north-up.
+        let scene = Scene(sceneNumber: 20)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 60, heading: 120))
+        scene.sceneMapBackgroundIsSatellite = false     // e.g. replaced by a photo
+        XCTAssertNil(scene.satelliteCapture)
+        XCTAssertNil(scene.mapNorthOffset)
+    }
+}
+
+extension SatelliteCaptureStorageTests {
+
+    func testClearingLeavesNothingForTheNextMapToInherit() {
+        let scene = Scene(sceneNumber: 21)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 60, heading: 120))
+        scene.clearSatelliteCapture()
+
+        XCTAssertNil(scene.satelliteCapture)
+        XCTAssertNil(scene.mapNorthOffset)
+        XCTAssertFalse(scene.sceneMapBackgroundIsSatellite)
+        XCTAssertNil(scene.sceneMapSatelliteLat)
+        XCTAssertNil(scene.sceneMapSatelliteLon)
+        XCTAssertNil(scene.sceneMapSatelliteMeters)
+        XCTAssertEqual(scene.sceneMapSatelliteHeading, 0,
+                       "A heading left behind would turn the next map.")
+    }
+}

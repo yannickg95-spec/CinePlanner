@@ -201,6 +201,22 @@ extension Scene {
         return sun.hasLocation ? sun.northOffsetDeg : nil
     }
 
+    /// Drops the capture along with the flag.
+    ///
+    /// Five places replace a scene's background one way or another — a photo, an
+    /// import, a drawn plan, clearing the map, clearing everything — and each used
+    /// to lower the satellite flag on its own. Left behind, the anchor from a map
+    /// that no longer exists would quietly turn the next one and reopen the picker
+    /// pointing the wrong way.
+    func clearSatelliteCapture() {
+        sceneMapBackgroundIsSatellite = false
+        sceneMapSatelliteLat = nil
+        sceneMapSatelliteLon = nil
+        sceneMapSatelliteMeters = nil
+        sceneMapSatelliteHeading = 0
+        sceneMapSatelliteCalibrated = false
+    }
+
     /// Records a capture against the scene.
     ///
     /// Both ways of setting a satellite background go through here, because they

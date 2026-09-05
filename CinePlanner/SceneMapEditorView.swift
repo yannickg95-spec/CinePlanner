@@ -252,7 +252,7 @@ struct SceneMapEditorView: View {
         .sheet(isPresented: $showingMapPicker) {
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
                                initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil,
-                               initialHeading: scene.sceneMapSatelliteHeading,
+                               initialHeading: satelliteAnchor?.heading ?? 0,
                                existingCapture: satelliteAnchor,
                                markerCount: doc.elements.count) { data, framing, label in
                 // Nudging the same location keeps every marker on its real-world
@@ -899,7 +899,12 @@ struct SceneMapEditorView: View {
     /// True once the canvas frames something other than the stored capture.
     /// How far the canvas is turned from the stored capture.
     private var reframeTurn: Double {
-        guard let anchor = satelliteAnchor else { return 0 }
+        // Only while the tool is up. `reframeHeading` is a control's position, and it
+        // starts at 0 until the tool seeds it from the map — so on a freshly opened
+        // scene with a turned map this read as "turned back to north", tilting the
+        // canvas at rest and cutting white corners out of a background that is in
+        // fact perfectly square.
+        guard reframeActive, let anchor = satelliteAnchor else { return 0 }
         return Compass.signedDelta(from: anchor.heading, to: reframeHeading)
     }
 
@@ -2288,7 +2293,7 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
-        scene.sceneMapBackgroundIsSatellite = false
+        scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         backgroundImage = image
@@ -2330,7 +2335,7 @@ struct SceneMapEditorView: View {
                 scene.sceneFloorPlanJSON = nil
                 scene.sceneMapLocation = nil
                 scene.sceneMapBackgroundData = data
-                scene.sceneMapBackgroundIsSatellite = false
+                scene.clearSatelliteCapture()
                 scene.sceneMapMetersWide = nil
                 scene.sceneMapCameraSizeMeters = nil
                 backgroundImage = image
@@ -2344,7 +2349,7 @@ struct SceneMapEditorView: View {
     private func startDrawing() {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
-        scene.sceneMapBackgroundIsSatellite = false
+        scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         drawTool = .wall
@@ -2365,7 +2370,7 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
-        scene.sceneMapBackgroundIsSatellite = false
+        scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         scene.sceneMapLocation = nil
@@ -2380,7 +2385,7 @@ struct SceneMapEditorView: View {
         chainLastVertex = nil
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
-        scene.sceneMapBackgroundIsSatellite = false
+        scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         floorPlan = FloorPlan()
