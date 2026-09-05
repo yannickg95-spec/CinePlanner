@@ -58,9 +58,12 @@ struct MapBackgroundSheet: View {
     /// Capture-size range (metres).
     private static let captureMin = 10.0
     private static let captureMax = 400.0
-    /// How much map to show around the capture — enough context to place it without
-    /// making the frame too small to see.
-    private static let contextFactor = 2.4
+    /// How much map to show around the capture. The frame is exactly
+    /// 1/`contextFactor` of the panel, so this single number decides how large the
+    /// capture reads against its surroundings: 1.6 gives the frame most of the panel
+    /// while keeping a band of context to position by. Lower it for a bigger frame,
+    /// raise it for more surroundings.
+    private static let contextFactor = 1.6
 
     /// Maps `meters` geometrically onto the slider's 0…1, so small sizes take up
     /// more of the track (finer control) and large sizes grow faster.
@@ -132,7 +135,6 @@ struct MapBackgroundSheet: View {
             ZStack {
                 MapPreview(recenter: recenter, spanMeters: requestedSpan,
                            visibleRect: $visibleRect)
-                    .scaleEffect(mapMagnification)
                 captureFrame(in: CGSize(width: side, height: side))
             }
             .frame(width: side, height: side)
@@ -164,28 +166,18 @@ struct MapBackgroundSheet: View {
     /// The span the panel is meant to show: the capture plus context.
     private var requestedSpan: Double { meters * Self.contextFactor }
 
-    /// How much the map has to be blown up to actually show that span — a fallback,
-    /// normally 1.
-    ///
-    /// Widening `cameraZoomRange` lets the map follow the slider to the tightest
-    /// capture, so this stays at 1 in practice. It earns its keep if a platform or a
-    /// future release refuses anyway: rather than let the panel quietly show several
-    /// times the ground the slider claims — which would shrink the frame to a stamp
-    /// and make the capture come out far tighter than the frame promised — the map is
-    /// magnified so the panel always shows `requestedSpan`.
-    private var mapMagnification: CGFloat {
-        guard requestedSpan > 0, visibleMeters > requestedSpan else { return 1 }
-        return CGFloat(visibleMeters / requestedSpan)
-    }
-
-    /// Ground actually shown across the panel, after any magnification.
-    private var shownMeters: Double { visibleMeters / Double(mapMagnification) }
-
     /// The on-screen size of the capture frame, as a fraction of the map panel.
-    private var frameFraction: CGFloat {
-        guard shownMeters > 0 else { return 1 }
-        return min(CGFloat(meters / shownMeters), 1)
-    }
+    ///
+    /// A constant, and it has to be: measuring it as `meters / visibleMeters` divides
+    /// two values that arrive at different moments. Dragging the slider moves
+    /// `meters` a step ahead of the span the map has answered with, and the frame
+    /// swelled by half on every drag — the size the map is *asked* for and the size
+    /// it has *confirmed* are never in step mid-gesture.
+    ///
+    /// The panel is defined as `contextFactor` times the capture, and the slider is
+    /// the only thing that sets that scale (map zoom is off, so nothing else can
+    /// move it), which makes this fraction exactly true rather than merely stable.
+    private var frameFraction: CGFloat { CGFloat(1 / Self.contextFactor) }
 
     /// The capture-frame overlay: everything outside the framed square is dimmed
     /// (a crop-tool mask) so the captured area stands out clearly.
@@ -328,6 +320,12 @@ private struct MapPreview {
         if let range = MKMapView.CameraZoomRange(minCenterCoordinateDistance: 1) {
             map.cameraZoomRange = range
         }
+        // The capture slider owns the scale: it sets the capture size and the panel
+        // is always `contextFactor` times that, which is what lets the frame be a
+        // fixed viewfinder. A second way to zoom would break that promise — and
+        // zooming the map wouldn't change the capture anyway. Panning stays: that's
+        // how the location is chosen.
+        map.isZoomEnabled = false
         #if os(macOS)
         map.showsZoomControls = true
         #endif
@@ -370,7 +368,15 @@ private struct MapPreview {
         var lastSpan: Double = 0
         init(_ parent: MapPreview) { self.parent = parent }
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
-            parent.visibleRect = mapView.visibleMapRect
+            // Hop off the current cycle before writing. `applyUpdates` calls
+            // `setRegion` from inside SwiftUI's view update, and MapKit answers by
+            // calling this synchronously — so a direct write here is a state change
+            // during a view update, which SwiftUI drops. The sheet was then left
+            // measuring the *previous* span until something else forced a redraw,
+            // which is why the frame resized the moment the map was dragged.
+            let rect = mapView.visibleMapRect
+            let parent = self.parent
+            DispatchQueue.main.async { parent.visibleRect = rect }
         }
     }
 }
