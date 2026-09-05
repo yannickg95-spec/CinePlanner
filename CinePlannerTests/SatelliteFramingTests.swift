@@ -67,9 +67,9 @@ final class SatelliteFramingTests: XCTestCase {
     }
 
     func testADegenerateCanvasHasNoFraming() {
-        XCTAssertNil(framing().canvasRect(contentWidth: 0, canvas: canvas, zoom: 1, pan: .zero))
-        XCTAssertNil(framing().canvasRect(contentWidth: 400, canvas: .zero, zoom: 1, pan: .zero))
-        XCTAssertNil(framing().canvasRect(contentWidth: 400, canvas: canvas, zoom: 0, pan: .zero))
+        XCTAssertNil(framing().capture(contentWidth: 0, canvas: canvas, zoom: 1, pan: .zero))
+        XCTAssertNil(framing().capture(contentWidth: 400, canvas: .zero, zoom: 1, pan: .zero))
+        XCTAssertNil(framing().capture(contentWidth: 400, canvas: canvas, zoom: 0, pan: .zero))
     }
 
     // MARK: - The promise: committing a framing doesn't move anything
@@ -147,5 +147,232 @@ final class SatelliteFramingTests: XCTestCase {
         XCTAssertFalse(here.overlaps(SatelliteFraming(
             center: CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522), meters: 60)),
             "Paris is not Amsterdam.")
+    }
+}
+
+// MARK: - Turning the map
+
+extension SatelliteFramingTests {
+
+    private var here: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952) }
+
+    func testANorthUpCaptureIsUnaffectedByTheRotationMaths() {
+        // The turn is new; captures made before it must remap exactly as they did.
+        let a = SatelliteFraming(center: here, meters: 60)
+        let b = SatelliteFraming(center: CLLocationCoordinate2D(latitude: 52.3706, longitude: 4.8958),
+                                 meters: 25)
+        for p in [CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.1, y: 0.9), CGPoint(x: 0.83, y: 0.22)] {
+            let turned = a.remap(p, to: b)
+            // Same thing computed the old way: straight scale and shift.
+            let oldSide = 60 * MKMapPointsPerMeterAtLatitude(a.center.latitude)
+            let newSide = 25 * MKMapPointsPerMeterAtLatitude(b.center.latitude)
+            let oldC = MKMapPoint(a.center), newC = MKMapPoint(b.center)
+            let wx = oldC.x + (Double(p.x) - 0.5) * oldSide
+            let wy = oldC.y + (Double(p.y) - 0.5) * oldSide
+            XCTAssertEqual(Double(turned.x), 0.5 + (wx - newC.x) / newSide, accuracy: 1e-12)
+            XCTAssertEqual(Double(turned.y), 0.5 + (wy - newC.y) / newSide, accuracy: 1e-12)
+        }
+    }
+
+    func testTurningTheMapMovesMarkersAroundItsCentre() {
+        // Same ground, same size, turned a quarter turn clockwise: what was to the
+        // north of centre is now to the west of it, i.e. left of centre in the image.
+        let north = SatelliteFraming(center: here, meters: 60, heading: 0)
+        let turned = SatelliteFraming(center: here, meters: 60, heading: 90)
+        let aboveCentre = CGPoint(x: 0.5, y: 0.2)          // north of centre
+        let moved = north.remap(aboveCentre, to: turned)
+        XCTAssertEqual(Double(moved.x), 0.2, accuracy: 1e-9, "north should now lie to the left")
+        XCTAssertEqual(Double(moved.y), 0.5, accuracy: 1e-9)
+    }
+
+    func testTheCentreNeverMovesHoweverTheMapIsTurned() {
+        let a = SatelliteFraming(center: here, meters: 60, heading: 0)
+        for heading in [0.0, 37.0, 90.0, 180.0, -145.0] {
+            let b = SatelliteFraming(center: here, meters: 60, heading: heading)
+            let c = a.remap(CGPoint(x: 0.5, y: 0.5), to: b)
+            XCTAssertEqual(Double(c.x), 0.5, accuracy: 1e-9)
+            XCTAssertEqual(Double(c.y), 0.5, accuracy: 1e-9)
+        }
+    }
+
+    func testRemappingBetweenTurnedCapturesIsReversible() {
+        let a = SatelliteFraming(center: here, meters: 60, heading: 25)
+        let b = SatelliteFraming(center: CLLocationCoordinate2D(latitude: 52.3710, longitude: 4.8961),
+                                 meters: 25, heading: -70)
+        for p in [CGPoint(x: 0.44, y: 0.52), CGPoint(x: 0.05, y: 0.95)] {
+            let back = b.remap(a.remap(p, to: b), to: a)
+            XCTAssertEqual(Double(back.x), Double(p.x), accuracy: 1e-6)
+            XCTAssertEqual(Double(back.y), Double(p.y), accuracy: 1e-6)
+        }
+    }
+
+    func testDistancesSurviveATurn() {
+        // A turn must not stretch anything: two markers keep their separation.
+        let a = SatelliteFraming(center: here, meters: 60, heading: 0)
+        let b = SatelliteFraming(center: here, meters: 60, heading: 63)
+        let p1 = CGPoint(x: 0.30, y: 0.40), p2 = CGPoint(x: 0.70, y: 0.75)
+        let q1 = a.remap(p1, to: b), q2 = a.remap(p2, to: b)
+        XCTAssertEqual(hypot(q2.x - q1.x, q2.y - q1.y),
+                       hypot(p2.x - p1.x, p2.y - p1.y), accuracy: 1e-9)
+    }
+
+    func testAMarkersFacingIsOffsetByTheTurn() {
+        let a = SatelliteFraming(center: here, meters: 60, heading: 0)
+        let b = SatelliteFraming(center: here, meters: 60, heading: 90)
+        // Turning the map 90° clockwise leaves a marker facing the same way in the
+        // world only if its stored facing drops by 90.
+        XCTAssertEqual(a.headingDelta(to: b), 90, accuracy: 1e-9)
+        XCTAssertEqual(b.headingDelta(to: a), -90, accuracy: 1e-9)
+    }
+}
+
+// MARK: - Committing a turned framing
+
+extension SatelliteFramingTests {
+
+    /// Where a marker appears once the canvas has also been turned: the reframe tool
+    /// rotates the whole content about the canvas centre, outside the zoom and pan.
+    private func screenPointTurned(_ n: CGPoint, zoom: CGFloat, pan: CGSize,
+                                   turn: Double, canvas: CGSize) -> CGPoint {
+        let side = min(canvas.width, canvas.height)
+        let rect = CGRect(x: (canvas.width - side) / 2, y: (canvas.height - side) / 2,
+                          width: side, height: side)
+        let lx = rect.minX + n.x * rect.width
+        let ly = rect.minY + n.y * rect.height
+        let px = canvas.width / 2 + (lx - canvas.width / 2) * zoom + pan.width
+        let py = canvas.height / 2 + (ly - canvas.height / 2) * zoom + pan.height
+        // …then rotated by -turn about the canvas centre.
+        let r = -turn * .pi / 180
+        let dx = px - canvas.width / 2, dy = py - canvas.height / 2
+        return CGPoint(x: canvas.width / 2 + dx * cos(r) - dy * sin(r),
+                       y: canvas.height / 2 + dx * sin(r) + dy * cos(r))
+    }
+
+    func testTurningWhileReframingLeavesMarkersWhereTheyLook() {
+        let anchor = SatelliteFraming(center: amsterdam, meters: 60, heading: 12)
+        let markers = [CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.18, y: 0.77), CGPoint(x: 0.92, y: 0.11)]
+        let cases: [(CGFloat, CGSize, Double)] = [
+            (1, .zero, 45),
+            (1, CGSize(width: 90, height: -60), -30),
+            (2, CGSize(width: -40, height: 25), 120),
+            (0.5, CGSize(width: 150, height: 110), -170)
+        ]
+        for (zoom, pan, turn) in cases {
+            guard let target = anchor.capture(contentWidth: contentWidth, canvas: canvas,
+                                              zoom: zoom, pan: pan, turnedBy: turn) else {
+                return XCTFail("No capture")
+            }
+            XCTAssertEqual(target.heading, (anchor.heading + turn).truncatingRemainder(dividingBy: 360),
+                           accuracy: 1e-9)
+            for marker in markers {
+                let before = screenPointTurned(marker, zoom: zoom, pan: pan, turn: turn, canvas: canvas)
+                // After committing: new capture at rest, no turn left over.
+                let after = screenPointTurned(anchor.remap(marker, to: target),
+                                              zoom: 1, pan: .zero, turn: 0, canvas: canvas)
+                XCTAssertEqual(before.x, after.x, accuracy: 0.01,
+                               "Marker \(marker) shifted at turn \(turn)")
+                XCTAssertEqual(before.y, after.y, accuracy: 0.01,
+                               "Marker \(marker) shifted at turn \(turn)")
+            }
+        }
+    }
+
+    func testAFacingSurvivesACommittedTurn() {
+        // A marker facing 20° in an image whose up is 12° faces 32° in the world.
+        // After turning the map to 57°, it must still face 32°.
+        let anchor = SatelliteFraming(center: amsterdam, meters: 60, heading: 12)
+        guard let target = anchor.capture(contentWidth: contentWidth, canvas: canvas,
+                                          zoom: 1, pan: .zero, turnedBy: 45) else {
+            return XCTFail("No capture")
+        }
+        let storedBefore = 20.0
+        let worldFacing = storedBefore + anchor.heading
+        let storedAfter = storedBefore - anchor.headingDelta(to: target)
+        XCTAssertEqual(storedAfter + target.heading, worldFacing, accuracy: 1e-9)
+    }
+}
+
+// MARK: - Reading a heading as a compass direction
+
+final class CompassTests: XCTestCase {
+
+    func testCompassPointsReadTheWayPeopleSayThem() {
+        XCTAssertEqual(Compass.label(0), "N")
+        XCTAssertEqual(Compass.label(45), "NE")
+        XCTAssertEqual(Compass.label(90), "E")
+        XCTAssertEqual(Compass.label(180), "S")
+        XCTAssertEqual(Compass.label(270), "W")
+        XCTAssertEqual(Compass.label(359), "N", "Just short of north is still north.")
+        XCTAssertEqual(Compass.label(-90), "W", "A heading stored as negative still reads right.")
+    }
+
+    func testHeadingsFoldIntoOneTurn() {
+        XCTAssertEqual(Compass.normalized(0), 0)
+        XCTAssertEqual(Compass.normalized(360), 0, accuracy: 1e-9)
+        XCTAssertEqual(Compass.normalized(-60), 300, accuracy: 1e-9)
+        XCTAssertEqual(Compass.normalized(725), 5, accuracy: 1e-9)
+    }
+
+    func testTheSameDirectionWrittenTwoWaysIsNoTurnAtAll() {
+        // The trap: a capture stored at -60 and a slider showing 300 are the same
+        // map. Subtracting them raw gives 360, which would read as "turned".
+        XCTAssertEqual(Compass.signedDelta(from: -60, to: 300), 0, accuracy: 1e-9)
+        XCTAssertEqual(Compass.signedDelta(from: 300, to: -60), 0, accuracy: 1e-9)
+    }
+
+    func testATurnTakesTheShortWayRound() {
+        XCTAssertEqual(Compass.signedDelta(from: 350, to: 10), 20, accuracy: 1e-9)
+        XCTAssertEqual(Compass.signedDelta(from: 10, to: 350), -20, accuracy: 1e-9)
+        XCTAssertEqual(Compass.signedDelta(from: 0, to: 180), 180, accuracy: 1e-9)
+    }
+}
+
+// MARK: - A capture survives being stored on a scene
+
+final class SatelliteCaptureStorageTests: XCTestCase {
+
+    /// The bug this guards: a capture gained a heading, one write path recorded it
+    /// and the other didn't, so the background turned while the controls still read
+    /// the old direction. Reading a capture back has to give the same capture.
+    func testEveryPartOfACaptureIsWrittenAndReadBack() {
+        let scene = Scene(sceneNumber: 1)
+        let capture = SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 85, heading: 137)
+        scene.recordSatelliteCapture(capture)
+
+        guard let read = scene.satelliteCapture else { return XCTFail("nothing read back") }
+        XCTAssertEqual(read.center.latitude, capture.center.latitude, accuracy: 1e-12)
+        XCTAssertEqual(read.center.longitude, capture.center.longitude, accuracy: 1e-12)
+        XCTAssertEqual(read.meters, capture.meters, accuracy: 1e-12)
+        XCTAssertEqual(read.heading, capture.heading, accuracy: 1e-12)
+        XCTAssertEqual(read, capture)
+    }
+
+    func testRecordingASecondCaptureReplacesTheFirstEntirely() {
+        // Turning an already-turned map is where the missing write showed up.
+        let scene = Scene(sceneNumber: 2)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 60, heading: 100))
+        let turned = SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 60, heading: 180)
+        scene.recordSatelliteCapture(turned)
+        XCTAssertEqual(scene.satelliteCapture, turned)
+        XCTAssertEqual(scene.sceneMapSatelliteHeading, 180, accuracy: 1e-12)
+    }
+
+    func testTheBackgroundsMeasuredWidthFollowsTheCapture() {
+        let scene = Scene(sceneNumber: 3)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: 0), meters: 42))
+        XCTAssertEqual(scene.sceneMapMetersWide, 42)
+        XCTAssertTrue(scene.sceneMapSatelliteCalibrated)
+        XCTAssertTrue(scene.sceneMapBackgroundIsSatellite)
+    }
+
+    func testANonSatelliteSceneHasNoCapture() {
+        XCTAssertNil(Scene(sceneNumber: 4).satelliteCapture)
     }
 }

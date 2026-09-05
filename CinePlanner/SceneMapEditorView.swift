@@ -83,8 +83,13 @@ struct SceneMapEditorView: View {
     /// satellite background in this mode — otherwise they are the plain look-closer
     /// gestures they have always been, so nobody re-frames their map by accident.
     @State private var isReframeMode = false
+    /// Which compass direction points up while reframing — absolute, not a turn from
+    /// where the map already sits, so the control opens showing where the map points
+    /// and agrees with the same control in the location picker. Seeded from the
+    /// capture when the tool is picked up.
+    @State private var reframeHeading: Double = 0
     @State private var reframePreview: PlatformImage?
-    @State private var reframePreviewRect: MKMapRect?
+    @State private var reframePreviewArea: SatelliteFraming?
     @State private var reframeTask: Task<Void, Never>?
     @State private var isCommittingReframe = false
     /// Shared width for every icon cell in the scene-map toolbar, so the add-menu
@@ -242,20 +247,21 @@ struct SceneMapEditorView: View {
         }
         .sheet(isPresented: $showSunSettings) {
             SunSettingsSheet(settings: $sun, onChange: saveSun,
-                             isNorthLocked: scene.sceneMapBackgroundIsSatellite)
+                             lockedNorthOffset: satelliteAnchor.map { -$0.heading })
         }
         .sheet(isPresented: $showingMapPicker) {
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
                                initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil,
+                               initialHeading: scene.sceneMapSatelliteHeading,
                                existingCapture: satelliteAnchor,
-                               markerCount: doc.elements.count) { data, coordinate, meters, label in
+                               markerCount: doc.elements.count) { data, framing, label in
                 // Nudging the same location keeps every marker on its real-world
                 // spot; jumping somewhere else entirely is a fresh start, where
                 // carrying the markers along would only fling them off the map.
-                if capturesOverlap(coordinate: coordinate, meters: meters) {
-                    rescaleSatelliteBackground(data, coordinate: coordinate, meters: meters, label: label)
+                if satelliteAnchor?.overlaps(framing) == true {
+                    rescaleSatelliteBackground(data, framing: framing, label: label)
                 } else {
-                    setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+                    setMapBackground(data, framing: framing, label: label)
                 }
             }
         }
@@ -591,10 +597,13 @@ struct SceneMapEditorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .scaleEffect(zoom, anchor: .center)
                     .offset(pan)
+                    .rotationEffect(.degrees(-reframeTurn))
                     .clipped()
                     .allowsHitTesting(false)
                 reframeRender(in: rect, canvas: geo.size)
+                    .rotationEffect(.degrees(-reframeTurn))
                 canvasContent(in: rect, geo: geo)
+                    .rotationEffect(.degrees(-reframeTurn))
             }
             .overlay { reframeButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
@@ -850,14 +859,7 @@ struct SceneMapEditorView: View {
     /// The stored capture's geo-anchor: where its centre is and how many metres it
     /// spans. Present only for a satellite background, which is the only kind that
     /// can be reframed — a photo or a drawn plan has no world behind its edges.
-    private var satelliteAnchor: SatelliteFraming? {
-        guard scene.sceneMapBackgroundIsSatellite,
-              let lat = scene.sceneMapSatelliteLat,
-              let lon = scene.sceneMapSatelliteLon,
-              let meters = scene.sceneMapSatelliteMeters, meters > 0 else { return nil }
-        return SatelliteFraming(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                                meters: meters)
-    }
+    private var satelliteAnchor: SatelliteFraming? { scene.satelliteCapture }
 
     /// Whether this map *could* be reframed — the toolbar button's condition.
     private var canReframe: Bool { satelliteAnchor != nil }
@@ -866,7 +868,13 @@ struct SceneMapEditorView: View {
     private var reframeActive: Bool { isReframeMode && canReframe }
 
     /// True once the canvas frames something other than the stored capture.
-    private var isReframing: Bool { reframeActive && (zoom != 1 || pan != .zero) }
+    /// How far the canvas is turned from the stored capture.
+    private var reframeTurn: Double {
+        guard let anchor = satelliteAnchor else { return 0 }
+        return Compass.signedDelta(from: anchor.heading, to: reframeHeading)
+    }
+
+    private var isReframing: Bool { reframeActive && (zoom != 1 || pan != .zero || reframeTurn != 0) }
 
     /// Zooming out below 1× only means something when there's more world to show.
     private var minZoom: CGFloat { reframeActive ? 0.3 : 1 }
@@ -886,22 +894,25 @@ struct SceneMapEditorView: View {
     /// the map is the whole point of the tool, and marker edits are suspended anyway.
     private var dragPansCanvas: Bool { reframeActive || zoom > 1 }
 
-    /// The world rect the whole canvas is showing at the current zoom/pan.
-    private func liveCanvasRect(in rect: CGRect, canvas: CGSize) -> MKMapRect? {
-        satelliteAnchor?.canvasRect(contentWidth: rect.width, canvas: canvas, zoom: zoom, pan: pan)
+    /// The patch of ground the canvas is showing, in the stored capture's own frame
+    /// so it comes back turned the same way the canvas is drawn.
+    private func liveCanvasCover(in rect: CGRect, canvas: CGSize, margin: Double = 1) -> SatelliteFraming? {
+        satelliteAnchor?.canvasCover(contentWidth: rect.width, canvas: canvas,
+                                     zoom: zoom, pan: pan, margin: margin)
     }
 
     /// The capture the current framing would produce — exactly what the crop frame
     /// draws. At rest this is identical to the stored capture, so committing without
     /// having moved is a no-op.
     private func pendingCapture(in rect: CGRect, canvas: CGSize) -> SatelliteFraming? {
-        satelliteAnchor?.capture(contentWidth: rect.width, canvas: canvas, zoom: zoom, pan: pan)
+        satelliteAnchor?.capture(contentWidth: rect.width, canvas: canvas,
+                                 zoom: zoom, pan: pan, turnedBy: reframeTurn)
     }
 
     /// Coarse key so a new satellite render is fetched only when the framing has
     /// meaningfully moved, not on every sub-pixel of a drag.
     private var reframeKey: String {
-        "\(Int(zoom * 100))-\(Int(pan.width))-\(Int(pan.height))"
+        "\(Int(zoom * 100))-\(Int(pan.width))-\(Int(pan.height))-\(Int(reframeHeading))"
     }
 
     /// The sharp render of the framed area, drawn under the markers. Positioned by
@@ -910,14 +921,15 @@ struct SceneMapEditorView: View {
     /// sliding out of register with the markers.
     @ViewBuilder
     private func reframeRender(in rect: CGRect, canvas: CGSize) -> some View {
-        if let image = reframePreview, let shot = reframePreviewRect,
-           let live = liveCanvasRect(in: rect, canvas: canvas), live.width > 0 {
-            let scale = Double(canvas.width) / live.width
+        if let image = reframePreview, let shot = reframePreviewArea, let anchor = satelliteAnchor,
+           let perPoint = anchor.mapPointsPerScreenPoint(contentWidth: rect.width, zoom: zoom),
+           let offset = anchor.screenOffset(of: shot, contentWidth: rect.width, zoom: zoom, pan: pan),
+           perPoint > 0 {
+            let side = CGFloat(shot.meters * MKMapPointsPerMeterAtLatitude(shot.center.latitude) / perPoint)
             Image(platformImage: image)
                 .resizable()
-                .frame(width: CGFloat(shot.width * scale), height: CGFloat(shot.height * scale))
-                .position(x: CGFloat((shot.midX - live.minX) * scale),
-                          y: CGFloat((shot.midY - live.minY) * scale))
+                .frame(width: side, height: side)
+                .position(x: canvas.width / 2 + offset.width, y: canvas.height / 2 + offset.height)
                 .clipped()
                 .allowsHitTesting(false)
         }
@@ -931,7 +943,10 @@ struct SceneMapEditorView: View {
     private func reframeButton(in rect: CGRect) -> some View {
         if canReframe, !isReframeMode, !isDrawing, pendingMove == nil {
             let inset: CGFloat = 25
-            Button { isReframeMode = true } label: {
+            Button {
+                reframeHeading = Compass.normalized(satelliteAnchor?.heading ?? 0)
+                isReframeMode = true
+            } label: {
                 Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
                     .font(.system(size: 14, weight: .medium))
                     .frame(width: 30, height: 30)
@@ -971,7 +986,12 @@ struct SceneMapEditorView: View {
                     .frame(width: side, height: side)
             }
             .allowsHitTesting(false)
-            .overlay(alignment: .top) { reframeBar(meters: pending.meters, rect: rect, canvas: canvas) }
+            .overlay(alignment: .top) {
+                VStack(spacing: 8) {
+                    reframeBar(meters: pending.meters, rect: rect, canvas: canvas)
+                    reframeTurnBar(canvas: canvas)
+                }
+            }
         }
     }
 
@@ -1032,29 +1052,48 @@ struct SceneMapEditorView: View {
     /// next pan slides into, so a drag doesn't drag a bare edge along with it.
     private static let reframeRenderMargin = 1.4
 
+    /// The turn control: which way the map lies. Separate from the main bar so
+    /// neither row has to shrink to fit the other on a narrow canvas.
+    private func reframeTurnBar(canvas: CGSize) -> some View {
+        let compact = isPhone || canvas.width < 520
+        return HStack(spacing: compact ? 7 : 10) {
+            Text("Up is").foregroundStyle(.secondary)
+            CompassSlider(heading: $reframeHeading, width: compact ? 120 : 180)
+            Text(Compass.readout(reframeHeading)).monospacedDigit()
+                .frame(width: 66, alignment: .trailing)
+            Button { reframeHeading = 0 } label: { Image(systemName: "location.north.fill") }
+                .buttonStyle(.plain)
+                .foregroundStyle(Compass.normalized(reframeHeading) == 0 ? Color.secondary : Color.accentColor)
+                .help("Turn north back up")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+    }
+
     /// Debounced: fetches a satellite render of the framed area shortly after the
     /// gesture settles, so panning stays smooth and only one render is in flight.
     private func scheduleReframeRender(in rect: CGRect, canvas: CGSize) {
         reframeTask?.cancel()
-        guard isReframing, let live = liveCanvasRect(in: rect, canvas: canvas) else {
+        // A turned canvas reaches into the corners of the area it covers, so the
+        // render has to be a diagonal's worth wider.
+        let margin = Self.reframeRenderMargin * (reframeTurn == 0 ? 1 : 2.0.squareRoot())
+        guard isReframing, let area = liveCanvasCover(in: rect, canvas: canvas, margin: margin) else {
             reframePreview = nil
-            reframePreviewRect = nil
+            reframePreviewArea = nil
             return
         }
-        let margin = Self.reframeRenderMargin
-        let area = MKMapRect(x: live.midX - live.width * margin / 2,
-                             y: live.midY - live.height * margin / 2,
-                             width: live.width * margin, height: live.height * margin)
         reframeTask = Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
             if Task.isCancelled { return }
-            let pixels = CGSize(width: max(canvas.width, 320) * margin,
-                                height: max(canvas.height, 320) * margin)
-            let image = try? await MapSnapshot.satelliteImage(mapRect: area, pixelSize: pixels)
+            let pixels = max(max(canvas.width, canvas.height), 320) * CGFloat(margin)
+            let image = try? await MapSnapshot.satelliteImage(area, pixels: pixels)
             if Task.isCancelled { return }
             if let image {
                 reframePreview = image
-                reframePreviewRect = area
+                reframePreviewArea = area
             }
         }
     }
@@ -1069,11 +1108,9 @@ struct SceneMapEditorView: View {
         Task {
             defer { isCommittingReframe = false }
             do {
-                let image = try await MapSnapshot.satelliteImage(coordinate: target.center,
-                                                                meters: target.meters)
+                let image = try await MapSnapshot.satelliteImage(target)
                 guard let data = image.pngRepresentation() else { return }
-                rescaleSatelliteBackground(data, coordinate: target.center,
-                                           meters: target.meters, label: nil)
+                rescaleSatelliteBackground(data, framing: target, label: nil)
                 resetReframe()
                 isReframeMode = false
             } catch {
@@ -1093,9 +1130,10 @@ struct SceneMapEditorView: View {
         reframeTask?.cancel()
         reframeTask = nil
         reframePreview = nil
-        reframePreviewRect = nil
+        reframePreviewArea = nil
         zoom = 1; lastZoom = 1
         pan = .zero; lastPan = .zero
+        reframeHeading = satelliteAnchor?.heading ?? 0
     }
 
     /// The sun as a yellow ball on a ring around the map centre, in its compass
@@ -2083,38 +2121,33 @@ struct SceneMapEditorView: View {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    /// Whether a new capture covers any of the same ground as the current one —
-    /// the test for whether markers should be carried across to it (they belong to
-    /// a place) or left where they sit on the map (a different place entirely, where
-    /// remapping would push every one of them out of frame).
-    private func capturesOverlap(coordinate: CLLocationCoordinate2D, meters: Double) -> Bool {
-        guard let anchor = satelliteAnchor else { return false }
-        return anchor.overlaps(SatelliteFraming(center: coordinate, meters: meters))
-    }
-
     /// Replaces the satellite background with a new capture (a different zoom
     /// and/or centre) while keeping every marker, arrow, furniture piece and
     /// floor-plan vertex at the same real-world location. Falls back to a plain
     /// set when the old capture's geo-anchor is missing.
-    private func rescaleSatelliteBackground(_ data: Data, coordinate: CLLocationCoordinate2D, meters: Double, label: String?) {
-        guard let oldLat = scene.sceneMapSatelliteLat,
-              let oldLon = scene.sceneMapSatelliteLon,
-              let oldMeters = scene.sceneMapSatelliteMeters, oldMeters > 0, meters > 0 else {
-            setMapBackground(data, coordinate: coordinate, meters: meters, label: label)
+    private func rescaleSatelliteBackground(_ data: Data, framing new: SatelliteFraming, label: String?) {
+        guard let old = satelliteAnchor, new.meters > 0 else {
+            setMapBackground(data, framing: new, label: label)
             return
         }
-        let old = SatelliteFraming(center: CLLocationCoordinate2D(latitude: oldLat, longitude: oldLon),
-                                   meters: oldMeters)
-        let new = SatelliteFraming(center: coordinate, meters: meters)
+        let coordinate = new.center
+        let meters = new.meters
         let ratio = old.sizeRatio(to: new)   // normalized sizes scale by this to keep real size
+        // A facing is stored against the image, so turning the image has to swing it
+        // back by the same amount or every marker ends up pointing somewhere else.
+        let turn = old.headingDelta(to: new)
         func remap(_ x: Double, _ y: Double) -> (Double, Double) {
             let p = old.remap(CGPoint(x: x, y: y), to: new)
             return (Double(p.x), Double(p.y))
         }
 
-        for i in doc.elements.indices { (doc.elements[i].x, doc.elements[i].y) = remap(doc.elements[i].x, doc.elements[i].y) }
+        for i in doc.elements.indices {
+            (doc.elements[i].x, doc.elements[i].y) = remap(doc.elements[i].x, doc.elements[i].y)
+            doc.elements[i].rotation -= turn
+        }
         for i in doc.furniture.indices {
             (doc.furniture[i].x, doc.furniture[i].y) = remap(doc.furniture[i].x, doc.furniture[i].y)
+            doc.furniture[i].rotation -= turn
             doc.furniture[i].width *= ratio
             doc.furniture[i].height *= ratio
         }
@@ -2127,35 +2160,29 @@ struct SceneMapEditorView: View {
 
         // Swap in the new capture, keeping the (remapped) markers + floor plan.
         scene.sceneMapBackgroundData = data
-        scene.sceneMapBackgroundIsSatellite = true
+        scene.recordSatelliteCapture(new)
         if let label { scene.sceneMapLocation = label }
-        scene.sceneMapSatelliteLat = coordinate.latitude
-        scene.sceneMapSatelliteLon = coordinate.longitude
-        scene.sceneMapSatelliteMeters = meters
-        scene.sceneMapSatelliteCalibrated = true   // rendered by the measuring pipeline
-        scene.sceneMapMetersWide = meters
         backgroundImage = PlatformImage(data: data)
         scene.sceneMapJSON = doc.jsonString
         scene.sceneFloorPlanJSON = floorPlan.jsonString
-        // Keep the sun anchored to the (possibly re-centred) location.
+        // Keep the sun anchored to the (possibly re-centred) location, and to the
+        // way the map now lies.
         sun.latitude = coordinate.latitude
         sun.longitude = coordinate.longitude
+        sun.northOffsetDeg = -new.heading
         saveSun()
         saveContext()
     }
 
-    private func setMapBackground(_ data: Data, coordinate: CLLocationCoordinate2D, meters: Double, label: String?) {
+    private func setMapBackground(_ data: Data, framing: SatelliteFraming, label: String?) {
+        let coordinate = framing.center
+        let meters = framing.meters
         isDrawing = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
-        scene.sceneMapBackgroundIsSatellite = true
+        scene.recordSatelliteCapture(framing)
         scene.sceneMapLocation = label
-        scene.sceneMapSatelliteLat = coordinate.latitude
-        scene.sceneMapSatelliteLon = coordinate.longitude
-        scene.sceneMapSatelliteMeters = meters
-        scene.sceneMapSatelliteCalibrated = true   // rendered by the measuring pipeline
-        scene.sceneMapMetersWide = meters          // satellite square is `meters` across
         scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
@@ -2163,7 +2190,9 @@ struct SceneMapEditorView: View {
         // Seed the sun overlay from this location.
         sun.latitude = coordinate.latitude
         sun.longitude = coordinate.longitude
-        sun.northOffsetDeg = 0
+        // The image is turned so `heading` points up, so North sits that far the
+        // other way round the dial.
+        sun.northOffsetDeg = -framing.heading
         if let label { sun.address = label }
         saveSun()
         // Fill the accurate timezone (for sunrise/sunset) in the background.

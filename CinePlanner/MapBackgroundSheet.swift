@@ -20,9 +20,9 @@ import MapKit
 import CoreLocation
 
 struct MapBackgroundSheet: View {
-    /// Called with the rendered PNG, the captured centre coordinate + size, and an
-    /// optional location label (the place name at that centre).
-    var onBackground: (Data, CLLocationCoordinate2D, Double, String?) -> Void
+    /// Called with the rendered PNG, the capture it was rendered for, and an
+    /// optional location label (the place name at its centre).
+    var onBackground: (Data, SatelliteFraming, String?) -> Void
     /// The capture this map already has, when it has one. Used to tell the user
     /// which of two things is about to happen to what they've placed on it.
     var existingCapture: SatelliteFraming?
@@ -34,18 +34,23 @@ struct MapBackgroundSheet: View {
     @State private var recenter: CLLocationCoordinate2D?
     @State private var visibleRect = MKMapRect.null
     @State private var meters: Double
+    /// Compass direction pointing up in the capture. The map turns with it, so the
+    /// frame always outlines what will be rendered.
+    @State private var heading: Double
 
     /// `initialCoordinate`/`initialMeters` reopen the picker where it was last set.
     init(initialCoordinate: CLLocationCoordinate2D? = nil,
          initialMeters: Double? = nil,
+         initialHeading: Double = 0,
          existingCapture: SatelliteFraming? = nil,
          markerCount: Int = 0,
-         onBackground: @escaping (Data, CLLocationCoordinate2D, Double, String?) -> Void) {
+         onBackground: @escaping (Data, SatelliteFraming, String?) -> Void) {
         self.onBackground = onBackground
         self.existingCapture = existingCapture
         self.markerCount = markerCount
         _recenter = State(initialValue: initialCoordinate)
         _meters = State(initialValue: initialMeters ?? 60)
+        _heading = State(initialValue: initialHeading)
     }
 
     @State private var geocoding = false
@@ -114,6 +119,18 @@ struct MapBackgroundSheet: View {
             }
             .padding(.horizontal, 18).padding(.vertical, 12)
 
+            HStack(spacing: 12) {
+                Text("Up is")
+                CompassSlider(heading: $heading)
+                Text(Compass.readout(heading)).monospacedDigit()
+                    .frame(width: 66, alignment: .trailing)
+                Button { heading = 0 } label: { Image(systemName: "location.north.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Compass.normalized(heading) == 0 ? Color.secondary : Color.accentColor)
+                    .help("Back to north up")
+            }
+            .padding(.horizontal, 18).padding(.bottom, 12)
+
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
                     .padding(.horizontal, 18).padding(.bottom, 8)
@@ -149,7 +166,7 @@ struct MapBackgroundSheet: View {
             let side = min(geo.size.width, geo.size.height)
             ZStack {
                 MapPreview(recenter: recenter, spanMeters: requestedSpan,
-                           visibleRect: $visibleRect)
+                           heading: heading, visibleRect: $visibleRect)
                 captureFrame(in: CGSize(width: side, height: side))
             }
             .frame(width: side, height: side)
@@ -189,12 +206,17 @@ struct MapBackgroundSheet: View {
     private var markerNotice: (text: String, isWarning: Bool)? {
         guard markerCount > 0, let existing = existingCapture,
               let center = centerCoordinate else { return nil }
-        let target = SatelliteFraming(center: center, meters: meters)
+        let target = SatelliteFraming(center: center, meters: meters, heading: heading)
         let things = markerCount == 1 ? "marker" : "markers"
         if existing.overlaps(target) {
             return ("Your \(markerCount) \(things) keep their place on the ground.", false)
         }
         return ("A different location: your \(markerCount) \(things) come along, keeping their layout.", true)
+    }
+
+    /// The capture the picker is currently describing.
+    private var framing: SatelliteFraming? {
+        centerCoordinate.map { SatelliteFraming(center: $0, meters: meters, heading: heading) }
     }
 
     /// The span the panel is meant to show: the capture plus context.
@@ -304,23 +326,22 @@ struct MapBackgroundSheet: View {
     }
 
     private func render() {
-        guard let center = centerCoordinate else { return }
+        guard let target = framing else { return }
         rendering = true
         errorMessage = nil
-        let captureMeters = meters
         let label = placeName ?? {
             let typed = address.trimmingCharacters(in: .whitespaces)
             return typed.isEmpty ? nil : typed
         }()
         Task {
             do {
-                let image = try await MapSnapshot.satelliteImage(coordinate: center, meters: captureMeters)
+                let image = try await MapSnapshot.satelliteImage(target)
                 guard let data = image.pngRepresentation() else {
                     throw NSError(domain: "MapSnapshot", code: -1,
                                   userInfo: [NSLocalizedDescriptionKey: "Couldn't encode the image."])
                 }
                 rendering = false
-                onBackground(data, center, captureMeters, label)
+                onBackground(data, target, label)
                 dismiss()
             } catch {
                 rendering = false
@@ -338,6 +359,9 @@ private struct MapPreview {
     /// Metres across to frame the map on: the capture size plus context, so the
     /// capture square is prominent and panning moves it proportionally.
     var spanMeters: Double
+    /// Compass direction to point up. The map is turned to match, so what the frame
+    /// outlines on screen is what gets rendered.
+    var heading: Double
     @Binding var visibleRect: MKMapRect
 
     /// Shared setup for both the AppKit and UIKit representable conformances.
@@ -360,6 +384,9 @@ private struct MapPreview {
         // zooming the map wouldn't change the capture anyway. Panning stays: that's
         // how the location is chosen.
         map.isZoomEnabled = false
+        // Rotation is the slider's job too, for the same reason: one control per
+        // thing, so the frame can never disagree with what will be captured.
+        map.isRotateEnabled = false
         #if os(macOS)
         map.showsZoomControls = true
         #endif
@@ -371,6 +398,18 @@ private struct MapPreview {
         coordinator.lastRecenter = recenter
         coordinator.lastSpan = spanMeters
         return map
+    }
+
+    /// Turns the map without disturbing where it is or how far it reaches.
+    ///
+    /// Only once the view has been laid out: assigning a camera to a zero-bounds map
+    /// replaces the region that was just set with the camera's own — which is nowhere
+    /// in particular, and lands the picker in the North Atlantic.
+    func applyHeading(_ map: MKMapView) {
+        guard map.bounds.width > 0, map.camera.heading != heading else { return }
+        let camera = map.camera
+        camera.heading = heading
+        map.camera = camera
     }
 
     func applyUpdates(_ map: MKMapView, _ coordinator: Coordinator) {
@@ -389,9 +428,11 @@ private struct MapPreview {
             coordinator.lastSpan = spanMeters
             changed = true
         }
+        applyHeading(map)
         guard changed else { return }
         map.setRegion(MKCoordinateRegion(center: center, latitudinalMeters: spanMeters,
                                          longitudinalMeters: spanMeters), animated: false)
+        applyHeading(map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }

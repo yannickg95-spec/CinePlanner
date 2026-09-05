@@ -12,9 +12,10 @@ import CoreLocation
 struct SunSettingsSheet: View {
     @Binding var settings: SunSettings
     var onChange: () -> Void
-    /// Apple Maps (satellite) backgrounds are already north-up, so the North dial is
-    /// hidden and the offset pinned to 0 for them.
-    var isNorthLocked: Bool = false
+    /// A satellite background is rendered at a known heading, so it defines where
+    /// North is: the dial is hidden and the offset pinned to this value. nil for a
+    /// photo or drawn plan, where North is the user's to set.
+    var lockedNorthOffset: Double?
 
     @Environment(\.dismiss) private var dismiss
     @State private var geocoding = false
@@ -32,7 +33,7 @@ struct SunSettingsSheet: View {
 
             Form {
                 Section("Location") {
-                    if isNorthLocked {
+                    if lockedNorthOffset != nil {
                         // Satellite maps take their location from the map itself, so the
                         // coordinates are read-only and there's no address lookup.
                         LabeledContent("Latitude", value: coordDisplay(\.latitude))
@@ -66,7 +67,7 @@ struct SunSettingsSheet: View {
                     DatePicker("Shoot date", selection: dateBinding, displayedComponents: .date)
                 }
 
-                if !isNorthLocked {
+                if lockedNorthOffset == nil {
                     Section("North") {
                         HStack(spacing: 20) {
                             NorthDial(degrees: northBinding)
@@ -84,13 +85,15 @@ struct SunSettingsSheet: View {
             .formStyle(.grouped)
         }
         .onAppear {
-            // Satellite maps are north-up; keep the overlay's North aligned.
-            if isNorthLocked, settings.northOffsetDeg != 0 {
-                settings.northOffsetDeg = 0
+            // A satellite map defines its own North: the capture is rendered with a
+            // known heading, so the overlay follows it rather than being dialled by
+            // hand. `lockedNorthOffset` is that heading, mirrored onto the dial.
+            if let locked = lockedNorthOffset, settings.northOffsetDeg != locked {
+                settings.northOffsetDeg = locked
                 onChange()
             }
         }
-        .adaptiveSheetFrame(width: 400, height: isNorthLocked ? 360 : 600)
+        .adaptiveSheetFrame(width: 400, height: lockedNorthOffset != nil ? 360 : 600)
     }
 
     // MARK: - Bindings

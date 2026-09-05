@@ -359,6 +359,10 @@ final class Scene {
     var sceneMapSatelliteLat: Double?
     var sceneMapSatelliteLon: Double?
     var sceneMapSatelliteMeters: Double?
+    /// Compass direction that points up in the capture, in degrees clockwise from
+    /// north. 0 is north-up, which every capture was before the map could be turned —
+    /// so an existing scene reads back exactly as it was made.
+    var sceneMapSatelliteHeading: Double = 0
     /// False for captures made before the snapshot scale was measured rather than
     /// assumed. Those images cover more ground than `sceneMapSatelliteMeters` says
     /// (MapKit silently widens anything past its zoom limit), which draws markers
@@ -567,6 +571,7 @@ extension Scene {
         copy.sceneMapSatelliteLat = sceneMapSatelliteLat
         copy.sceneMapSatelliteLon = sceneMapSatelliteLon
         copy.sceneMapSatelliteMeters = sceneMapSatelliteMeters
+        copy.sceneMapSatelliteHeading = sceneMapSatelliteHeading
         copy.sceneMapSatelliteCalibrated = sceneMapSatelliteCalibrated
         copy.sceneMapMetersWide = sceneMapMetersWide
         copy.sceneMapCameraSizeMeters = sceneMapCameraSizeMeters
