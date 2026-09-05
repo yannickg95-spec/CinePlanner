@@ -23,6 +23,11 @@ struct MapBackgroundSheet: View {
     /// Called with the rendered PNG, the captured centre coordinate + size, and an
     /// optional location label (the place name at that centre).
     var onBackground: (Data, CLLocationCoordinate2D, Double, String?) -> Void
+    /// The capture this map already has, when it has one. Used to tell the user
+    /// which of two things is about to happen to what they've placed on it.
+    var existingCapture: SatelliteFraming?
+    /// How many markers are on the map, so the warning can be concrete.
+    var markerCount = 0
 
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
@@ -33,8 +38,12 @@ struct MapBackgroundSheet: View {
     /// `initialCoordinate`/`initialMeters` reopen the picker where it was last set.
     init(initialCoordinate: CLLocationCoordinate2D? = nil,
          initialMeters: Double? = nil,
+         existingCapture: SatelliteFraming? = nil,
+         markerCount: Int = 0,
          onBackground: @escaping (Data, CLLocationCoordinate2D, Double, String?) -> Void) {
         self.onBackground = onBackground
+        self.existingCapture = existingCapture
+        self.markerCount = markerCount
         _recenter = State(initialValue: initialCoordinate)
         _meters = State(initialValue: initialMeters ?? 60)
     }
@@ -108,6 +117,12 @@ struct MapBackgroundSheet: View {
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
                     .padding(.horizontal, 18).padding(.bottom, 8)
+            } else if let notice = markerNotice {
+                Label(notice.text, systemImage: notice.isWarning
+                      ? "exclamationmark.triangle" : "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(notice.isWarning ? Color.orange : Color.secondary)
+                    .padding(.horizontal, 18).padding(.bottom, 8)
             }
 
             Divider()
@@ -161,6 +176,25 @@ struct MapBackgroundSheet: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+    }
+
+    /// What replacing the background will do to what's already on the map.
+    ///
+    /// Two different things can happen, and which one depends on where the user
+    /// lands — so this reads the framing rather than warning in the abstract.
+    /// Overlapping the old capture means the markers belong to ground the new one
+    /// still covers, so they stay on it; somewhere else entirely means that ground
+    /// is gone, and they come along keeping their layout instead of being flung off
+    /// the map.
+    private var markerNotice: (text: String, isWarning: Bool)? {
+        guard markerCount > 0, let existing = existingCapture,
+              let center = centerCoordinate else { return nil }
+        let target = SatelliteFraming(center: center, meters: meters)
+        let things = markerCount == 1 ? "marker" : "markers"
+        if existing.overlaps(target) {
+            return ("Your \(markerCount) \(things) keep their place on the ground.", false)
+        }
+        return ("A different location: your \(markerCount) \(things) come along, keeping their layout.", true)
     }
 
     /// The span the panel is meant to show: the capture plus context.

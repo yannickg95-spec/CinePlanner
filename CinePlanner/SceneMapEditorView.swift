@@ -246,7 +246,9 @@ struct SceneMapEditorView: View {
         }
         .sheet(isPresented: $showingMapPicker) {
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,
-                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil) { data, coordinate, meters, label in
+                               initialMeters: scene.sceneMapBackgroundIsSatellite ? scene.sceneMapSatelliteMeters : nil,
+                               existingCapture: satelliteAnchor,
+                               markerCount: doc.elements.count) { data, coordinate, meters, label in
                 // Nudging the same location keeps every marker on its real-world
                 // spot; jumping somewhere else entirely is a fresh start, where
                 // carrying the markers along would only fling them off the map.
