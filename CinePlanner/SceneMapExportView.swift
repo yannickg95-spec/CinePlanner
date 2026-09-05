@@ -48,6 +48,70 @@ struct AppleMapsAttribution: View {
     }
 }
 
+/// A small compass in the corner of a scene map, showing which way is North.
+///
+/// Drawn wherever the map is — the editor, the web export, On-Set — because a
+/// turned satellite map is unreadable without it: north-up is the assumption every
+/// reader brings, and once that stops being true it has to be said out loud. Sized
+/// against the map so it holds up at export resolutions as well as on screen.
+struct MapCompass: View {
+    let rect: CGRect
+    /// Screen angle from up, clockwise, that points North.
+    let northOffsetDeg: Double
+
+    var body: some View {
+        let side = min(max(min(rect.width, rect.height) * 0.07, 26), 56)
+        ZStack {
+            Circle().fill(Color.black.opacity(0.55))
+            Circle().stroke(Color.white.opacity(0.6), lineWidth: max(1, side * 0.025))
+            ZStack {
+                needle(side: side, pointingNorth: true).fill(Color.white)
+                needle(side: side, pointingNorth: false).fill(Self.southRed)
+                // The letter rides the needle's head but stays upright: a rotating
+                // one lies on its side at east and upside down at south, which is
+                // exactly when the compass is most needed.
+                Text("N")
+                    .font(.system(size: side * Self.letterSize, weight: .bold))
+                    .foregroundStyle(.white)
+                    .rotationEffect(.degrees(-northOffsetDeg))
+                    .offset(y: -side * Self.letterCentre)
+            }
+            .rotationEffect(.degrees(northOffsetDeg))
+        }
+        .frame(width: side, height: side)
+        .padding(side * 0.28)
+        .frame(width: rect.width, height: rect.height, alignment: .bottomTrailing)
+        .position(x: rect.midX, y: rect.midY)
+        .allowsHitTesting(false)
+    }
+
+    /// The south half of the needle. Fully opaque, unlike the greyed-out half it
+    /// replaces, so the two ends read as a compass rather than as one arrow fading
+    /// out — and warm enough to hold up against the dark disc without shouting.
+    static let southRed = Color(red: 0.85, green: 0.24, blue: 0.20)
+
+    // The dial's three bands, as fractions of the diameter, laid out so the letter
+    // can never touch the needle however the compass is turned: the needle stops at
+    // `needleLength`, the letter's box runs `letterSize`/2 either side of
+    // `letterCentre`, and what's left over is clearance — below to the needle, above
+    // to the rim.
+    static let needleLength: CGFloat = 0.20
+    static let letterCentre: CGFloat = 0.35
+    static let letterSize: CGFloat = 0.20
+
+    /// One half of the needle: a spike from the centre toward the rim.
+    private func needle(side: CGFloat, pointingNorth: Bool) -> Path {
+        let centre = CGPoint(x: side / 2, y: side / 2)
+        let length = side * Self.needleLength, halfWidth = side * 0.07
+        var path = Path()
+        path.move(to: CGPoint(x: centre.x, y: pointingNorth ? centre.y - length : centre.y + length))
+        path.addLine(to: CGPoint(x: centre.x - halfWidth, y: centre.y))
+        path.addLine(to: CGPoint(x: centre.x + halfWidth, y: centre.y))
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct SceneMapExportView: View {
     let doc: SceneMapDoc
     let plan: FloorPlan
@@ -64,6 +128,10 @@ struct SceneMapExportView: View {
     /// required Apple Maps attribution in the corner of the map (Apple's map
     /// content must carry visible attribution wherever it's displayed/exported).
     var isSatellite: Bool = false
+    /// Screen angle (from up, clockwise) that points North, when the map's
+    /// orientation is known. nil leaves the compass off rather than claiming north
+    /// is up on a map nobody has oriented.
+    var northOffsetDeg: Double? = nil
 
     var body: some View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
@@ -100,6 +168,9 @@ struct SceneMapExportView: View {
             }
             if isSatellite, background != nil {
                 AppleMapsAttribution(rect: rect)
+            }
+            if let northOffsetDeg {
+                MapCompass(rect: rect, northOffsetDeg: northOffsetDeg)
             }
         }
         .frame(width: size.width, height: size.height)

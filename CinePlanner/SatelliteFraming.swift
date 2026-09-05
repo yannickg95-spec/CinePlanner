@@ -188,6 +188,19 @@ extension Scene {
                                 meters: meters, heading: sceneMapSatelliteHeading)
     }
 
+    /// Screen angle (from up, clockwise) that points North on this scene's map, when
+    /// its orientation is actually known.
+    ///
+    /// A satellite capture always knows: it was rendered at a heading. Any other
+    /// background only knows once someone has told the sun overlay where the scene
+    /// is — before that, showing a compass would be asserting north is up because
+    /// nobody has said otherwise, which is a guess dressed as a fact.
+    var mapNorthOffset: Double? {
+        if let capture = satelliteCapture { return -capture.heading }
+        let sun = sunSettings
+        return sun.hasLocation ? sun.northOffsetDeg : nil
+    }
+
     /// Records a capture against the scene.
     ///
     /// Both ways of setting a satellite background go through here, because they

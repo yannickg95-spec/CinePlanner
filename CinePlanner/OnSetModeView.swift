@@ -793,7 +793,8 @@ private struct SceneMapViewerSheet: View {
                 metersWide: scene.sceneMapMetersWide,
                 cameraMeters: scene.sceneMapCameraSizeMeters,
                 viewableMarkers: scene.sceneMapViewableMarkerSize,
-                isSatellite: scene.sceneMapBackgroundIsSatellite)
+                isSatellite: scene.sceneMapBackgroundIsSatellite,
+                northOffsetDeg: scene.mapNorthOffset)
             .frame(width: size.width, height: size.height)
             // View-only: kill the markers' drag gestures so nothing can be moved
             // (their onMove is a no-op, so a drag would just snap back).

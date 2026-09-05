@@ -605,9 +605,24 @@ struct SceneMapEditorView: View {
                 canvasContent(in: rect, geo: geo)
                     .rotationEffect(.degrees(-reframeTurn))
             }
+            // Which way is North — the same compass the exports carry. Drawn outside
+            // the transform so it stays in its corner while the map moves under it,
+            // and reading the framing being previewed so it turns as the map is
+            // turned rather than after the fact.
+            .overlay { mapCompass(in: rect) }
             .overlay { reframeButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
             .onChange(of: reframeKey) { scheduleReframeRender(in: rect, canvas: geo.size) }
+        }
+    }
+
+    @ViewBuilder
+    private func mapCompass(in rect: CGRect) -> some View {
+        let north = reframeActive
+            ? satelliteAnchor.map { -($0.heading + reframeTurn) }
+            : scene.mapNorthOffset
+        if let north {
+            MapCompass(rect: rect, northOffsetDeg: north)
         }
     }
 
@@ -2212,9 +2227,21 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
-        scene.sceneMapBackgroundIsSatellite = other.sceneMapBackgroundIsSatellite
+        if let capture = other.satelliteCapture {
+            // Carry the whole capture, not just the flag. Copying only "this is a
+            // satellite map" left the scene marked as one with no geo-anchor behind
+            // it: no compass, no reframe tool, and nothing to remap markers against.
+            scene.recordSatelliteCapture(capture)
+            // The background *is* a place, so the sun belongs to it too.
+            sun.latitude = capture.center.latitude
+            sun.longitude = capture.center.longitude
+            sun.northOffsetDeg = -capture.heading
+            saveSun()
+        } else {
+            scene.sceneMapBackgroundIsSatellite = other.sceneMapBackgroundIsSatellite
+            scene.sceneMapMetersWide = other.sceneMapMetersWide
+        }
         scene.sceneMapLocation = other.sceneMapLocation
-        scene.sceneMapMetersWide = other.sceneMapMetersWide
         scene.sceneMapCameraSizeMeters = other.sceneMapCameraSizeMeters
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()

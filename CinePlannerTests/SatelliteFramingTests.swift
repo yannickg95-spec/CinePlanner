@@ -376,3 +376,63 @@ final class SatelliteCaptureStorageTests: XCTestCase {
         XCTAssertNil(Scene(sceneNumber: 4).satelliteCapture)
     }
 }
+
+// MARK: - When the map knows which way North is
+
+extension SatelliteCaptureStorageTests {
+
+    func testASatelliteMapAlwaysKnowsNorthFromItsCapture() {
+        let scene = Scene(sceneNumber: 10)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 52.3702, longitude: 4.8952),
+            meters: 60, heading: 137))
+        // The image is turned so 137° points up, so North sits 137° the other way.
+        XCTAssertEqual(scene.mapNorthOffset ?? 0, -137, accuracy: 1e-12)
+    }
+
+    func testANorthUpCaptureReadsAsNorthUp() {
+        let scene = Scene(sceneNumber: 11)
+        scene.recordSatelliteCapture(SatelliteFraming(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: 0), meters: 60))
+        XCTAssertEqual(scene.mapNorthOffset ?? .nan, 0, accuracy: 1e-12)
+    }
+
+    func testAnUnorientedMapClaimsNothing() {
+        // A photo or drawn plan nobody has oriented: showing a compass pointing up
+        // would be asserting north is up because no one said otherwise.
+        XCTAssertNil(Scene(sceneNumber: 12).mapNorthOffset)
+    }
+
+    func testAPlanTheUserHasOrientedDoesKnow() {
+        let scene = Scene(sceneNumber: 13)
+        var sun = SunSettings()
+        sun.latitude = 52.3702
+        sun.longitude = 4.8952
+        sun.northOffsetDeg = -40
+        scene.sunSettings = sun
+        XCTAssertEqual(scene.mapNorthOffset ?? .nan, -40, accuracy: 1e-12)
+    }
+}
+
+// MARK: - The compass dial's layout
+
+final class MapCompassLayoutTests: XCTestCase {
+
+    /// The letter rides the needle's head, so the two are only ever a few percent of
+    /// the dial apart. These pin that gap: nudge one band and the numbers, not a
+    /// screenshot months later, say the letter has started clipping the needle.
+    func testTheLetterClearsTheNeedle() {
+        let needleTip = MapCompass.needleLength
+        let letterBottom = MapCompass.letterCentre - MapCompass.letterSize / 2
+        XCTAssertGreaterThan(letterBottom, needleTip,
+                             "The N would sit on the needle's point.")
+        XCTAssertGreaterThanOrEqual(letterBottom - needleTip, 0.03,
+                                    "Clearance too tight to read as a gap.")
+    }
+
+    func testTheLetterStaysInsideTheDial() {
+        let letterTop = MapCompass.letterCentre + MapCompass.letterSize / 2
+        XCTAssertLessThan(letterTop, 0.5, "The N would run over the rim.")
+        XCTAssertGreaterThanOrEqual(0.5 - letterTop, 0.03)
+    }
+}

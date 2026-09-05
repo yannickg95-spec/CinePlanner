@@ -73,6 +73,10 @@ enum ProjectArchive {
         var sceneMapSatelliteLat: Double?
         var sceneMapSatelliteLon: Double?
         var sceneMapSatelliteMeters: Double?
+        /// Optional so archives written before the map could be turned still decode;
+        /// absent means north-up, which is what those maps were.
+        var sceneMapSatelliteHeading: Double?
+        var sceneMapSatelliteCalibrated: Bool?
         var sceneMapMetersWide: Double?
         var sceneMapCameraSizeMeters: Double?
         var sceneMapShowCameraFOV: Bool?
@@ -225,6 +229,8 @@ enum ProjectArchive {
             sceneMapSatelliteLat: scene.sceneMapSatelliteLat,
             sceneMapSatelliteLon: scene.sceneMapSatelliteLon,
             sceneMapSatelliteMeters: scene.sceneMapSatelliteMeters,
+            sceneMapSatelliteHeading: scene.sceneMapSatelliteHeading,
+            sceneMapSatelliteCalibrated: scene.sceneMapSatelliteCalibrated,
             sceneMapMetersWide: scene.sceneMapMetersWide,
             sceneMapCameraSizeMeters: scene.sceneMapCameraSizeMeters,
             sceneMapShowCameraFOV: scene.sceneMapShowCameraFOV,
@@ -348,6 +354,8 @@ enum ProjectArchive {
                     scene.sceneMapSatelliteLat = s.sceneMapSatelliteLat
                     scene.sceneMapSatelliteLon = s.sceneMapSatelliteLon
                     scene.sceneMapSatelliteMeters = s.sceneMapSatelliteMeters
+                    scene.sceneMapSatelliteHeading = s.sceneMapSatelliteHeading ?? 0
+                    scene.sceneMapSatelliteCalibrated = s.sceneMapSatelliteCalibrated ?? false
                     scene.sceneMapMetersWide = s.sceneMapMetersWide
                     scene.sceneMapCameraSizeMeters = s.sceneMapCameraSizeMeters
                     scene.sceneMapShowCameraFOV = s.sceneMapShowCameraFOV ?? false
