@@ -117,8 +117,12 @@ struct SceneMapEditorView: View {
     @State private var markerToLabel: UUID?
     @State private var markerLabelText = ""
     @State private var backgroundImage: PlatformImage?
-    @State private var showingImagePicker = false
-    @State private var showingModelPicker = false
+    /// Which kind of file the single background importer is currently offering.
+    /// Two separate `.fileImporter` modifiers on one view collide in SwiftUI —
+    /// only the last presents — so both the image and the 3D-model pickers are
+    /// driven through one importer keyed on this.
+    private enum BackgroundImportKind { case image, model }
+    @State private var backgroundImportKind: BackgroundImportKind?
     /// The satellite location picker. Framing an already-set map is done on the
     /// canvas, so this is only for choosing where in the world the map is.
     @State private var showingMapPicker = false
@@ -214,11 +218,21 @@ struct SceneMapEditorView: View {
             guard incoming != floorPlan, !(incoming.isEmpty && !floorPlan.isEmpty) else { return }
             floorPlan = incoming
         }
-        .fileImporter(isPresented: $showingImagePicker, allowedContentTypes: [.image]) { result in
-            if case .success(let url) = result { setBackground(from: url) }
-        }
-        .fileImporter(isPresented: $showingModelPicker, allowedContentTypes: modelContentTypes) { result in
-            if case .success(let url) = result { setBackgroundFromModel(url: url) }
+        .fileImporter(
+            isPresented: Binding(
+                get: { backgroundImportKind != nil },
+                set: { if !$0 { backgroundImportKind = nil } }
+            ),
+            allowedContentTypes: backgroundImportKind == .model ? modelContentTypes : [.image]
+        ) { result in
+            let kind = backgroundImportKind
+            backgroundImportKind = nil
+            if case .success(let url) = result {
+                switch kind {
+                case .model: setBackgroundFromModel(url: url)
+                default: setBackground(from: url)
+                }
+            }
         }
         .overlay {
             if isRenderingModel {
@@ -414,14 +428,14 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
-                    Button { showingImagePicker = true } label: { Label("Image…", systemImage: "photo") }
+                    Button { backgroundImportKind = .image } label: { Label("Image…", systemImage: "photo") }
                     // One item: the picker is for choosing a *place*. Adjusting the
                     // framing of a map that's already set happens on the canvas
                     // itself — pan and zoom, then keep it.
                     Button { showingMapPicker = true } label: {
                         Label("Satellite Map…", systemImage: "globe.europe.africa.fill")
                     }
-                    Button { showingModelPicker = true } label: { Label("3D Model…", systemImage: "cube") }
+                    Button { backgroundImportKind = .model } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
                         let others = scenesWithBackground
                         if others.isEmpty {
