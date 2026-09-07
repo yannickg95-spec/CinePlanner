@@ -986,7 +986,6 @@ struct SceneMapEditorView: View {
     @ViewBuilder
     private func reframeButton(in rect: CGRect) -> some View {
         if canReframe, !isReframeMode, !isDrawing, pendingMove == nil {
-            let inset: CGFloat = 25
             Button {
                 reframeHeading = Compass.normalized(satelliteAnchor?.heading ?? 0)
                 // The shot card is positioned from the marker's unturned screen spot,
@@ -994,27 +993,37 @@ struct SceneMapEditorView: View {
                 cameraInfoElementID = nil
                 isReframeMode = true
             } label: {
-                Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 30, height: 30)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("REFRAME")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(0.6)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
             }
             .buttonStyle(.plain)
             .help("Reframe the satellite map")
             // Pinned to the map's own top-right corner, not the canvas's — on a wide
             // window the square map leaves empty canvas beside it, and a button
-            // floating out there reads as belonging to nothing. Placed outside the
-            // zoom transform so it stays put while the map moves under it.
-            .position(x: rect.maxX - inset, y: rect.minY + inset)
+            // floating out there reads as belonging to nothing. Cornered by
+            // alignment rather than a computed centre, since the label's width
+            // depends on the text. Outside the zoom transform, so it stays put while
+            // the map moves under it.
+            .padding(10)
+            .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
+            .position(x: rect.midX, y: rect.midY)
         }
     }
 
     /// The reframe tool's furniture: the square that will be captured, everything
-    /// outside it dimmed, and a bar to zoom, keep or cancel. Shown for as long as the
-    /// tool is on — not only once something has moved — so it is always clear which
-    /// mode the map is in.
+    /// outside it dimmed, and one panel to zoom, turn, keep or cancel. Shown for as
+    /// long as the tool is on — not only once something has moved — so it is always
+    /// clear which mode the map is in.
     @ViewBuilder
     private func reframeChrome(in rect: CGRect, canvas: CGSize) -> some View {
         if reframeActive, !isDrawing, pendingMove == nil,
@@ -1034,10 +1043,7 @@ struct SceneMapEditorView: View {
             }
             .allowsHitTesting(false)
             .overlay(alignment: .top) {
-                VStack(spacing: 8) {
-                    reframeBar(meters: pending.meters, rect: rect, canvas: canvas)
-                    reframeTurnBar(canvas: canvas)
-                }
+                reframePanel(meters: pending.meters, rect: rect, canvas: canvas)
             }
         }
     }
@@ -1059,19 +1065,48 @@ struct SceneMapEditorView: View {
         )
     }
 
-    private func reframeBar(meters: Double, rect: CGRect, canvas: CGSize) -> some View {
-        // The full bar needs about 480 pt; below that it drops the magnifier icons
-        // and shortens the slider rather than running off a narrow canvas.
-        let compact = isPhone || canvas.width < 520
-        return HStack(spacing: compact ? 7 : 10) {
+    /// Everything the tool offers, in one panel.
+    ///
+    /// It was three stacked capsules — zoom, turn, hint — each carrying its own
+    /// padding, border and shadow, and together they ate the top of the very map they
+    /// were there to help frame. One panel pays for that chrome once. Given the width
+    /// the two sliders share a row and the hint sits opposite the buttons; below that
+    /// the rows split, rather than the sliders shrinking until they can't be aimed.
+    private func reframePanel(meters: Double, rect: CGRect, canvas: CGSize) -> some View {
+        // Both slider rows side by side need about 580 pt.
+        let compact = isPhone || canvas.width < 580
+
+        let zoomRow = HStack(spacing: compact ? 7 : 9) {
             Image(systemName: "viewfinder").foregroundStyle(.secondary)
             Text("\(Int(meters.rounded())) m").monospacedDigit()
-            Divider().frame(height: 14)
+                .frame(minWidth: 46, alignment: .leading)
             if !compact { Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary) }
             Slider(value: reframeZoomBinding(canvas: canvas), in: 0...1)
-                .frame(width: compact ? 90 : 140)
+                .frame(width: compact ? 96 : 130)
             if !compact { Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary) }
-            Divider().frame(height: 14)
+        }
+
+        let turnRow = HStack(spacing: compact ? 7 : 9) {
+            Text("Up is").foregroundStyle(.secondary)
+            CompassSlider(heading: $reframeHeading, width: compact ? 104 : 150)
+            Text(Compass.readout(reframeHeading)).monospacedDigit()
+                .frame(width: 66, alignment: .trailing)
+            Button { reframeHeading = 0 } label: { Image(systemName: "location.north.fill") }
+                .buttonStyle(.plain)
+                .foregroundStyle(Compass.normalized(reframeHeading) == 0 ? Color.secondary : Color.accentColor)
+                .help("Turn north back up")
+        }
+
+        // The hint shares the buttons' row: it is the quietest thing here, and the row
+        // it would otherwise own is the one worth reclaiming.
+        let actionRow = HStack(spacing: 10) {
+            HStack(spacing: 5) {
+                Image(systemName: "hand.draw").foregroundStyle(.secondary)
+                Text(compact ? "Drag to move the map"
+                             : "Drag the map to move it under the frame")
+            }
+            .font(.caption)
+            Spacer(minLength: 14)
             Button("Cancel") { cancelReframe() }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
             Button {
@@ -1087,10 +1122,28 @@ struct SceneMapEditorView: View {
             .controlSize(.small)
             .disabled(isCommittingReframe)
         }
+
+        return VStack(alignment: .leading, spacing: compact ? 7 : 8) {
+            if compact {
+                zoomRow
+                turnRow
+            } else {
+                HStack(spacing: 12) {
+                    zoomRow
+                    Divider().frame(height: 16)
+                    turnRow
+                }
+            }
+            actionRow
+        }
         .font(.callout)
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        // Without this the action row's spacer — and the panel with it — would stretch
+        // to the full width of the canvas the overlay offers.
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(Color.secondary.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
         .padding(.top, 10)
     }
