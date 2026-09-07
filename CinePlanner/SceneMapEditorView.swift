@@ -1170,13 +1170,13 @@ struct SceneMapEditorView: View {
                 .frame(minWidth: 46, alignment: .leading)
             if !compact { Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary) }
             Slider(value: reframeZoomBinding(canvas: canvas), in: 0...1)
-                .frame(width: compact ? 96 : 130)
+                .frame(width: compact ? 150 : 130)
             if !compact { Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary) }
         }
 
         let turnRow = HStack(spacing: compact ? 7 : 9) {
             Text("Up is").foregroundStyle(.secondary)
-            CompassSlider(heading: $reframeHeading, width: compact ? 104 : 150)
+            CompassSlider(heading: $reframeHeading, width: compact ? 150 : 150)
             Text(Compass.readout(reframeHeading)).monospacedDigit()
                 .frame(width: 66, alignment: .trailing)
             Button { reframeHeading = 0 } label: { Image(systemName: "location.north.fill") }
@@ -1415,12 +1415,12 @@ struct SceneMapEditorView: View {
 
         let zoomRow = HStack(spacing: compact ? 7 : 9) {
             Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
-            Slider(value: zoomBinding, in: 0...1).frame(width: compact ? 100 : 140)
+            Slider(value: zoomBinding, in: 0...1).frame(width: compact ? 150 : 140)
             Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
         }
         let turnRow = HStack(spacing: compact ? 7 : 9) {
             Image(systemName: "rotate.right").foregroundStyle(.secondary)
-            Slider(value: rotationBinding, in: -180...180).frame(width: compact ? 100 : 140)
+            Slider(value: rotationBinding, in: -180...180).frame(width: compact ? 150 : 140)
             Text("\(Int(bgTransform.rotation.rounded()))°").monospacedDigit()
                 .frame(width: 46, alignment: .trailing)
         }

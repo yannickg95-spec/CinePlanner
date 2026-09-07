@@ -27,6 +27,14 @@ enum MapSnapshot {
     /// size instead; this only caps a very wide capture.
     private static let referenceLongEdge: CGFloat = 2048
 
+    /// How much wider than the requested area to render, so the centre crop can
+    /// throw away MapKit's legal attribution (the Apple logo + "Legal" link it burns
+    /// into the bottom-left of every iOS snapshot). The crop is measured on the
+    /// returned image's true scale, so the stored image still represents exactly the
+    /// requested area — only the discarded margin differs. 1.4 leaves a wide enough
+    /// border to clear the badge at any reference size.
+    private static let attributionMargin = 1.5
+
     /// Metres of ground the snapshotter frames per metre of camera distance, at
     /// pitch 0. Measured, and constant across image sizes and headings — the one
     /// number needed to ask a camera for an exact span.
@@ -61,11 +69,14 @@ enum MapSnapshot {
                                             meters: framing.meters, pixels: pixels)
         }
         let side = framing.meters * MKMapPointsPerMeterAtLatitude(framing.center.latitude)
-        let refSize = referenceSize(forSide: side, aspect: 1)
+        // Capture a wider area than requested so the centre crop can drop MapKit's
+        // baked-in attribution badge; `side` (the crop) stays the requested span.
+        let capturedMeters = framing.meters * attributionMargin
+        let refSize = referenceSize(forSide: side * attributionMargin, aspect: 1)
 
         let options = MKMapSnapshotter.Options()
         options.camera = MKMapCamera(lookingAtCenter: framing.center,
-                                     fromDistance: framing.meters / spanPerCameraDistance,
+                                     fromDistance: capturedMeters / spanPerCameraDistance,
                                      pitch: 0, heading: framing.heading)
         options.mapType = .satellite
         options.size = refSize
@@ -74,10 +85,11 @@ enum MapSnapshot {
 
         // Measure what came back and crop the exact square out of the middle, the
         // same way the north-up path does — the camera is subject to the same zoom
-        // clamp, and a tight capture comes back wider than asked for.
+        // clamp, and a tight capture comes back wider than asked for. The margin is
+        // in the discarded border, so MapKit's bottom-left badge is cropped away.
         let scale = mapPointsPerImagePoint(in: snapshot, centre: MKMapPoint(framing.center),
                                            probeSpan: side / 4)
-            ?? (side / Double(refSize.width))
+            ?? (side * attributionMargin / Double(refSize.width))
         let cropSide = min(CGFloat(side / scale), min(refSize.width, refSize.height))
         let crop = CGRect(x: (refSize.width - cropSide) / 2, y: (refSize.height - cropSide) / 2,
                           width: cropSide, height: cropSide)
@@ -85,11 +97,17 @@ enum MapSnapshot {
                             to: CGSize(width: pixels, height: pixels))
     }
 
+    /// Smallest reference long edge. Floored well above MapKit's badge size so the
+    /// centre crop's (fractional) margin always exceeds the fixed-point attribution
+    /// badge — otherwise a tight capture renders small, the fractional margin drops
+    /// below the badge, and the badge creeps back into the crop.
+    private static let referenceMinEdge: CGFloat = 700
+
     /// Reference render size for a capture `side` map points across: as large as
     /// useful, but never finer than MapKit will draw.
     private static func referenceSize(forSide side: Double, aspect: CGFloat) -> CGSize {
         let clamped = CGFloat((side / minMapPointsPerRenderedPoint).rounded())
-        let longEdge = max(min(referenceLongEdge, clamped), 64)
+        let longEdge = max(min(referenceLongEdge, clamped), referenceMinEdge)
         return aspect >= 1
             ? CGSize(width: longEdge, height: (longEdge / aspect).rounded())
             : CGSize(width: (longEdge * aspect).rounded(), height: longEdge)
@@ -127,7 +145,9 @@ enum MapSnapshot {
         // preview visibly lags the framing it belongs to.
         let refSize = referenceSize(forSide: max(mapRect.width, mapRect.height), aspect: aspect)
         // Widen the requested rect rather than asking for detail MapKit won't render.
-        let widen = max(1, minMapPointsPerRenderedPoint * Double(refSize.width) / max(mapRect.width, 1))
+        // Never less than `attributionMargin`, so the centre crop always has a border
+        // to discard MapKit's baked-in attribution badge with.
+        let widen = max(attributionMargin, minMapPointsPerRenderedPoint * Double(refSize.width) / max(mapRect.width, 1))
         let refRect = MKMapRect(x: mapRect.midX - mapRect.width * widen / 2,
                                 y: mapRect.midY - mapRect.height * widen / 2,
                                 width: mapRect.width * widen,
