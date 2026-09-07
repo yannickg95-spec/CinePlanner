@@ -129,10 +129,8 @@ struct SceneMapEditorView: View {
     @State private var bgTransform = SceneMapBackgroundTransform()
     /// True while the align-background tool is up.
     @State private var isBackgroundAdjustMode = false
-    /// Transform captured at the start of a pinch/rotate/drag, the base each live
-    /// delta is applied to.
-    @State private var bgAdjustStartScale: Double = 1
-    @State private var bgAdjustStartRotation: Double = 0
+    /// The placement offset captured at the start of a move drag, the base the live
+    /// drag translation is applied to.
     @State private var bgAdjustStartOffset: CGSize = .zero
     /// The satellite location picker. Framing an already-set map is done on the
     /// canvas, so this is only for choosing where in the world the map is.
@@ -683,6 +681,15 @@ struct SceneMapEditorView: View {
                 if sun.enabled && sun.hasLocation { sunTimeBar }
             }
             .overlay { mapCompass(in: rect) }
+            // Apple Maps attribution — fixed chrome pinned to the map rect, drawn
+            // outside the map group's transform so it stays put (and one size) while
+            // the map zooms/pans under it, instead of scaling with the map and
+            // reading as a second logo baked into the imagery.
+            .overlay {
+                if scene.sceneMapBackgroundIsSatellite, backgroundImage != nil {
+                    AppleMapsAttribution(rect: rect)
+                }
+            }
             .overlay { reframeButton(in: rect) }
             .overlay { backgroundAdjustButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
@@ -875,10 +882,6 @@ struct SceneMapEditorView: View {
             }
             // Sun-direction overlay (non-interactive), above the map content.
             sunOverlay(in: rect)
-            // Apple Maps attribution on satellite backgrounds.
-            if scene.sceneMapBackgroundIsSatellite, backgroundImage != nil {
-                AppleMapsAttribution(rect: rect)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
@@ -906,26 +909,25 @@ struct SceneMapEditorView: View {
         // transparent catcher overlay sat on the touch/pinch path and is the
         // suspected cause of a zoom crash — touch devices pan by dragging anyway.
         #if os(macOS)
+        // Trackpad two-finger swipe pans while reframing or zoomed in. Wheel/pinch
+        // zoom is intentionally not wired: the map's scale changes only through the
+        // reframe and align sliders, never a gesture.
         .overlay(
             TrackpadScrollCatcher(
-                enabled: zoom > 1 || canReframe,
-                onZoom: { factor in zoomBy(factor, size: geo.size) },
+                enabled: reframeActive || zoom > 1,
+                onZoom: { _ in },
                 onScroll: { delta in panBy(delta, size: geo.size) }
             )
         )
         #endif
         .onAppear { mapContentWidth = rect.width }
         .onChange(of: geo.size) { mapContentWidth = contentRect(in: geo.size).width }
-        // Pinch (zoom) and one-finger empty-canvas drag (pan/marquee) as a single
-        // recognizer — a separate `.simultaneousGesture` for the pinch made iOS
-        // defer the drag's continuous updates, so panning only jumped on release.
-        // Attached with `.gesture`, so markers still capture their own drags.
+        // One-finger empty-canvas drag pans (while reframing/zoomed) or draws a
+        // marquee. Pinch-to-zoom is intentionally gone: the map is zoomed only via
+        // the reframe/align sliders, so a stray pinch can't warp it.
         .gesture(
-            SimultaneousGesture(
-                magnifyGesture(size: geo.size),
-                canvasPanOrMarquee(in: rect, size: geo.size,
-                                   canvasOrigin: geo.frame(in: .global).origin)
-            ),
+            canvasPanOrMarquee(in: rect, size: geo.size,
+                               canvasOrigin: geo.frame(in: .global).origin),
             including: backgroundAdjustActive ? .none : .all
         )
         // While aligning, the same touches move/zoom/turn the image instead; this
@@ -1373,11 +1375,10 @@ struct SceneMapEditorView: View {
         try? scene.modelContext?.save()
     }
 
-    /// Drag = move, pinch = zoom, two-finger twist = rotate — all writing straight
-    /// to `bgTransform`, each from the value captured when its gesture began so the
-    /// three compose instead of fighting. Persisted once, on end.
+    /// Drag = move, and only move. Scale and rotation are set from the panel
+    /// sliders, never a gesture, so a stray pinch or twist can't warp the placement.
     private func backgroundAdjustGesture(in rect: CGRect) -> some Gesture {
-        let drag = DragGesture(minimumDistance: 0, coordinateSpace: .global)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
                 guard rect.width > 0, rect.height > 0 else { return }
                 if bgAdjustStartOffset == .zero, value.translation == .zero {
@@ -1390,25 +1391,6 @@ struct SceneMapEditorView: View {
                 bgAdjustStartOffset = .zero
                 persistBackgroundTransform()
             }
-
-        let magnify = MagnifyGesture()
-            .onChanged { value in
-                if value.magnification == 1 { bgAdjustStartScale = bgTransform.scale }
-                let target = bgAdjustStartScale * Double(value.magnification)
-                bgTransform.scale = min(max(target, Self.bgScaleRange.lowerBound), Self.bgScaleRange.upperBound)
-            }
-            .onEnded { _ in persistBackgroundTransform() }
-
-        let rotate = RotateGesture()
-            .onChanged { value in
-                if value.rotation == .zero { bgAdjustStartRotation = bgTransform.rotation }
-                bgTransform.rotation = bgAdjustStartRotation + value.rotation.degrees
-            }
-            .onEnded { _ in persistBackgroundTransform() }
-
-        // Pinch and twist run together (two fingers); the drag is the one-finger
-        // case. Simultaneous so a two-finger gesture can zoom and rotate at once.
-        return drag.simultaneously(with: magnify.simultaneously(with: rotate))
     }
 
     /// The align tool's panel: precise zoom and rotation controls plus reset/done,
@@ -1445,7 +1427,7 @@ struct SceneMapEditorView: View {
         let actionRow = HStack(spacing: 10) {
             HStack(spacing: 5) {
                 Image(systemName: "hand.draw").foregroundStyle(.secondary)
-                Text(compact ? "Drag · pinch · twist" : "Drag to move · pinch to zoom · twist to rotate")
+                Text(compact ? "Drag to move" : "Drag to move · sliders to zoom & rotate")
             }
             .font(.caption)
             Spacer(minLength: 14)
@@ -1781,41 +1763,6 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
-    /// Pinch-to-zoom the whole map, clamped `minZoom`…4×. Zooms about the pinch/cursor
-    /// point (not the map centre): the scale stays anchored at `.center`, but `pan`
-    /// is adjusted each step so the content under the pinch stays put. On a plain
-    /// background, pinching back to 1× recenters; on a satellite map 1× is just
-    /// another framing, so only the scale snaps.
-    private func magnifyGesture(size: CGSize) -> some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                let z0 = zoom
-                let z1 = min(max(lastZoom * value.magnification, minZoom), 4)
-                guard z1 != z0 else { return }
-                // Offset of the pinch point from the map centre.
-                let dx = value.startAnchor.x * size.width - size.width / 2
-                let dy = value.startAnchor.y * size.height - size.height / 2
-                let ratio = z1 / z0
-                var newPan = CGSize(width: dx - ratio * (dx - pan.width),
-                                    height: dy - ratio * (dy - pan.height))
-                let limits = panLimits(size, zoom: z1)
-                newPan.width = min(max(newPan.width, -limits.width), limits.width)
-                newPan.height = min(max(newPan.height, -limits.height), limits.height)
-                zoom = z1
-                pan = newPan
-            }
-            .onEnded { _ in
-                lastZoom = zoom
-                lastPan = pan
-                if reframeActive {
-                    if abs(zoom - 1) < 0.02 { zoom = 1; lastZoom = 1 }
-                } else if zoom <= 1.02 {
-                    zoom = 1; lastZoom = 1
-                    withAnimation(.easeOut(duration: 0.15)) { pan = .zero }
-                    lastPan = .zero
-                }
-            }
-    }
 
     /// Zoom a step from a mouse wheel, about the map centre (a wheel has no anchor
     /// the way a pinch does). `pan` scales with the zoom so the ground under the
