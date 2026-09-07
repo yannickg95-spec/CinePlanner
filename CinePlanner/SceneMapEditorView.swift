@@ -933,7 +933,7 @@ struct SceneMapEditorView: View {
         // While aligning, the same touches move/zoom/turn the image instead; this
         // gesture takes over the canvas and ignores the (hit-test-disabled) markers.
         .gesture(backgroundAdjustGesture(in: rect),
-                 including: backgroundAdjustActive ? .gesture : .none)
+                 including: backgroundAdjustActive ? .gesture : .subviews)
         .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
         #if os(macOS)
         .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
@@ -1985,8 +1985,11 @@ struct SceneMapEditorView: View {
     @ViewBuilder
     private func arrowHitView(_ arrow: MapArrow, in rect: CGRect) -> some View {
         if let pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2 {
-            Color.clear
-                .contentShape(ArrowHitShape(points: pts))
+            // A filled (near-invisible) shape rather than Color.clear + contentShape:
+            // a filled shape is reliably hit-testable along the whole band, where the
+            // clear-plus-contentShape form could miss taps on the thin arrow.
+            ArrowHitShape(points: pts)
+                .fill(Color.black.opacity(0.001))
                 .onTapGesture { selectArrow(arrow.id) }
                 .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasSpace)) { phase in
                     if case .active(let location) = phase { arrowHover = location }
@@ -3294,7 +3297,9 @@ struct ArrowHitShape: Shape {
     var points: [CGPoint]
     func path(in rect: CGRect) -> Path {
         guard points.count >= 2 else { return Path() }
-        return smoothPolyline(points).strokedPath(StrokeStyle(lineWidth: 20, lineCap: .round, lineJoin: .round))
+        // Wider on touch (a finger's worth) so the thin drawn arrow is easy to tap.
+        let width = 20 + sceneMapHandleSlop * 2
+        return smoothPolyline(points).strokedPath(StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
     }
 }
 

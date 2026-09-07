@@ -162,7 +162,10 @@ struct MapMarkerView: View {
             // real-world size when the background is measured.
             iconGraphic
                 .scaleEffect(scale)
-                .contentShape(Rectangle())
+                // A finger-friendly tap/drag target: the icon plus a touch margin
+                // (0 on macOS), so a small marker — a moved mannequin's start point
+                // especially, sitting right under the arrow — is still easy to grab.
+                .contentShape(Rectangle().inset(by: -sceneMapHandleSlop))
                 .onTapGesture { onSelect(); onTap() }
                 .gesture(dragGesture)
                 .rotationEffect(.degrees(displayRotation))
