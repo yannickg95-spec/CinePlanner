@@ -377,6 +377,17 @@ final class Scene {
     /// Real camera-marker diameter (metres) from CineStager; nil → default 0.6 m.
     var sceneMapCameraSizeMeters: Double?
 
+    /// Manual placement of a (non-satellite) background image under the fixed
+    /// markers, so an imported floor plan or reference photo can be aligned to
+    /// them. `scale` is a multiplier over the aspect-fitted size (1 = fitted),
+    /// `offset` a fraction of the fitted rect, `rotation` degrees clockwise.
+    /// Defaults leave the image exactly aspect-fitted, so existing scenes and
+    /// satellite backgrounds are untouched.
+    var sceneMapBackgroundScale: Double = 1
+    var sceneMapBackgroundOffsetX: Double = 0
+    var sceneMapBackgroundOffsetY: Double = 0
+    var sceneMapBackgroundRotation: Double = 0
+
     /// Draw a field-of-view wedge (two rays) from every camera marker, from the
     /// linked shot's focal length. A per-scene toggle set from a camera's
     /// right-click menu — it applies to every camera in the scene, present and

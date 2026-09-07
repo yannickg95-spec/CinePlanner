@@ -79,6 +79,12 @@ enum ProjectArchive {
         var sceneMapSatelliteCalibrated: Bool?
         var sceneMapMetersWide: Double?
         var sceneMapCameraSizeMeters: Double?
+        // Optional so archives written before background alignment existed still
+        // decode; missing → identity placement on import.
+        var sceneMapBackgroundScale: Double?
+        var sceneMapBackgroundOffsetX: Double?
+        var sceneMapBackgroundOffsetY: Double?
+        var sceneMapBackgroundRotation: Double?
         var sceneMapShowCameraFOV: Bool?
         var sceneMapViewableMarkerSize: Bool?
         var sceneFloorPlanJSON: String?
@@ -233,6 +239,10 @@ enum ProjectArchive {
             sceneMapSatelliteCalibrated: scene.sceneMapSatelliteCalibrated,
             sceneMapMetersWide: scene.sceneMapMetersWide,
             sceneMapCameraSizeMeters: scene.sceneMapCameraSizeMeters,
+            sceneMapBackgroundScale: scene.sceneMapBackgroundScale,
+            sceneMapBackgroundOffsetX: scene.sceneMapBackgroundOffsetX,
+            sceneMapBackgroundOffsetY: scene.sceneMapBackgroundOffsetY,
+            sceneMapBackgroundRotation: scene.sceneMapBackgroundRotation,
             sceneMapShowCameraFOV: scene.sceneMapShowCameraFOV,
             sceneMapViewableMarkerSize: scene.sceneMapViewableMarkerSize,
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
@@ -358,6 +368,10 @@ enum ProjectArchive {
                     scene.sceneMapSatelliteCalibrated = s.sceneMapSatelliteCalibrated ?? false
                     scene.sceneMapMetersWide = s.sceneMapMetersWide
                     scene.sceneMapCameraSizeMeters = s.sceneMapCameraSizeMeters
+                    scene.sceneMapBackgroundScale = s.sceneMapBackgroundScale ?? 1
+                    scene.sceneMapBackgroundOffsetX = s.sceneMapBackgroundOffsetX ?? 0
+                    scene.sceneMapBackgroundOffsetY = s.sceneMapBackgroundOffsetY ?? 0
+                    scene.sceneMapBackgroundRotation = s.sceneMapBackgroundRotation ?? 0
                     scene.sceneMapShowCameraFOV = s.sceneMapShowCameraFOV ?? false
                     scene.sceneMapViewableMarkerSize = s.sceneMapViewableMarkerSize ?? false
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON

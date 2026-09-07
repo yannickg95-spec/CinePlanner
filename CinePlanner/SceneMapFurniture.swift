@@ -25,13 +25,23 @@ private struct FurnitureGlyph: View {
     let fill: Color
     let stroke: Color
     let lineWidth: CGFloat
+    /// Live magnification this glyph will undergo (map placement scale × canvas
+    /// zoom). The Canvas is drawn that many times larger and scaled back down, so it
+    /// rasterizes at the final on-screen resolution instead of a blurry, magnified
+    /// 1× bitmap. Capped so the backing bitmap stays bounded at extreme zoom.
+    var renderScale: CGFloat = 1
 
     var body: some View {
-        Canvas { context, size in
+        let k = min(max(renderScale, 1), 8)
+        Canvas { context, canvasSize in
             var ctx = context
-            drawFurniture(kind, in: CGRect(origin: .zero, size: size),
-                          into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth)
+            drawFurniture(kind, in: CGRect(origin: .zero, size: canvasSize),
+                          into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
         }
+        // Render k× larger, then scale back: the layout stays `size`, but the raster
+        // is drawn at k× so the parent group's scaleEffect has real pixels to show.
+        .frame(width: size.width * k, height: size.height * k)
+        .scaleEffect(1 / k)
         .frame(width: size.width, height: size.height)
     }
 }
@@ -167,6 +177,11 @@ struct FurnitureView: View {
     let contentRect: CGRect
     /// Counter-scales the label by 1/zoom so it stays a constant on-screen size.
     var zoom: CGFloat = 1
+    /// Map placement (see `SceneMapBackgroundTransform`): the glyph rides it via the
+    /// parent group; the label and handles are countered so they stay upright and a
+    /// constant on-screen size.
+    var placeScale: CGFloat = 1
+    var placeRotation: Double = 0
     let onSelect: () -> Void
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
@@ -209,7 +224,8 @@ struct FurnitureView: View {
         ZStack {
             FurnitureGlyph(kind: furniture.kind, size: CGSize(width: w, height: h),
                            fill: color, stroke: isSelected ? Color.accentColor : color,
-                           lineWidth: isSelected ? 2.5 : 2)
+                           lineWidth: isSelected ? 2.5 : 2,
+                           renderScale: zoom * placeScale)
                 .contentShape(Rectangle())
                 .rotationEffect(.degrees(displayRotation))
                 .onTapGesture { onSelect() }
@@ -222,7 +238,8 @@ struct FurnitureView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.regularMaterial, in: Capsule())
-                    .scaleEffect(1 / zoom, anchor: .top)
+                    .scaleEffect(1 / (zoom * placeScale), anchor: .top)
+                    .rotationEffect(.degrees(-placeRotation), anchor: .top)
                     .offset(x: nudge.width, y: labelBaseOffsetY(w: w, h: h) + nudge.height)
                     .gesture(labelDragGesture(w: w, h: h))
                     .help("Drag to move the label")
@@ -234,18 +251,23 @@ struct FurnitureView: View {
                 cornerHandle(-1,  1, w: w, h: h)
                 cornerHandle( 1,  1, w: w, h: h)
                 rotationHandle
-                    .scaleEffect(1 / zoom, anchor: .center)
+                    .scaleEffect(1 / (zoom * placeScale), anchor: .center)
                     .offset(rotationHandleOffset(h: h))
             }
-            // Real dimensions while resizing (only on a measured background).
-            if liveSize != nil, let dims = realSizeText {
+            // Real dimensions while resizing (only on a measured background). Kept a
+            // constant, readable on-screen size — countering the full map scale
+            // (zoom × placement) — so it isn't blown up when the piece is large or
+            // the map zoomed in. Its distance above the piece still scales, so it
+            // tracks the corner. Always in the hierarchy, toggled with opacity.
+            if let dims = realSizeText {
                 Text(dims)
                     .font(.caption2.monospacedDigit()).fontWeight(.medium)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-                    .scaleEffect(1 / zoom, anchor: .center)
+                    .scaleEffect(1 / (zoom * placeScale), anchor: .center)
                     .offset(y: -(max(w, h) / 2 + 16))
+                    .opacity(liveSize != nil ? 1 : 0)
                     .allowsHitTesting(false)
             }
         }
@@ -359,14 +381,14 @@ struct FurnitureView: View {
         let lx = sx * w / 2, ly = sy * h / 2
         let ox = lx * cos(r) - ly * sin(r)
         let oy = lx * sin(r) + ly * cos(r)
-        return RoundedRectangle(cornerRadius: 2)
+        return RoundedRectangle(cornerRadius: 1.5)
             .fill(.white)
-            .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.accentColor, lineWidth: 1.5))
-            .frame(width: 11, height: 11)
+            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(Color.accentColor, lineWidth: 1.2))
+            .frame(width: 7, height: 7)
             .contentShape(Rectangle().inset(by: -(7 + sceneMapHandleSlop)))
-            // Constant on-screen size (grab area included); the corner position (offset)
-            // still scales, so it tracks the resized piece's corner.
-            .scaleEffect(1 / zoom, anchor: .center)
+            // Scales with the map (like the piece and its selection box) rather than
+            // staying a fixed on-screen size, so the grab squares stay on the corners
+            // and grow with the furniture when zoomed in.
             .offset(x: ox, y: oy)
             .gesture(resizeDrag)
     }

@@ -97,6 +97,12 @@ struct MapMarkerView: View {
     var onGroupDragEnded: (CGSize) -> Void = { _ in }
     /// Real-world scale factor for the icon (1 = default). See `sceneMarkerScale`.
     var scale: CGFloat = 1
+    /// The map's placement scale and rotation (see `SceneMapBackgroundTransform`).
+    /// The icon rides these through the parent group; the label and rotation handle
+    /// are counter-transformed by them so the caption stays upright and both keep a
+    /// constant on-screen size while still moving with the marker.
+    var placeScale: CGFloat = 1
+    var placeRotation: Double = 0
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -168,7 +174,11 @@ struct MapMarkerView: View {
             if !label.isEmpty && !element.labelHidden {
                 let nudge = liveLabelOffset ?? element.labelOffset
                 labelView
-                    .scaleEffect(1 / zoom, anchor: .top)
+                    // Counter the canvas zoom and the map placement so the caption
+                    // stays a constant on-screen size and upright, while still
+                    // riding with its marker.
+                    .scaleEffect(1 / (zoom * placeScale), anchor: .top)
+                    .rotationEffect(.degrees(-placeRotation), anchor: .top)
                     .contentShape(Rectangle())
                     .offset(x: nudge.width, y: labelOffsetY + nudge.height)
                     .gesture(labelDragGesture)
@@ -180,7 +190,7 @@ struct MapMarkerView: View {
                 // grab area) instead of ballooning with the map zoom. Its distance
                 // from the marker still scales, so it sits just outside the marker.
                 rotationHandle
-                    .scaleEffect(1 / zoom, anchor: .center)
+                    .scaleEffect(1 / (zoom * placeScale), anchor: .center)
                     .offset(handleOffset)
             }
         }

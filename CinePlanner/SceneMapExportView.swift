@@ -14,6 +14,53 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Background image placement
+
+/// How the annotated map is placed: a manual rotate/scale/offset applied to the
+/// background image *and its markers together*, so the map can be turned or nudged
+/// while every marker keeps the spot on the image it annotates. Identity leaves the
+/// image exactly aspect-fitted.
+struct SceneMapBackgroundTransform: Equatable {
+    var scale: Double = 1
+    var offsetX: Double = 0   // fraction of the fitted rect's width
+    var offsetY: Double = 0   // fraction of the fitted rect's height
+    var rotation: Double = 0  // degrees, clockwise
+
+    var isIdentity: Bool { scale == 1 && offsetX == 0 && offsetY == 0 && rotation == 0 }
+}
+
+extension Scene {
+    /// The background placement as one value; the individual stored fields are the
+    /// source of truth (SwiftData can't persist a struct here).
+    var sceneMapBackgroundTransform: SceneMapBackgroundTransform {
+        get {
+            SceneMapBackgroundTransform(scale: sceneMapBackgroundScale,
+                                        offsetX: sceneMapBackgroundOffsetX,
+                                        offsetY: sceneMapBackgroundOffsetY,
+                                        rotation: sceneMapBackgroundRotation)
+        }
+        set {
+            sceneMapBackgroundScale = newValue.scale
+            sceneMapBackgroundOffsetX = newValue.offsetX
+            sceneMapBackgroundOffsetY = newValue.offsetY
+            sceneMapBackgroundRotation = newValue.rotation
+        }
+    }
+}
+
+extension View {
+    /// Places the whole annotated map — background image *and* its markers — as one
+    /// unit: rotate + scale about the centre, then offset by a fraction of the map
+    /// rect (in screen space, so a drag tracks 1:1). The caller clips. Applied
+    /// identically by the editor and every export so what you align is what ships.
+    func sceneMapPlacement(_ t: SceneMapBackgroundTransform, in rect: CGRect) -> some View {
+        self
+            .rotationEffect(.degrees(t.rotation))
+            .scaleEffect(t.scale)
+            .offset(x: CGFloat(t.offsetX) * rect.width, y: CGFloat(t.offsetY) * rect.height)
+    }
+}
+
 // MARK: - Static export rendering
 
 /// A static, non-interactive rendering of a scene map, used to rasterize a
@@ -128,6 +175,9 @@ struct SceneMapExportView: View {
     /// required Apple Maps attribution in the corner of the map (Apple's map
     /// content must carry visible attribution wherever it's displayed/exported).
     var isSatellite: Bool = false
+    /// Manual placement of a non-satellite background image (see
+    /// `SceneMapBackgroundTransform`). Identity by default.
+    var backgroundTransform: SceneMapBackgroundTransform = .init()
     /// Screen angle (from up, clockwise) that points North, when the map's
     /// orientation is known. nil leaves the compass off rather than claiming north
     /// is up on a map nobody has oriented.
@@ -135,37 +185,50 @@ struct SceneMapExportView: View {
 
     var body: some View {
         let rect = Self.contentRect(in: size, background: background, hasFloorPlan: !plan.isEmpty)
+        let place = isSatellite ? SceneMapBackgroundTransform() : backgroundTransform
         ZStack {
-            if let background {
-                Image(platformImage: background)
-                    .resizable()
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-            } else {
-                Canvas { ctx, _ in Self.drawGrid(ctx, rect) }
+            Color.platformTextBackground
+            // Image and markers transform as one, so the markers keep the spots on
+            // the image they annotate — the same placement the editor shows.
+            ZStack {
+                if let background {
+                    Image(platformImage: background)
+                        .resizable()
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                } else {
+                    Canvas { ctx, _ in Self.drawGrid(ctx, rect) }
+                }
+                if !plan.isEmpty {
+                    Canvas { ctx, _ in Self.drawFloorPlan(ctx, plan: plan, in: rect) }
+                }
+                ForEach(doc.furniture) { item in
+                    FurnitureView(furniture: item, isSelected: false, contentRect: rect,
+                                  placeScale: CGFloat(place.scale), placeRotation: place.rotation,
+                                  onSelect: {}, onMove: { _ in }, onRotate: { _ in },
+                                  onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
+                                  onDuplicate: {}, onDelete: {})
+                }
+                ForEach(doc.elements) { element in
+                    MapMarkerView(element: element, label: labels[element.id] ?? element.label,
+                                  isSelected: false, contentRect: rect,
+                                  onSelect: {}, onMove: { _ in }, onRotate: { _ in },
+                                  onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
+                                  onMoveLabel: { _ in },
+                                  scale: sceneMarkerScale(kind: element.kind, metersWide: metersWide,
+                                                          cameraMeters: cameraMeters, mapWidthPoints: rect.width,
+                                                          viewable: viewableMarkers),
+                                  placeScale: CGFloat(place.scale),
+                                  placeRotation: place.rotation)
+                }
             }
-            if !plan.isEmpty {
-                Canvas { ctx, _ in Self.drawFloorPlan(ctx, plan: plan, in: rect) }
-            }
-            ForEach(doc.furniture) { item in
-                FurnitureView(furniture: item, isSelected: false, contentRect: rect,
-                              onSelect: {}, onMove: { _ in }, onRotate: { _ in },
-                              onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
-                              onDuplicate: {}, onDelete: {})
-            }
+            .sceneMapPlacement(place, in: rect)
+            // Arrows: outside the placement group (replicated on the context) so they
+            // rasterize crisply, matching the editor.
             if !doc.arrows.isEmpty {
-                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect) }
+                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect, canvas: size, place: place) }
             }
-            ForEach(doc.elements) { element in
-                MapMarkerView(element: element, label: labels[element.id] ?? element.label,
-                              isSelected: false, contentRect: rect,
-                              onSelect: {}, onMove: { _ in }, onRotate: { _ in },
-                              onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
-                              onMoveLabel: { _ in },
-                              scale: sceneMarkerScale(kind: element.kind, metersWide: metersWide,
-                                                      cameraMeters: cameraMeters, mapWidthPoints: rect.width,
-                                                      viewable: viewableMarkers))
-            }
+            // Chrome stays put (untransformed), matching the editor.
             if isSatellite, background != nil {
                 AppleMapsAttribution(rect: rect)
             }
@@ -174,7 +237,7 @@ struct SceneMapExportView: View {
             }
         }
         .frame(width: size.width, height: size.height)
-        .background(Color.platformTextBackground)
+        .clipped()
     }
 
     /// The rect the normalized coordinates map onto: the background's aspect-fit
@@ -283,9 +346,22 @@ struct SceneMapExportView: View {
     }
 
     /// Movement arrows: smooth shaft with a solid triangular head. Mirrors
-    /// `SceneMapEditorView.drawArrows(_:in:)`.
-    private static func drawArrows(_ ctx: GraphicsContext, doc: SceneMapDoc, in rect: CGRect) {
-        let lineWidth: CGFloat = 6
+    /// `SceneMapEditorView.drawArrows(_:in:)`. Drawn outside the map group's
+    /// placement, replicating it on the graphics context so the vector stays crisp
+    /// (a Canvas inside the group's scaleEffect would be a magnified 1× bitmap).
+    private static func drawArrows(_ baseCtx: GraphicsContext, doc: SceneMapDoc, in rect: CGRect,
+                                   canvas: CGSize, place: SceneMapBackgroundTransform) {
+        let cx = canvas.width / 2, cy = canvas.height / 2
+        var ctx = baseCtx
+        ctx.translateBy(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
+        ctx.translateBy(x: cx, y: cy)
+        ctx.rotate(by: .degrees(place.rotation))
+        ctx.scaleBy(x: CGFloat(place.scale), y: CGFloat(place.scale))
+        ctx.translateBy(x: -cx, y: -cy)
+        // Counter the placement scale so the shaft and head keep a constant on-screen
+        // size (the trim that clears the markers still scales, since the markers do).
+        let placeScale = CGFloat(place.scale)
+        let lineWidth: CGFloat = 6 / placeScale
         for arrow in doc.arrows {
             guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
                   let to = doc.elements.first(where: { $0.id == arrow.toID }) else { continue }
@@ -300,7 +376,7 @@ struct SceneMapExportView: View {
             let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
             pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * 22, y: pts[n - 1].y - de.y * 22)
             let tip = pts[n - 1]
-            let headLength: CGFloat = 20, headHalfWidth: CGFloat = 11
+            let headLength: CGFloat = 20 / placeScale, headHalfWidth: CGFloat = 11 / placeScale
             let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
             var shaftPts = pts
             shaftPts[n - 1] = baseCenter

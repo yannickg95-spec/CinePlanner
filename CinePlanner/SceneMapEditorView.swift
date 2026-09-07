@@ -123,6 +123,17 @@ struct SceneMapEditorView: View {
     /// driven through one importer keyed on this.
     private enum BackgroundImportKind { case image, model }
     @State private var backgroundImportKind: BackgroundImportKind?
+    /// Live placement of a non-satellite background image under the markers. Edited
+    /// by the align tool, mirrored to the scene on gesture end. The editor renders
+    /// from this so drags update at once without hitting SwiftData every frame.
+    @State private var bgTransform = SceneMapBackgroundTransform()
+    /// True while the align-background tool is up.
+    @State private var isBackgroundAdjustMode = false
+    /// Transform captured at the start of a pinch/rotate/drag, the base each live
+    /// delta is applied to.
+    @State private var bgAdjustStartScale: Double = 1
+    @State private var bgAdjustStartRotation: Double = 0
+    @State private var bgAdjustStartOffset: CGSize = .zero
     /// The satellite location picker. Framing an already-set map is done on the
     /// canvas, so this is only for choosing where in the world the map is.
     @State private var showingMapPicker = false
@@ -159,6 +170,7 @@ struct SceneMapEditorView: View {
         _doc = State(initialValue: SceneMapDoc.load(from: scene.sceneMapJSON))
         _backgroundImage = State(initialValue: scene.sceneMapBackgroundData.flatMap(PlatformImage.init(data:)))
         _floorPlan = State(initialValue: FloorPlan.load(from: scene.sceneFloorPlanJSON))
+        _bgTransform = State(initialValue: scene.sceneMapBackgroundTransform)
     }
 
     private var sceneTitle: String {
@@ -206,6 +218,11 @@ struct SceneMapEditorView: View {
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(PlatformImage.init(data:))
+            // A new or replaced background — set here or arrived by sync — carries
+            // its own placement (identity for a fresh image). Close the align tool
+            // if the image it was aligning is gone.
+            bgTransform = scene.sceneMapBackgroundTransform
+            if newValue == nil || scene.sceneMapBackgroundIsSatellite { isBackgroundAdjustMode = false }
             refreshMapScale()
             // A new background — whether just committed here or arrived from a sync —
             // makes any in-flight framing meaningless.
@@ -602,6 +619,7 @@ struct SceneMapEditorView: View {
     private var canvas: some View {
         GeometryReader { geo in
             let rect = contentRect(in: geo.size)
+            let place = mapPlacement
             ZStack {
                 // A dark surround while framing: whatever the render hasn't reached
                 // yet reads as being outside the map, where the page white read as a
@@ -623,8 +641,20 @@ struct SceneMapEditorView: View {
                     reframeRender(in: rect, canvas: geo.size)
                     canvasContent(in: rect, geo: geo)
                 }
-                .rotationEffect(.degrees(-reframeTurn))
+                // The placement turns, scales and shifts the whole group — image and
+                // markers together — so the markers stay pinned to the spots on the
+                // image they annotate. Applied outside `canvasSpace` (like the canvas
+                // zoom), so marker-edit gestures keep reading logical coordinates.
+                // Offset is last, in screen space, so a drag tracks the finger 1:1.
+                .rotationEffect(.degrees(place.rotation - reframeTurn))
+                .scaleEffect(place.scale)
+                .offset(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
                 .clipped()
+                // Like the canvas zoom, the placement scale also enlarges the hit
+                // region; without this reset a scaled-up map spilled its touch area
+                // over the toolbar above and swallowed its taps. Bound it back to the
+                // map's own frame so the toolbar stays clickable.
+                .contentShape(Rectangle())
             }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
@@ -634,6 +664,18 @@ struct SceneMapEditorView: View {
             // to the pane, not to the ground, so they stay upright and in place while
             // the map turns under them. The sun's rays and ball do turn — those are
             // map content, tied to the compass rather than to the screen.
+            // Movement arrows: drawn OUTSIDE the map group's transform in a
+            // screen-space Canvas so the vector rasterizes crisply at any placement
+            // scale or zoom (a Canvas inside the group's scaleEffect would just be a
+            // magnified, blurry 1× bitmap). drawArrows replicates the whole transform
+            // on the graphics context instead. Beneath the chrome, above the map.
+            .overlay {
+                if !doc.arrows.isEmpty {
+                    Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
+                        .allowsHitTesting(false)
+                        .clipped()
+                }
+            }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
@@ -642,7 +684,9 @@ struct SceneMapEditorView: View {
             }
             .overlay { mapCompass(in: rect) }
             .overlay { reframeButton(in: rect) }
+            .overlay { backgroundAdjustButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
+            .overlay { backgroundAdjustChrome(in: rect, canvas: geo.size) }
             .onChange(of: reframeKey) { scheduleReframeRender(in: rect, canvas: geo.size) }
             .onChange(of: isReframeMode) { scheduleReframeRender(in: rect, canvas: geo.size) }
         }
@@ -700,6 +744,8 @@ struct SceneMapEditorView: View {
                         isSelected: furnitureSelectedID == item.id,
                         contentRect: rect,
                         zoom: zoom,
+                        placeScale: CGFloat(mapPlacement.scale),
+                        placeRotation: mapPlacement.rotation,
                         onSelect: { selectFurniture(item.id) },
                         onMove: { normalized in moveFurniture(item.id, to: normalized) },
                         onRotate: { r in rotateFurniture(item.id, to: r) },
@@ -715,7 +761,7 @@ struct SceneMapEditorView: View {
                         metersWide: mapMetersWide,
                         onDelete: { deleteFurniture(item.id) }
                     )
-                    .allowsHitTesting(pendingMove == nil && !reframeActive)
+                    .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive)
                 }
             }
             // Camera field-of-view wedges, under the arrows and markers.
@@ -774,9 +820,11 @@ struct SceneMapEditorView: View {
                                             metersWide: mapMetersWide,
                                             cameraMeters: mapCameraMeters,
                                             mapWidthPoints: rect.width,
-                                            viewable: scene.sceneMapViewableMarkerSize)
+                                            viewable: scene.sceneMapViewableMarkerSize),
+                    placeScale: CGFloat(mapPlacement.scale),
+                    placeRotation: mapPlacement.rotation
                 )
-                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive)
+                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive)
             }
             // Door/window edit handles (tap to select, right-click to edit).
             if !isDrawing {
@@ -848,18 +896,6 @@ struct SceneMapEditorView: View {
         // interactive shape to the (unscaled) frame so touches outside it — the
         // toolbar — pass through again.
         .contentShape(Rectangle())
-        // Movement arrows: drawn OUTSIDE the zoom in a screen-space Canvas so the
-        // vector rasterizes crisply at any zoom (a Canvas inside scaleEffect would
-        // just be a magnified 1x bitmap). The zoom/pan is applied to the graphics
-        // context instead. Their markers are trimmed away, so drawing on top reads
-        // the same as under them.
-        .overlay {
-            if !doc.arrows.isEmpty {
-                Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
-                    .allowsHitTesting(false)
-                    .clipped()
-            }
-        }
         // Camera shot-info card — a plain overlay (not a system popover), so the
         // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
         // it's a constant on-screen size and always fits, tracking the marker's
@@ -889,9 +925,14 @@ struct SceneMapEditorView: View {
                 magnifyGesture(size: geo.size),
                 canvasPanOrMarquee(in: rect, size: geo.size,
                                    canvasOrigin: geo.frame(in: .global).origin)
-            )
+            ),
+            including: backgroundAdjustActive ? .none : .all
         )
-        .onTapGesture { if !isDrawing { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
+        // While aligning, the same touches move/zoom/turn the image instead; this
+        // gesture takes over the canvas and ignores the (hit-test-disabled) markers.
+        .gesture(backgroundAdjustGesture(in: rect),
+                 including: backgroundAdjustActive ? .gesture : .none)
+        .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
         #if os(macOS)
         .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
         #endif
@@ -1028,6 +1069,37 @@ struct SceneMapEditorView: View {
             // alignment rather than a computed centre, since the label's width
             // depends on the text. Outside the zoom transform, so it stays put while
             // the map moves under it.
+            .padding(10)
+            .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
+            .position(x: rect.midX, y: rect.midY)
+        }
+    }
+
+    /// Picks up the align tool. Like the reframe button it lives on the map, in the
+    /// same top-right corner — the two never show together, since a satellite map
+    /// reframes and only a plain image aligns. Hidden while the tool is running; the
+    /// align panel carries its own way out.
+    @ViewBuilder
+    private func backgroundAdjustButton(in rect: CGRect) -> some View {
+        if hasAlignableBackground, !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
+            Button {
+                startBackgroundAdjust()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("ADJUST")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(0.6)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+            }
+            .buttonStyle(.plain)
+            .help("Move, zoom and rotate the background image")
             .padding(10)
             .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
             .position(x: rect.midX, y: rect.midY)
@@ -1250,6 +1322,166 @@ struct SceneMapEditorView: View {
         zoom = 1; lastZoom = 1
         pan = .zero; lastPan = .zero
         reframeHeading = satelliteAnchor?.heading ?? 0
+    }
+
+    // MARK: - Aligning an image background under the markers
+
+    /// A plain image (not a satellite still) is the only background that can be
+    /// manually placed — a satellite map is positioned by reframing, a drawn plan
+    /// and the grid have nothing to align.
+    private var hasAlignableBackground: Bool {
+        backgroundImage != nil && !scene.sceneMapBackgroundIsSatellite && floorPlan.isEmpty
+    }
+
+    /// Whether the align tool is actually running.
+    private var backgroundAdjustActive: Bool { isBackgroundAdjustMode && hasAlignableBackground }
+
+    /// The live placement applied to the whole map group. A satellite map is never
+    /// manually placed (it reframes instead), so it stays identity.
+    private var mapPlacement: SceneMapBackgroundTransform {
+        scene.sceneMapBackgroundIsSatellite ? .init() : bgTransform
+    }
+
+    /// Widest / tightest the image may be scaled, and the geometric zoom slider.
+    private static let bgScaleRange: ClosedRange<Double> = 0.2...5
+
+    /// Picks up the align tool. Panning/zooming/turning now move the image under the
+    /// fixed markers; the canvas's own zoom is parked at rest so screen deltas map
+    /// straight onto the image.
+    private func startBackgroundAdjust() {
+        cameraInfoElementID = nil
+        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
+        zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero
+        bgTransform = scene.sceneMapBackgroundTransform
+        isBackgroundAdjustMode = true
+    }
+
+    /// Leaves the tool, keeping the placement (it was written live as it changed).
+    private func finishBackgroundAdjust() {
+        isBackgroundAdjustMode = false
+        persistBackgroundTransform()
+    }
+
+    /// Back to a plain aspect-fitted image.
+    private func resetBackgroundTransform() {
+        bgTransform = .init()
+        persistBackgroundTransform()
+    }
+
+    private func persistBackgroundTransform() {
+        scene.sceneMapBackgroundTransform = bgTransform
+        try? scene.modelContext?.save()
+    }
+
+    /// Drag = move, pinch = zoom, two-finger twist = rotate — all writing straight
+    /// to `bgTransform`, each from the value captured when its gesture began so the
+    /// three compose instead of fighting. Persisted once, on end.
+    private func backgroundAdjustGesture(in rect: CGRect) -> some Gesture {
+        let drag = DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                guard rect.width > 0, rect.height > 0 else { return }
+                if bgAdjustStartOffset == .zero, value.translation == .zero {
+                    bgAdjustStartOffset = CGSize(width: bgTransform.offsetX, height: bgTransform.offsetY)
+                }
+                bgTransform.offsetX = Double(bgAdjustStartOffset.width) + Double(value.translation.width) / Double(rect.width)
+                bgTransform.offsetY = Double(bgAdjustStartOffset.height) + Double(value.translation.height) / Double(rect.height)
+            }
+            .onEnded { _ in
+                bgAdjustStartOffset = .zero
+                persistBackgroundTransform()
+            }
+
+        let magnify = MagnifyGesture()
+            .onChanged { value in
+                if value.magnification == 1 { bgAdjustStartScale = bgTransform.scale }
+                let target = bgAdjustStartScale * Double(value.magnification)
+                bgTransform.scale = min(max(target, Self.bgScaleRange.lowerBound), Self.bgScaleRange.upperBound)
+            }
+            .onEnded { _ in persistBackgroundTransform() }
+
+        let rotate = RotateGesture()
+            .onChanged { value in
+                if value.rotation == .zero { bgAdjustStartRotation = bgTransform.rotation }
+                bgTransform.rotation = bgAdjustStartRotation + value.rotation.degrees
+            }
+            .onEnded { _ in persistBackgroundTransform() }
+
+        // Pinch and twist run together (two fingers); the drag is the one-finger
+        // case. Simultaneous so a two-finger gesture can zoom and rotate at once.
+        return drag.simultaneously(with: magnify.simultaneously(with: rotate))
+    }
+
+    /// The align tool's panel: precise zoom and rotation controls plus reset/done,
+    /// so the placement can be dialled in even where a trackpad twist is awkward.
+    private func backgroundAdjustPanel(canvas: CGSize) -> some View {
+        let compact = isPhone || canvas.width < 520
+        let zoomBinding = Binding<Double>(
+            get: {
+                let lo = Self.bgScaleRange.lowerBound, hi = Self.bgScaleRange.upperBound
+                return log(bgTransform.scale / lo) / log(hi / lo)
+            },
+            set: { t in
+                let lo = Self.bgScaleRange.lowerBound, hi = Self.bgScaleRange.upperBound
+                bgTransform.scale = lo * pow(hi / lo, min(max(t, 0), 1))
+                persistBackgroundTransform()
+            }
+        )
+        let rotationBinding = Binding<Double>(
+            get: { bgTransform.rotation },
+            set: { bgTransform.rotation = $0; persistBackgroundTransform() }
+        )
+
+        let zoomRow = HStack(spacing: compact ? 7 : 9) {
+            Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
+            Slider(value: zoomBinding, in: 0...1).frame(width: compact ? 100 : 140)
+            Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
+        }
+        let turnRow = HStack(spacing: compact ? 7 : 9) {
+            Image(systemName: "rotate.right").foregroundStyle(.secondary)
+            Slider(value: rotationBinding, in: -180...180).frame(width: compact ? 100 : 140)
+            Text("\(Int(bgTransform.rotation.rounded()))°").monospacedDigit()
+                .frame(width: 46, alignment: .trailing)
+        }
+        let actionRow = HStack(spacing: 10) {
+            HStack(spacing: 5) {
+                Image(systemName: "hand.draw").foregroundStyle(.secondary)
+                Text(compact ? "Drag · pinch · twist" : "Drag to move · pinch to zoom · twist to rotate")
+            }
+            .font(.caption)
+            Spacer(minLength: 14)
+            Button("Reset") { resetBackgroundTransform() }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .disabled(bgTransform.isIdentity)
+            Button("Done") { finishBackgroundAdjust() }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+
+        return VStack(alignment: .leading, spacing: compact ? 7 : 8) {
+            if compact {
+                zoomRow; turnRow
+            } else {
+                HStack(spacing: 12) { zoomRow; Divider().frame(height: 16); turnRow }
+            }
+            actionRow
+        }
+        .font(.callout)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .padding(.top, 10)
+    }
+
+    /// The align tool's on-canvas chrome: the panel, pinned to the top of the map.
+    @ViewBuilder
+    private func backgroundAdjustChrome(in rect: CGRect, canvas: CGSize) -> some View {
+        if backgroundAdjustActive, !isDrawing, pendingMove == nil {
+            backgroundAdjustPanel(canvas: canvas)
+                .frame(width: rect.width, height: rect.height, alignment: .top)
+                .position(x: rect.midX, y: rect.midY)
+        }
     }
 
     /// The sun as a yellow ball on a ring around the map centre, in its compass
@@ -2302,6 +2534,7 @@ struct SceneMapEditorView: View {
         scene.recordSatelliteCapture(framing)
         scene.sceneMapLocation = label
         scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
+        scene.sceneMapBackgroundTransform = .init() // satellite: never manually placed
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
 
@@ -2346,6 +2579,9 @@ struct SceneMapEditorView: View {
         }
         scene.sceneMapLocation = other.sceneMapLocation
         scene.sceneMapCameraSizeMeters = other.sceneMapCameraSizeMeters
+        // Carry the source's manual placement (identity for a satellite copy) so a
+        // painstakingly aligned image comes across still aligned.
+        scene.sceneMapBackgroundTransform = other.satelliteCapture == nil ? other.sceneMapBackgroundTransform : .init()
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
     }
@@ -2363,6 +2599,7 @@ struct SceneMapEditorView: View {
         scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
+        scene.sceneMapBackgroundTransform = .init()  // a fresh image starts fitted
         backgroundImage = image
         try? scene.modelContext?.save()
     }
@@ -2405,6 +2642,7 @@ struct SceneMapEditorView: View {
                 scene.clearSatelliteCapture()
                 scene.sceneMapMetersWide = nil
                 scene.sceneMapCameraSizeMeters = nil
+                scene.sceneMapBackgroundTransform = .init()
                 backgroundImage = image
                 try? scene.modelContext?.save()
             }
@@ -2419,6 +2657,7 @@ struct SceneMapEditorView: View {
         scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
+        scene.sceneMapBackgroundTransform = .init()
         drawTool = .wall
         chainLastVertex = nil
         isDrawing = true
@@ -2441,6 +2680,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         scene.sceneMapLocation = nil
+        scene.sceneMapBackgroundTransform = .init()
         persist()
         persistFloorPlan()
     }
@@ -2455,6 +2695,7 @@ struct SceneMapEditorView: View {
         scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
+        scene.sceneMapBackgroundTransform = .init()
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         try? scene.modelContext?.save()
@@ -2721,19 +2962,31 @@ struct SceneMapEditorView: View {
     }
 
     private func drawArrows(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
-        // This Canvas sits outside the map's scaleEffect, so replicate the map's
-        // scaleEffect(zoom, anchor: .center) + offset(pan) on the context. Drawing in
-        // logical (rect) coordinates then rasterizes crisply at the on-screen scale.
+        // This Canvas sits outside the map group's transform, so replicate that whole
+        // transform on the context — both the map placement (rotate/scale about the
+        // centre, then offset) and the canvas zoom/pan. Drawing in logical (rect)
+        // coordinates then rasterizes crisply at the final on-screen scale, instead
+        // of a 1× bitmap magnified (and blurred) by the group's scaleEffect.
+        let place = mapPlacement
+        let cx = canvas.width / 2, cy = canvas.height / 2
         var ctx = baseCtx
-        ctx.translateBy(x: canvas.width / 2 * (1 - zoom) + pan.width,
-                        y: canvas.height / 2 * (1 - zoom) + pan.height)
+        // Placement (outermost): offset, then scale + turn about the canvas centre.
+        ctx.translateBy(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
+        ctx.translateBy(x: cx, y: cy)
+        ctx.rotate(by: .degrees(place.rotation - reframeTurn))
+        ctx.scaleBy(x: CGFloat(place.scale), y: CGFloat(place.scale))
+        ctx.translateBy(x: -cx, y: -cy)
+        // Canvas zoom/pan (inner): scaleEffect(zoom, anchor: .center) + offset(pan).
+        ctx.translateBy(x: cx * (1 - zoom) + pan.width,
+                        y: cy * (1 - zoom) + pan.height)
         ctx.scaleBy(x: zoom, y: zoom)
         // Counter-scale the shaft width and arrowhead so they don't balloon with the
         // map zoom — the path (endpoints, and the trim that clears the markers) still
         // scales, but the body thins and the head shrinks as you zoom in. `pow(…, 0.7)`
         // makes this a bit gentler than a full 1/zoom counter-scale. (Widths are in
-        // pre-scale units; the ctx scale multiplies them back up.)
-        let vs = 1 / pow(max(zoom, 1), 0.7)
+        // pre-scale units; the ctx scale multiplies them back up.) Dividing by the
+        // placement scale keeps them constant as the whole map group is scaled too.
+        let vs = 1 / (pow(max(zoom, 1), 0.7) * CGFloat(mapPlacement.scale))
         let lineWidth: CGFloat = 6 * vs
         for arrow in doc.arrows {
             guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,

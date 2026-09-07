@@ -342,6 +342,7 @@ extension ProjectExporter {
                                       cameraMeters: scene.sceneMapCameraSizeMeters,
                                       viewableMarkers: scene.sceneMapViewableMarkerSize,
                                       isSatellite: scene.sceneMapBackgroundIsSatellite,
+                                      backgroundTransform: scene.sceneMapBackgroundTransform,
                                       northOffsetDeg: scene.mapNorthOffset)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
