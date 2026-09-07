@@ -1985,17 +1985,33 @@ struct SceneMapEditorView: View {
     @ViewBuilder
     private func arrowHitView(_ arrow: MapArrow, in rect: CGRect) -> some View {
         if let pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2 {
-            // A filled (near-invisible) shape rather than Color.clear + contentShape:
-            // a filled shape is reliably hit-testable along the whole band, where the
-            // clear-plus-contentShape form could miss taps on the thin arrow.
-            ArrowHitShape(points: pts)
+            // Frame the hit view to the arrow's own bounding box (in local coords),
+            // not the whole canvas: a `.contextMenu` anchors to its view's frame, so
+            // a canvas-filling hit view put the long-press menu in the middle of the
+            // screen instead of beside the arrow. A filled (near-invisible) shape,
+            // rather than Color.clear + contentShape, stays reliably tappable.
+            let width = 20 + sceneMapHandleSlop * 2
+            let xs = pts.map(\.x), ys = pts.map(\.y)
+            let box = CGRect(x: xs.min()! - width / 2, y: ys.min()! - width / 2,
+                             width: (xs.max()! - xs.min()!) + width,
+                             height: (ys.max()! - ys.min()!) + width)
+            let local = pts.map { CGPoint(x: $0.x - box.minX, y: $0.y - box.minY) }
+            ArrowHitShape(points: local)
                 .fill(Color.black.opacity(0.001))
+                .frame(width: box.width, height: box.height)
                 .onTapGesture { selectArrow(arrow.id) }
                 .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasSpace)) { phase in
                     if case .active(let location) = phase { arrowHover = location }
                 }
                 .contextMenu {
-                    Button { selectArrow(arrow.id); addPivot(to: arrow.id, at: arrowHover, in: rect) } label: {
+                    Button {
+                        selectArrow(arrow.id)
+                        // Hover gives the exact spot on macOS; touch has no hover, so
+                        // fall back to the arrow's midpoint (then it can be dragged).
+                        let mid = CGPoint(x: (pts.first!.x + pts.last!.x) / 2,
+                                          y: (pts.first!.y + pts.last!.y) / 2)
+                        addPivot(to: arrow.id, at: box.contains(arrowHover) ? arrowHover : mid, in: rect)
+                    } label: {
                         Label("Add Pivot Point", systemImage: "smallcircle.filled.circle")
                     }
                     Divider()
@@ -2003,6 +2019,7 @@ struct SceneMapEditorView: View {
                         Label("Delete Arrow", systemImage: "trash")
                     }
                 }
+                .position(x: box.midX, y: box.midY)
         }
     }
 
