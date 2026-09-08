@@ -1,5 +1,6 @@
 name: Deploy website to GitHub Pages
 
+# Publishes ./website to GitHub Pages (Settings → Pages → Source: GitHub Actions).
 on:
   push:
     branches: [main]
