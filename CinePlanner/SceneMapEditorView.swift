@@ -674,12 +674,15 @@ struct SceneMapEditorView: View {
                         .clipped()
                 }
             }
-            // The export frame: dim what falls outside the crop and outline it, so
-            // content the editor still shows past the frame (a rotated image's
-            // corners, say) is clearly marked as cut from the export. Above the map
-            // and arrows, below the chrome. The reframe tool draws its own frame.
+            // The export frame: dim what falls outside the crop and outline it, so a
+            // rotated image's corners are clearly marked as cut from the export.
+            // Only while the map is actually rotated — that's when content spills past
+            // the frame. Above the map and arrows, below the chrome. The reframe tool
+            // draws its own frame.
             .overlay {
-                if !reframeActive { mapClipFrame(in: rect, canvas: geo.size) }
+                if !reframeActive, mapPlacement.rotation != 0 {
+                    mapClipFrame(in: rect, canvas: geo.size)
+                }
             }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
