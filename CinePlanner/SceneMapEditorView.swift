@@ -1082,9 +1082,9 @@ struct SceneMapEditorView: View {
                 isReframeMode = true
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.left.and.down.right.magnifyingglass")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 13, weight: .medium))
-                    Text("REFRAME")
+                    Text("ADJUST")
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(0.6)
                 }
@@ -1095,7 +1095,7 @@ struct SceneMapEditorView: View {
                 .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
             }
             .buttonStyle(.plain)
-            .help("Reframe the satellite map")
+            .help("Adjust the satellite map")
             // Pinned to the map's own top-right corner, not the canvas's — on a wide
             // window the square map leaves empty canvas beside it, and a button
             // floating out there reads as belonging to nothing. Cornered by
