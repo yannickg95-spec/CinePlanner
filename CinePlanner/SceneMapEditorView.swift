@@ -674,6 +674,13 @@ struct SceneMapEditorView: View {
                         .clipped()
                 }
             }
+            // The export frame: dim what falls outside the crop and outline it, so
+            // content the editor still shows past the frame (a rotated image's
+            // corners, say) is clearly marked as cut from the export. Above the map
+            // and arrows, below the chrome. The reframe tool draws its own frame.
+            .overlay {
+                if !reframeActive { mapClipFrame(in: rect, canvas: geo.size) }
+            }
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
@@ -710,6 +717,28 @@ struct SceneMapEditorView: View {
             : scene.mapNorthOffset
         if let north {
             MapCompass(rect: rect, northOffsetDeg: north)
+        }
+    }
+
+    /// Marks the export frame — the rect the map is cropped to on export. Dims the
+    /// area outside it and outlines it, so anything the editor still shows past the
+    /// frame (e.g. the corners of a rotated background image) reads clearly as cut.
+    /// Skipped when the map already fills the canvas (nothing is cropped).
+    @ViewBuilder
+    private func mapClipFrame(in rect: CGRect, canvas: CGSize) -> some View {
+        if rect.width < canvas.width - 0.5 || rect.height < canvas.height - 0.5 {
+            ZStack {
+                Path { p in
+                    p.addRect(CGRect(origin: .zero, size: canvas))
+                    p.addRect(rect)
+                }
+                .fill(Color.black.opacity(0.4), style: FillStyle(eoFill: true))
+                Rectangle()
+                    .stroke(Color.white.opacity(0.65), lineWidth: 1)
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+            }
+            .allowsHitTesting(false)
         }
     }
 
