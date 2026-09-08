@@ -129,14 +129,15 @@
     pointer-events: none;
   }
   .hero-icon {
-    width: min(150px, 34vw);
+    width: min(220px, 45vw);
     height: auto;
-    border-radius: 34px;
+    border-radius: 40px;
     box-shadow: 0 0 80px rgba(62,207,255,0.25), 0 40px 80px rgba(0,0,0,0.6);
-    margin-bottom: 30px;
+    margin-bottom: 52px;
     opacity: 0; animation: fadeUp 0.9s ease forwards 0.2s;
   }
-  .hero-eyebrow { font-family: "DM Mono", monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--cyan); margin-bottom: 26px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.4s; }
+  .hero-app-name { font-family: "Unbounded", sans-serif; font-size: clamp(18px, 2.5vw, 28px); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); margin-top: -28px; margin-bottom: 24px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.4s; }
+  .hero-eyebrow { font-family: "DM Mono", monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--cyan); margin-bottom: 40px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.5s; }
   .hero-headline { font-family: "Unbounded", sans-serif; font-size: clamp(34px, 6vw, 72px); font-weight: 900; line-height: 1.02; letter-spacing: -0.025em; margin-bottom: 8px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.55s; }
   .hero-headline-light { font-family: "Unbounded", sans-serif; font-size: clamp(34px, 6vw, 72px); font-weight: 300; line-height: 1.02; letter-spacing: -0.025em; color: var(--cyan); margin-bottom: 40px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.7s; }
   .hero-sub { font-size: clamp(14px, 1.8vw, 17px); color: var(--muted); max-width: 540px; line-height: 1.85; margin-bottom: 40px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.85s; }
@@ -296,14 +297,17 @@
 <div class="hero">
   <div class="hero-glow"></div>
   <img src="icon.svg" alt="CinePlanner" class="hero-icon">
+  <div class="hero-app-name">CINEPLANNER</div>
   <div class="hero-eyebrow">Made for cinematographers</div>
   <h1 class="hero-headline">From script to set —<span class="hero-headline-light" style="display:block;">in one app.</span></h1>
   <p class="hero-sub">CinePlanner sits right between your screenplay and the set — turning raw script pages into <strong>structured, actionable camera plans</strong>. Read your script beside your shot list, map coverage onto the page, block scenes spatially, then carry the whole plan onto set — live. <strong>Plan on Mac. Carry it onto set on iPad.</strong></p>
   <div class="hero-actions">
-    <!-- Pre-launch: no App Store link yet. Swap this pill for the App Store / Mac App Store badges + app-id smart banner once live. -->
-    <div class="store-soon">
-      <svg viewBox="0 0 24 24" fill="var(--cyan)" xmlns="http://www.w3.org/2000/svg"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.9-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13M14.53 4.43c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.55-.66.77-1.24 2-1.09 3.18 1.15.09 2.32-.58 3.04-1.45"/></svg>
-      <span><span class="ss-small">Coming soon</span><span class="ss-big">App Store &amp; Mac App Store</span></span>
+    <!-- Pre-launch: badge shown without a link. Once live, wrap the <img> in
+         <a href="https://apps.apple.com/app/idXXXXXXXXXX"> and add the
+         apple-itunes-app smart-banner meta with the CinePlanner app-id. -->
+    <div style="display:flex; flex-direction:column; align-items:center; gap:9px;">
+      <img src="appstore.svg" alt="Download on the App Store" style="height:48px; width:auto;">
+      <span style="font-family:'DM Mono',monospace; font-size:9px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted);">Coming soon · Mac &amp; iPad</span>
     </div>
     <a href="#how" class="btn-secondary">See how it works →</a>
   </div>
@@ -788,12 +792,10 @@
     <img src="icon.svg" alt="CinePlanner" class="cta-icon">
     <h2 class="cta-title">Design your shots.<br><span>Shoot your plan.</span></h2>
     <p class="cta-sub">CinePlanner is coming to the App Store and the Mac App Store — native on Mac and iPad, with an iPhone Live Activity for the set.</p>
-    <!-- Pre-launch: replace this pill with the App Store / Mac App Store badges once live. -->
-    <div class="store-soon" style="margin: 0 auto;">
-      <svg viewBox="0 0 24 24" fill="var(--cyan)" xmlns="http://www.w3.org/2000/svg" style="width:26px;height:26px;"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.9-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13M14.53 4.43c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.55-.66.77-1.24 2-1.09 3.18 1.15.09 2.32-.58 3.04-1.45"/></svg>
-      <span><span class="ss-small">Coming soon</span><span class="ss-big">App Store &amp; Mac App Store</span></span>
-    </div>
-    <div><span class="cta-badge">Mac · iPad · iPhone · universal app</span></div>
+    <!-- Pre-launch: badge shown without a link. Wrap the <img> in an
+         <a href="https://apps.apple.com/app/idXXXXXXXXXX"> once live. -->
+    <img src="appstore.svg" alt="Download on the App Store" style="height:56px; width:auto;">
+    <div><span class="cta-badge">Coming soon · Mac · iPad · iPhone</span></div>
   </div>
 </div>
 
