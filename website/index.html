@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CinePlanner — Shot Planning App for Filmmakers | Script to Set</title>
-<meta name="description" content="CinePlanner is a shot-planning app for Mac, iPad & iPhone. Import your script, build shot lists, draw blocking maps with real camera field-of-view, schedule shoot days with golden-hour times, and run the day with an On-Set mode and iPhone Live Activity.">
-<meta name="keywords" content="shot list app, shot planning, blocking software, shooting schedule, call sheet, on set mode, Live Activity, cinematography app, film production planning, storyboard, scene blocking, golden hour, directors, cinematographers">
+<meta name="description" content="CinePlanner sits between your screenplay and the set. Read your script beside your shot list, map color-coded coverage onto the page, block scenes on an overhead map with satellite and sun, and run the shoot day live with On-Set mode and an iPhone Live Activity. Native on Mac & iPad.">
+<meta name="keywords" content="shot list app, script breakdown, visual script coverage, shot planning, scene blocking, overhead scene map, satellite location scout, sun path, shooting schedule, strip board, on set mode, Live Activity, cinematography app, directors, cinematographers, 1st AD">
 <meta name="author" content="Yannick Giraud">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#05050a">
@@ -15,15 +15,15 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CinePlanner">
 <meta property="og:url" content="https://cineplanner.com/">
-<meta property="og:title" content="CinePlanner — From script to set, in one app">
-<meta property="og:description" content="Shot lists, blocking maps with real camera field-of-view, shooting schedules and an on-set mode that follows you onto the floor. Mac · iPad · iPhone.">
+<meta property="og:title" content="CinePlanner — Between your screenplay and the set">
+<meta property="og:description" content="Script beside shot list, color-coded coverage on the page, an overhead scene map with satellite and sun, a strip-board schedule, and On-Set mode with an iPhone Live Activity. Native on Mac & iPad.">
 <meta property="og:image" content="https://cineplanner.com/og.jpg">
 <meta property="og:image:alt" content="CinePlanner shot list, blocking map and On-Set mode across Mac, iPad and iPhone">
 
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CinePlanner — From script to set, in one app">
-<meta name="twitter:description" content="Shot lists, blocking with real field-of-view, schedules and an on-set mode with iPhone Live Activity. Mac · iPad · iPhone.">
+<meta name="twitter:title" content="CinePlanner — Between your screenplay and the set">
+<meta name="twitter:description" content="Script beside shot list, color-coded coverage, an overhead map with satellite & sun, a strip-board schedule and On-Set mode with an iPhone Live Activity. Native on Mac & iPad.">
 <meta name="twitter:image" content="https://cineplanner.com/og.jpg">
 
 <!-- App Store smart banner: add the CinePlanner app-id once live -->
@@ -42,17 +42,19 @@
       "operatingSystem": "macOS, iPadOS, iOS",
       "applicationCategory": "MultimediaApplication",
       "applicationSubCategory": "Film Production Shot Planning",
-      "description": "CinePlanner is a shot-planning app for macOS, iPadOS and iOS. Filmmakers import a script, build shot lists, draw top-down blocking maps with real camera field-of-view, schedule shoot days with sun and golden-hour times, and run the shoot day with an On-Set mode and an iPhone Live Activity.",
+      "description": "CinePlanner is a shot-planning app for cinematographers on macOS, iPadOS and iOS. Read your screenplay side-by-side with your shot list, mark color-coded script coverage, block scenes on an overhead map with satellite locations and sun/daylight, arrange a strip-board shooting schedule, and run the shoot day live with an On-Set mode and an iPhone Live Activity.",
       "url": "https://cineplanner.com/",
       "image": "https://cineplanner.com/icon.svg",
       "featureList": [
-        "Import a script as PDF with automatic scene detection",
-        "Shot lists with size, movement, lens, camera, grip and references",
-        "Top-down blocking maps with real camera field-of-view",
-        "Shooting schedule with sun and golden-hour times per shoot day",
-        "On-Set mode with an iPhone Live Activity on the lock screen",
-        "Import AR setups and maps from the companion app CineStager",
-        "iCloud sync across Mac, iPad and iPhone, offline-first"
+        "Side-by-side screenplay reader and shot list with automatic scene breakdown",
+        "Detailed shot logging: size, type, focal length, grip and exact camera gear",
+        "Visual script coverage with numbered, color-coded coverage lines in the margin",
+        "Overhead scene map with camera and actor markers, movement paths and satellite locations",
+        "Sun and daylight: sun direction and height with sunrise and sunset per location",
+        "Strip-board shooting schedule: a board on Mac and iPad, a list on iPhone",
+        "On-Set mode with take logging and an iPhone Live Activity on the Lock Screen",
+        "Multi-version and episodic support, plus export to HTML, PDF and shareable live web links",
+        "iCloud sync between Mac and iPad, and CineStager AR import"
       ],
       "author": {
         "@type": "Person",
@@ -294,9 +296,9 @@
 <div class="hero">
   <div class="hero-glow"></div>
   <img src="icon.svg" alt="CinePlanner" class="hero-icon">
-  <div class="hero-eyebrow">For directors &amp; cinematographers</div>
+  <div class="hero-eyebrow">Made for cinematographers</div>
   <h1 class="hero-headline">From script to set —<span class="hero-headline-light" style="display:block;">in one app.</span></h1>
-  <p class="hero-sub">Shot lists, blocking maps with <strong>real camera field-of-view</strong>, shooting schedules and an on-set mode that follows you onto the floor. <strong>Plan on Mac. Refine on iPad. Shoot with iPhone.</strong></p>
+  <p class="hero-sub">CinePlanner sits right between your screenplay and the set — turning raw script pages into <strong>structured, actionable camera plans</strong>. Read your script beside your shot list, map coverage onto the page, block scenes spatially, then carry the whole plan onto set — live. <strong>Plan on Mac. Carry it onto set on iPad.</strong></p>
   <div class="hero-actions">
     <!-- Pre-launch: no App Store link yet. Swap this pill for the App Store / Mac App Store badges + app-id smart banner once live. -->
     <div class="store-soon">
@@ -307,19 +309,23 @@
   </div>
 
   <div class="hero-screens">
-    <!-- iPad blocking map (side) -->
+    <!-- iPad scene map (side) -->
     <div class="hs-frame hs-side" style="-webkit-mask-image:linear-gradient(to right,transparent,black 55%);mask-image:linear-gradient(to right,transparent,black 55%);">
-      <svg width="230" height="172" viewBox="0 0 230 172" xmlns="http://www.w3.org/2000/svg" aria-label="Blocking map">
+      <svg width="230" height="172" viewBox="0 0 230 172" xmlns="http://www.w3.org/2000/svg" aria-label="Overhead scene map">
         <rect width="230" height="172" fill="#0c0c14"/>
-        <g stroke="#1a1a2e" stroke-width="1">
-          <path d="M0 30 H230 M0 60 H230 M0 90 H230 M0 120 H230 M0 150 H230"/>
-          <path d="M30 0 V172 M60 0 V172 M90 0 V172 M120 0 V172 M150 0 V172 M180 0 V172 M210 0 V172"/>
-        </g>
-        <path d="M150 120 L60 55 A110 110 0 0 1 150 40 Z" fill="rgba(245,181,68,0.14)" stroke="#f5b544" stroke-width="1"/>
-        <circle cx="150" cy="120" r="8" fill="#f5b544"/>
-        <rect x="146" y="116" width="8" height="8" fill="#0c0c14"/>
-        <circle cx="86" cy="66" r="5" fill="#e8e8f5"/>
-        <circle cx="104" cy="52" r="5" fill="#6a6a8a"/>
+        <!-- satellite-ish blocks -->
+        <g fill="#12131f"><rect x="18" y="26" width="70" height="48" rx="3"/><rect x="120" y="20" width="86" height="40" rx="3"/><rect x="140" y="96" width="66" height="52" rx="3"/></g>
+        <path d="M0 84 H230 M100 0 V172" stroke="#1a1a2e" stroke-width="6" opacity="0.6"/>
+        <!-- sun arc -->
+        <path d="M20 44 A70 70 0 0 1 150 44" fill="none" stroke="rgba(245,181,68,0.35)" stroke-width="1" stroke-dasharray="3 3"/>
+        <circle cx="60" cy="20" r="4" fill="#f5b544"/>
+        <!-- movement path -->
+        <path d="M92 110 q30 -20 60 -8" stroke="#6a6a8a" stroke-width="1.4" stroke-dasharray="4 3" fill="none"/>
+        <!-- camera + actors -->
+        <circle cx="150" cy="120" r="8" fill="#f5b544"/><rect x="146" y="116" width="8" height="8" fill="#0c0c14"/>
+        <circle cx="92" cy="110" r="5" fill="#e8e8f5"/>
+        <circle cx="120" cy="128" r="5" fill="#6a6a8a"/>
+        <text x="202" y="26" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="9" text-anchor="end">N</text>
       </svg>
     </div>
     <!-- Mac shot list (center, hero) -->
@@ -372,11 +378,11 @@
 <!-- TAGLINE STRIP -->
 <div style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 28px 48px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center;">
   <div style="font-family: 'Unbounded', sans-serif; font-size: clamp(20px, 3vw, 32px); font-weight: 900; letter-spacing: -0.01em; color: var(--text);">
-    Plan it. Block it. <span style="color: var(--gold);">Shoot it.</span>
+    Break it down. Block it. <span style="color: var(--gold);">Shoot it.</span>
   </div>
   <div style="display: flex; gap: 40px; flex-wrap: wrap; justify-content: center;">
-    <div class="tagline-item"><span class="tagline-num">01</span><span class="tagline-text">Import your script</span></div>
-    <div class="tagline-item"><span class="tagline-num">02</span><span class="tagline-text">Build shot lists</span></div>
+    <div class="tagline-item"><span class="tagline-num">01</span><span class="tagline-text">Break down the script</span></div>
+    <div class="tagline-item"><span class="tagline-num">02</span><span class="tagline-text">Mark script coverage</span></div>
     <div class="tagline-item"><span class="tagline-num">03</span><span class="tagline-text">Block &amp; schedule</span></div>
     <div class="tagline-item"><span class="tagline-num">04</span><span class="tagline-text">Shoot with On-Set mode</span></div>
     <div class="tagline-item"><span class="tagline-num">✦</span><span class="tagline-text">Built by a filmmaker</span></div>
@@ -389,14 +395,14 @@
   <!-- 1. Import script — text left -->
   <div class="feature-row">
     <div>
-      <div class="fr-eyebrow">How it works <span></span></div>
+      <div class="fr-eyebrow">Script-to-shot breakdown <span></span></div>
       <div class="fr-emoji">📄</div>
-      <h2 class="fr-title">Import your<br>script.</h2>
-      <p class="fr-body">Drop in a screenplay as PDF and CinePlanner detects your scenes automatically from the slug lines. Keep the script beside your shot list and work scene by scene — INT/EXT, day/night, characters and all.</p>
+      <h2 class="fr-title">Read your script beside your shot list.</h2>
+      <p class="fr-body">Import your screenplay PDF and view it directly alongside your shot list. Scenes are organized automatically with location headers, INT/EXT tags, DAY/NIGHT indicators and shot counters — so you break the page down without ever leaving it.</p>
       <ul class="fr-list">
-        <li>Automatic scene detection from INT./EXT. slug lines</li>
-        <li>Multiple script versions side by side, without overwriting</li>
-        <li>Mark script coverage — which shots cover which lines</li>
+        <li>Side-by-side screenplay reader and shot list</li>
+        <li>Automatic scene breakdown with INT/EXT and DAY/NIGHT</li>
+        <li>Per-scene shot counters keep coverage at a glance</li>
       </ul>
     </div>
     <div class="fr-visual">
@@ -414,6 +420,12 @@
           <text x="46" y="167" fill="#6a6a8a">17. EXT. FIELD — DAWN</text>
           <text x="46" y="197" fill="#6a6a8a">18. INT. HALLWAY — DAY</text>
           <text x="46" y="227" fill="#6a6a8a">19. INT. BEDROOM — DAY</text>
+        </g>
+        <g font-family="DM Mono, monospace" font-size="8" fill="#f5b544" text-anchor="end">
+          <text x="192" y="77">5</text>
+        </g>
+        <g font-family="DM Mono, monospace" font-size="8" fill="#3a3a52" text-anchor="end">
+          <text x="192" y="107">4</text><text x="192" y="137">2</text><text x="192" y="167">3</text><text x="192" y="197">2</text><text x="192" y="227">6</text>
         </g>
         <rect x="220" y="24" width="196" height="252" rx="8" fill="#111120"/>
         <g font-family="DM Mono, monospace" font-size="9" fill="#f5b544"><text x="236" y="52">INT. KITCHEN — NIGHT</text></g>
@@ -443,64 +455,138 @@
         <line x1="24" y1="50" x2="416" y2="50" stroke="#1a1a2e"/>
         <g font-family="DM Sans, sans-serif" font-size="11" fill="#e8e8f5">
           <rect x="18" y="58" width="404" height="34" rx="5" fill="rgba(245,181,68,0.06)"/>
-          <text x="24" y="80">14A</text><text x="80" y="80">WS</text><text x="150" y="80">Static</text><text x="248" y="80">21mm</text><text x="320" y="80">Sticks</text>
+          <text x="24" y="80">14A</text><text x="80" y="80">WS</text><text x="150" y="80">Single</text><text x="248" y="80">21mm</text><text x="320" y="80">Tripod</text>
           <circle cx="388" cy="75" r="6" fill="#f5b544"/><path d="M385 75 l2 2 l4 -4" stroke="#0c0c14" stroke-width="1.5" fill="none"/>
-          <text x="24" y="120">14B</text><text x="80" y="120">MS</text><text x="150" y="120">Dolly in</text><text x="248" y="120">40mm</text><text x="320" y="120">Dolly</text>
+          <text x="24" y="120">14B</text><text x="80" y="120">MS</text><text x="150" y="120">OTS</text><text x="248" y="120">40mm</text><text x="320" y="120">Dolly</text>
           <circle cx="388" cy="115" r="6" fill="none" stroke="#2a2a3e"/>
-          <text x="24" y="160">14C</text><text x="80" y="160">CU</text><text x="150" y="160">Handheld</text><text x="248" y="160">75mm</text><text x="320" y="160">—</text>
+          <text x="24" y="160">14C</text><text x="80" y="160">CU</text><text x="150" y="160">Single</text><text x="248" y="160">75mm</text><text x="320" y="160">Steadicam</text>
           <circle cx="388" cy="155" r="6" fill="none" stroke="#2a2a3e"/>
-          <text x="24" y="200">14D</text><text x="80" y="200">OTS</text><text x="150" y="200">Static</text><text x="248" y="200">50mm</text><text x="320" y="200">Sticks</text>
+          <text x="24" y="200">14D</text><text x="80" y="200">Top</text><text x="150" y="200">Insert</text><text x="248" y="200">50mm</text><text x="320" y="200">Gimbal</text>
           <circle cx="388" cy="195" r="6" fill="none" stroke="#2a2a3e"/>
         </g>
         <g stroke="#1a1a2e"><line x1="24" y1="98" x2="416" y2="98"/><line x1="24" y1="138" x2="416" y2="138"/><line x1="24" y1="178" x2="416" y2="178"/></g>
         <rect x="24" y="226" width="392" height="52" rx="8" fill="#111120"/>
         <g font-family="DM Mono, monospace" font-size="8" fill="#6a6a8a">
-          <text x="36" y="246">FROM EXIF · ALEXA 35 · Super 35 · 40mm</text>
+          <text x="36" y="246">GEAR · ALEXA 35 · Super 35 · 40mm · 2.39:1</text>
         </g>
         <g font-family="DM Sans, sans-serif" font-size="8.5" fill="#f5b544"><text x="36" y="264">▣ Reference frame attached</text></g>
       </svg>
     </div>
     <div>
       <div class="fr-emoji">🎬</div>
-      <h2 class="fr-title">Build shot lists that speak the language of the set.</h2>
-      <p class="fr-body">Capture size, movement, lens, grip and camera per shot — prime or zoom, with focal length or range. Camera metadata reads itself from your reference photos' EXIF.</p>
+      <h2 class="fr-title">Log every shot, the way you shoot.</h2>
+      <p class="fr-body">Specify shot size (Close Up, Wide…), shot type (Single, OTS, Top Shot), focal lengths and the exact camera gear — and choose the grip that puts it there.</p>
       <ul class="fr-list">
-        <li>Numbering your way — 1.2, 1A or 001</li>
-        <li>Custom info fields for anything your production tracks</li>
-        <li>Built-in film-stock calculator (35 / 16 / 65mm)</li>
-        <li>Reference photos and videos per shot</li>
+        <li>Grip setups: Tripod, Handheld, Dolly, Steadicam, Gimbal, Crane</li>
+        <li>Attach lookbook, previz or location reference frames</li>
+        <li>Log bodies, lens sets, focal lengths, aspect ratios and formats</li>
       </ul>
     </div>
   </div>
   </div>
 
-  <!-- 3. Blocking — text left -->
+  <!-- 2b. Visual Script Coverage — signature feature -->
+  <div style="border-top: 1px solid var(--border); position: relative; overflow: hidden;">
+  <div style="position:absolute; top:-120px; left:-80px; width:520px; height:520px; background: radial-gradient(ellipse at center, rgba(245,181,68,0.07), transparent 70%); pointer-events:none;"></div>
+  <div class="feature-row reverse">
+    <div class="fr-visual">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Visual script coverage with color-coded coverage lines">
+        <rect width="440" height="300" fill="#0c0c14"/>
+        <!-- script page -->
+        <rect x="150" y="20" width="210" height="260" rx="6" fill="#111120"/>
+        <g font-family="DM Mono, monospace" font-size="8" fill="#f5b544"><text x="166" y="42">INT. KITCHEN — NIGHT</text></g>
+        <!-- script text bars -->
+        <g fill="#26263c">
+          <rect x="166" y="56" width="150" height="7" rx="2"/>
+          <rect x="166" y="72" width="176" height="7" rx="2"/>
+          <rect x="166" y="88" width="120" height="7" rx="2"/>
+          <rect x="210" y="112" width="60" height="7" rx="2"/>
+          <rect x="196" y="128" width="120" height="7" rx="2"/>
+          <rect x="166" y="152" width="170" height="7" rx="2"/>
+          <rect x="166" y="168" width="140" height="7" rx="2"/>
+          <rect x="210" y="192" width="64" height="7" rx="2"/>
+          <rect x="196" y="208" width="120" height="7" rx="2"/>
+          <rect x="166" y="232" width="160" height="7" rx="2"/>
+          <rect x="166" y="248" width="96" height="7" rx="2"/>
+        </g>
+        <!-- coverage lines in the margin, numbered + color-coded -->
+        <g stroke-width="3" stroke-linecap="round">
+          <line x1="140" y1="54" x2="140" y2="97" stroke="#f5b544"/>
+          <line x1="132" y1="54" x2="132" y2="135" stroke="#3ecfff"/>
+          <line x1="140" y1="150" x2="140" y2="215" stroke="#e8722d"/>
+          <line x1="132" y1="190" x2="132" y2="255" stroke="#7bd88f"/>
+        </g>
+        <g font-family="DM Mono, monospace" font-size="8" text-anchor="middle">
+          <text x="140" y="50" fill="#f5b544">1</text>
+          <text x="124" y="50" fill="#3ecfff">2</text>
+          <text x="140" y="146" fill="#e8722d">3</text>
+          <text x="124" y="186" fill="#7bd88f">4</text>
+        </g>
+        <!-- legend -->
+        <g font-family="DM Mono, monospace" font-size="9">
+          <circle cx="384" cy="60" r="4" fill="#f5b544"/><text x="394" y="63" fill="#9a9ab0">14A</text>
+          <circle cx="384" cy="82" r="4" fill="#3ecfff"/><text x="394" y="85" fill="#9a9ab0">14B</text>
+          <circle cx="384" cy="104" r="4" fill="#e8722d"/><text x="394" y="107" fill="#9a9ab0">14C</text>
+          <circle cx="384" cy="126" r="4" fill="#7bd88f"/><text x="394" y="129" fill="#9a9ab0">14D</text>
+        </g>
+      </svg>
+    </div>
+    <div>
+      <div class="fr-eyebrow">Signature feature <span></span></div>
+      <div class="fr-emoji">🖍️</div>
+      <h2 class="fr-title">See what covers<br>every line.</h2>
+      <p class="fr-body">Highlight passages of dialogue or action in the built-in screenplay reader, and CinePlanner draws thin vertical coverage lines in the margin — numbered and color-coded to each shot. It's an instant visual map of which camera setups cover which lines.</p>
+      <ul class="fr-list">
+        <li>Tap-to-select word picker to mark the script</li>
+        <li>Color-coded, numbered coverage lines per shot</li>
+        <li>Spot uncovered lines before you step on set</li>
+      </ul>
+    </div>
+  </div>
+  </div>
+
+  <!-- 3. Scene map — text left -->
   <div style="border-top: 1px solid var(--border);">
   <div class="feature-row">
     <div>
       <div class="fr-emoji">🗺️</div>
-      <h2 class="fr-title">Block it with<br>real optics.</h2>
-      <p class="fr-body">Draw top-down blocking maps in Shot Designer style — characters and cameras on a canvas. Each camera shows a true field-of-view wedge based on sensor format (Super 16 / Super 35 / Large Format) and the lens you chose. Not symbolic arrows — real coverage.</p>
+      <h2 class="fr-title">Block it on an<br>overhead map.</h2>
+      <p class="fr-body">Place camera icons, actor markers and floor-plan maps to plan scenes in 2D, and draw actor and camera moves across the map to communicate complex blocking to your crew. Drop a real satellite map under any scene, pan to your exact location and set which way is North.</p>
       <ul class="fr-list">
-        <li>Drop in your own floor plan as an underlay</li>
-        <li>Labels, markers and walk paths for characters</li>
+        <li>Movement paths for actors and cameras</li>
+        <li>Satellite locations with a North reference</li>
+        <li>Sun &amp; daylight: scrub the day to see the sun's direction and height, with sunrise and sunset times</li>
       </ul>
     </div>
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Top-down blocking map with camera field-of-view">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Overhead scene map with satellite location and sun">
         <rect width="440" height="300" fill="#0c0c14"/>
+        <!-- satellite underlay: building blocks + roads -->
+        <g fill="#13141f"><rect x="30" y="150" width="150" height="110" rx="4"/><rect x="250" y="40" width="150" height="90" rx="4"/><rect x="290" y="160" width="110" height="100" rx="4"/></g>
+        <g stroke="#191a28" stroke-width="10" opacity="0.7"><path d="M0 140 H440"/><path d="M210 0 V300"/></g>
         <g stroke="#141428" stroke-width="1">
-          <path d="M0 30 H440 M0 60 H440 M0 90 H440 M0 120 H440 M0 150 H440 M0 180 H440 M0 210 H440 M0 240 H440 M0 270 H440"/>
-          <path d="M30 0 V300 M60 0 V300 M90 0 V300 M120 0 V300 M150 0 V300 M180 0 V300 M210 0 V300 M240 0 V300 M270 0 V300 M300 0 V300 M330 0 V300 M360 0 V300 M390 0 V300 M420 0 V300"/>
+          <path d="M0 40 H440 M0 90 H440 M0 190 H440 M0 240 H440"/>
+          <path d="M60 0 V300 M120 0 V300 M300 0 V300 M360 0 V300"/>
         </g>
-        <rect x="60" y="50" width="200" height="150" fill="none" stroke="#2a2a3e" stroke-width="2"/>
-        <path d="M340 220 L120 120 A240 240 0 0 1 300 70 Z" fill="rgba(245,181,68,0.12)" stroke="#f5b544" stroke-width="1.5"/>
-        <line x1="340" y1="220" x2="220" y2="140" stroke="#f5b544" stroke-width="1" stroke-dasharray="3 3"/>
-        <circle cx="340" cy="220" r="11" fill="#f5b544"/><rect x="334" y="214" width="12" height="12" rx="2" fill="#0c0c14"/>
-        <text x="356" y="224" fill="#f5b544" font-family="DM Mono, monospace" font-size="9">CAM · 40mm · S35</text>
-        <circle cx="150" cy="120" r="8" fill="#e8e8f5"/><text x="150" y="142" fill="#9a9ab0" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">MAYA</text>
-        <circle cx="205" cy="150" r="8" fill="#6a6a8a"/><text x="205" y="172" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">TOM</text>
-        <path d="M205 150 q40 -20 70 -6" stroke="#6a6a8a" stroke-width="1" stroke-dasharray="4 3" fill="none"/>
+        <!-- sun arc + position -->
+        <path d="M40 96 A170 170 0 0 1 380 96" fill="none" stroke="rgba(245,181,68,0.4)" stroke-width="1.2" stroke-dasharray="4 4"/>
+        <circle cx="120" cy="40" r="7" fill="#f5b544"/>
+        <line x1="120" y1="40" x2="150" y2="90" stroke="rgba(245,181,68,0.5)" stroke-width="1" stroke-dasharray="2 3"/>
+        <text x="300" y="30" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8">Sunrise 06:58 · Sunset 19:52</text>
+        <!-- compass -->
+        <g transform="translate(406,40)"><line x1="0" y1="10" x2="0" y2="-10" stroke="#f5b544" stroke-width="1.4"/><path d="M0 -12 l4 6 l-8 0 Z" fill="#f5b544"/><text x="0" y="24" fill="#f5b544" font-family="DM Mono, monospace" font-size="9" text-anchor="middle">N</text></g>
+        <!-- movement path -->
+        <path d="M150 210 q40 -34 92 -18" stroke="#6a6a8a" stroke-width="1.4" stroke-dasharray="5 3" fill="none"/>
+        <path d="M242 192 l-8 -2 l3 7 Z" fill="#6a6a8a"/>
+        <!-- camera move -->
+        <path d="M300 230 q-18 -30 -40 -40" stroke="#f5b544" stroke-width="1.2" stroke-dasharray="4 3" fill="none"/>
+        <!-- camera + actors -->
+        <circle cx="300" cy="230" r="11" fill="#f5b544"/><rect x="294" y="224" width="12" height="12" rx="2" fill="#0c0c14"/>
+        <text x="316" y="234" fill="#f5b544" font-family="DM Mono, monospace" font-size="9">CAM</text>
+        <circle cx="150" cy="210" r="8" fill="#e8e8f5"/><text x="150" y="232" fill="#9a9ab0" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">MAYA</text>
+        <circle cx="242" cy="192" r="8" fill="#6a6a8a"/><text x="242" y="176" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">TOM</text>
+        <!-- location pin -->
+        <g transform="translate(360,150)"><path d="M0 0 c-8 -12 -8 -18 0 -18 c8 0 8 6 0 18Z" fill="#e8722d" transform="translate(0,-2)"/><circle cx="0" cy="-13" r="3" fill="#0c0c14"/></g>
       </svg>
     </div>
   </div>
@@ -510,50 +596,40 @@
   <div style="border-top: 1px solid var(--border); background: var(--surface);">
   <div class="feature-row reverse">
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Shooting schedule with golden-hour times">
+      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Strip-board shooting schedule">
         <rect width="440" height="300" fill="#0c0c14"/>
-        <!-- day header + sun band -->
-        <rect x="24" y="24" width="392" height="46" rx="8" fill="#111120"/>
-        <text x="38" y="44" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="12" font-weight="700">Day 3 — Fri 12 Sep</text>
-        <text x="38" y="60" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="9">EXT. FIELD · 6 setups</text>
-        <g font-family="DM Mono, monospace" font-size="7.5">
-          <circle cx="250" cy="40" r="3" fill="#e8722d"/><text x="258" y="43" fill="#6a6a8a">Sunrise 06:58</text>
-          <circle cx="250" cy="56" r="3" fill="#f5b544"/><text x="258" y="59" fill="#f5b544">Golden AM 07:02–07:44</text>
-          <circle cx="352" cy="40" r="3" fill="#f5b544"/><text x="360" y="43" fill="#f5b544">Golden PM 19:10</text>
-          <circle cx="352" cy="56" r="3" fill="#e8722d"/><text x="360" y="59" fill="#6a6a8a">Sunset 19:52</text>
+        <!-- day columns -->
+        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a" text-anchor="middle">
+          <text x="90" y="40">DAY 1</text><text x="220" y="40">DAY 2</text><text x="350" y="40">DAY 3</text>
         </g>
-        <!-- scene blocks -->
-        <g font-family="DM Sans, sans-serif" font-size="10" fill="#e8e8f5">
-          <rect x="24" y="82" width="392" height="40" rx="6" fill="rgba(245,181,68,0.08)" stroke="rgba(245,181,68,0.3)"/>
-          <rect x="24" y="82" width="5" height="40" rx="2" fill="#f5b544"/>
-          <text x="40" y="100">Sc 17 — EXT. FIELD — DAWN</text>
-          <text x="40" y="115" fill="#6a6a8a" font-size="8.5">Golden hour · shots 17A–17C</text>
-          <text x="392" y="106" fill="#f5b544" font-family="DM Mono" font-size="9" text-anchor="end">07:00</text>
-
-          <rect x="24" y="130" width="392" height="40" rx="6" fill="#111120"/>
-          <rect x="24" y="130" width="5" height="40" rx="2" fill="#2a2a3e"/>
-          <text x="40" y="148">Sc 15 — EXT. DRIVEWAY</text>
-          <text x="40" y="163" fill="#6a6a8a" font-size="8.5">shots 15A–15D</text>
-          <text x="392" y="154" fill="#6a6a8a" font-family="DM Mono" font-size="9" text-anchor="end">11:30</text>
-
-          <rect x="24" y="178" width="392" height="40" rx="6" fill="#111120"/>
-          <rect x="24" y="178" width="5" height="40" rx="2" fill="#2a2a3e"/>
-          <text x="40" y="196">Sc 19 — INT. BEDROOM</text>
-          <text x="40" y="211" fill="#6a6a8a" font-size="8.5">shots 19A–19B</text>
-          <text x="392" y="202" fill="#6a6a8a" font-family="DM Mono" font-size="9" text-anchor="end">15:00</text>
+        <g fill="#0a0a12" stroke="#141428"><rect x="26" y="50" width="128" height="224" rx="8"/><rect x="156" y="50" width="128" height="224" rx="8"/><rect x="286" y="50" width="128" height="224" rx="8"/></g>
+        <!-- strips: day 1 -->
+        <g font-family="DM Sans, sans-serif" font-size="9" fill="#e8e8f5">
+          <rect x="34" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="34" y="62" width="5" height="34" rx="2" fill="#f5b544"/><text x="46" y="78">Sc 14 · INT</text><text x="46" y="90" fill="#6a6a8a" font-size="7.5">Kitchen · 5</text>
+          <rect x="34" y="102" width="112" height="34" rx="5" fill="#15152a"/><rect x="34" y="102" width="5" height="34" rx="2" fill="#3ecfff"/><text x="46" y="118">Sc 15 · EXT</text><text x="46" y="130" fill="#6a6a8a" font-size="7.5">Driveway · 4</text>
+          <!-- day 2 -->
+          <rect x="164" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="164" y="62" width="5" height="34" rx="2" fill="#3ecfff"/><text x="176" y="78">Sc 17 · EXT</text><text x="176" y="90" fill="#6a6a8a" font-size="7.5">Field (1/2) · 3</text>
+          <rect x="164" y="102" width="112" height="34" rx="5" fill="#15152a"/><rect x="164" y="102" width="5" height="34" rx="2" fill="#f5b544"/><text x="176" y="118">Sc 19 · INT</text><text x="176" y="130" fill="#6a6a8a" font-size="7.5">Bedroom · 2</text>
+          <!-- day 3 -->
+          <rect x="294" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="294" y="62" width="5" height="34" rx="2" fill="#3ecfff"/><text x="306" y="78">Sc 17 · EXT</text><text x="306" y="90" fill="#6a6a8a" font-size="7.5">Field (2/2) · 4</text>
         </g>
-        <rect x="24" y="232" width="392" height="42" rx="6" fill="rgba(232,114,45,0.06)" stroke="rgba(232,114,45,0.25)" stroke-dasharray="4 3"/>
-        <text x="40" y="252" fill="#e8722d" font-family="DM Mono, monospace" font-size="8.5">⚠ Shot 17A also scheduled on Day 5</text>
-        <text x="40" y="266" fill="#6a6a8a" font-family="DM Sans" font-size="8.5">Double-booking detected</text>
+        <!-- strip being dragged between day 2 and day 3 -->
+        <g font-family="DM Sans, sans-serif" font-size="9">
+          <rect x="240" y="150" width="120" height="36" rx="6" fill="#1c1c33" stroke="#f5b544" stroke-width="1.2"/>
+          <rect x="240" y="150" width="5" height="36" rx="2" fill="#f5b544"/>
+          <text x="253" y="167" fill="#e8e8f5">Sc 16 · INT</text><text x="253" y="180" fill="#6a6a8a" font-size="7.5">Car · 2 shots</text>
+          <text x="352" y="172" fill="#f5b544" font-family="DM Mono, monospace" font-size="8">⇕ drag</text>
+        </g>
       </svg>
     </div>
     <div>
-      <div class="fr-emoji">🌅</div>
-      <h2 class="fr-title">A schedule built for the shoot day.</h2>
-      <p class="fr-body">Spread scenes across shoot days by drag-and-drop, pick which shots you take each day and in what order. CinePlanner shows sun and golden-hour times per day from the location and date — and warns you when a shot is double-booked.</p>
+      <div class="fr-emoji">🗓️</div>
+      <h2 class="fr-title">Build the day on a strip board.</h2>
+      <p class="fr-body">Arrange scenes into shooting days in shoot order, split a scene across days, and drag strips between days to build the plan. It's a board on Mac and iPad, and a list on iPhone — the same schedule, wherever you are.</p>
       <ul class="fr-list">
-        <li>Sunrise, golden hour AM/PM and sunset per shoot day</li>
-        <li>Double-booking detection across days</li>
+        <li>Drag strips between days; split a scene across days</li>
+        <li>Order scenes exactly the way you'll shoot them</li>
+        <li>A board on Mac &amp; iPad, a list on iPhone</li>
       </ul>
     </div>
   </div>
@@ -566,14 +642,14 @@
   <div style="position:absolute; top:-100px; right:-100px; width:500px; height:500px; background: radial-gradient(ellipse at center, rgba(245,181,68,0.07), transparent 70%); pointer-events:none;"></div>
   <div class="feature-row">
     <div>
-      <div class="fr-eyebrow">On set <span></span></div>
+      <div class="fr-eyebrow">On set, live <span></span></div>
       <div class="fr-emoji">📱</div>
-      <h2 class="fr-title">Your shoot day,<br>on your lock screen.</h2>
-      <p class="fr-body">Switch to On-Set mode: a full-screen shoot day you check off shot by shot, with the current setup blown up large — size, movement, lens, grip, notes and a framing reference. Tap REF and MAP to pull up the shot's references and scene plan.</p>
+      <h2 class="fr-title">Run the day,<br>from your pocket.</h2>
+      <p class="fr-body">When the shoot day arrives, switch to a full-screen, check-off view of the day's scenes. Mark each shot as it's in the can, log your takes and circle the keeper — with the current setup blown up large and REF and MAP a tap away.</p>
       <ul class="fr-list">
-        <li>Drag to re-order shots right there on the floor</li>
-        <li>Live Activity on iPhone lock screen &amp; Dynamic Island</li>
-        <li>Check off the running and next setup without opening the app</li>
+        <li>Mark shots in the can; log takes and circle the keeper</li>
+        <li>Live Activity on the iPhone Lock Screen &amp; Dynamic Island</li>
+        <li>Step shot to shot without opening the app</li>
         <li>Progress at a glance — shots done, scenes wrapped</li>
       </ul>
     </div>
@@ -587,7 +663,13 @@
         <text x="30" y="98" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="18" font-weight="900">14B</text>
         <text x="30" y="120" fill="#e8e8f5" font-family="DM Sans, sans-serif" font-size="12">MS · Dolly in</text>
         <text x="30" y="138" fill="#9a9ab0" font-family="DM Sans, sans-serif" font-size="10">40mm · ALEXA 35 · Dolly</text>
-        <text x="30" y="156" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="9">"Push as the kettle screams."</text>
+        <g font-family="DM Mono, monospace" font-size="7">
+          <text x="30" y="157" fill="#6a6a8a">TAKES</text>
+          <circle cx="70" cy="153" r="7" fill="#111120" stroke="#2a2a3e"/><text x="70" y="156" fill="#6a6a8a" text-anchor="middle">1</text>
+          <circle cx="90" cy="153" r="7" fill="#111120" stroke="#f5b544" stroke-width="1.4"/><text x="90" y="156" fill="#f5b544" text-anchor="middle">2</text>
+          <circle cx="110" cy="153" r="7" fill="#111120" stroke="#2a2a3e"/><text x="110" y="156" fill="#6a6a8a" text-anchor="middle">3</text>
+          <text x="126" y="156" fill="#f5b544" font-size="6.5">◎ keeper</text>
+        </g>
         <g font-family="DM Mono, monospace" font-size="8">
           <rect x="18" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="56" y="190" fill="#f5b544" text-anchor="middle">REF</text>
           <rect x="102" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="140" y="190" fill="#f5b544" text-anchor="middle">MAP</text>
@@ -645,14 +727,16 @@
       </svg>
       <svg class="eco-arrow" width="42" height="24" viewBox="0 0 42 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 H36 M30 5 l7 7 l-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <!-- CinePlanner map -->
-      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CinePlanner blocking map" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
+      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CinePlanner overhead scene map" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
         <rect width="150" height="200" rx="12" fill="#0c0c14"/>
-        <g stroke="#141428" stroke-width="1"><path d="M0 40 H150 M0 80 H150 M0 120 H150 M0 160 H150 M40 0 V200 M80 0 V200 M120 0 V200"/></g>
-        <path d="M110 150 L40 90 A90 90 0 0 1 110 60 Z" fill="rgba(245,181,68,0.14)" stroke="#f5b544" stroke-width="1"/>
-        <circle cx="110" cy="150" r="8" fill="#f5b544"/><rect x="106" y="146" width="8" height="8" fill="#0c0c14"/>
-        <circle cx="62" cy="94" r="6" fill="#e8e8f5"/>
-        <circle cx="80" cy="80" r="6" fill="#6a6a8a"/>
-        <text x="12" y="18" fill="#f5b544" font-family="DM Mono, monospace" font-size="7">PLAN · 40mm</text>
+        <g fill="#13141f"><rect x="16" y="96" width="60" height="60" rx="3"/><rect x="90" y="40" width="46" height="50" rx="3"/></g>
+        <g stroke="#191a28" stroke-width="6" opacity="0.7"><path d="M0 90 H150 M78 0 V200"/></g>
+        <path d="M92 150 q-14 -24 -34 -32" stroke="#f5b544" stroke-width="1" stroke-dasharray="4 3" fill="none"/>
+        <circle cx="92" cy="150" r="8" fill="#f5b544"/><rect x="88" y="146" width="8" height="8" fill="#0c0c14"/>
+        <circle cx="58" cy="118" r="6" fill="#e8e8f5"/>
+        <circle cx="78" cy="104" r="6" fill="#6a6a8a"/>
+        <text x="12" y="18" fill="#f5b544" font-family="DM Mono, monospace" font-size="7">PLAN · MAP</text>
+        <text x="138" y="18" fill="#f5b544" font-family="DM Mono, monospace" font-size="7" text-anchor="end">N</text>
       </svg>
     </div>
   </div>
@@ -660,35 +744,29 @@
 
 <!-- FEATURES GRID -->
 <div class="section-wrap" id="features">
-  <div class="section-label">Features</div>
-  <h2 class="section-title">Everything from prep<br>to the shoot day.</h2>
-  <p class="section-sub">One continuous chain — script, shot list, blocking, schedule, set — instead of a spreadsheet, a drawing tool, some PDFs and a group chat.</p>
+  <div class="section-label">More that comes with it</div>
+  <h2 class="section-title">One continuous chain,<br>script to set.</h2>
+  <p class="section-sub">Everything above, plus the pieces that keep a whole production organized and synced — instead of a spreadsheet, a drawing tool, some PDFs and a group chat.</p>
   <div class="features-grid">
-    <div class="feature-item"><div class="feature-dot">🎬</div><h3 class="feature-title">Shot lists</h3><p class="feature-body">Size, movement, lens, grip and camera per shot. Numbering as 1.2, 1A or 001. Custom fields and a film-stock calculator built in.</p></div>
-    <div class="feature-item"><div class="feature-dot">🗺️</div><h3 class="feature-title">Blocking with real optics</h3><p class="feature-body">Top-down maps where each camera shows a true field-of-view wedge from sensor format and lens — not symbolic arrows.</p></div>
-    <div class="feature-item"><div class="feature-dot">🌅</div><h3 class="feature-title">Schedule with golden hour</h3><p class="feature-body">Spread scenes across shoot days with sun and golden-hour times per day, plus double-booking detection.</p></div>
-    <div class="feature-item"><div class="feature-dot">📱</div><h3 class="feature-title">On-Set mode &amp; Live Activity</h3><p class="feature-body">A full-screen, check-it-off shoot day with the current setup large — and a Live Activity on your iPhone lock screen.</p></div>
-    <div class="feature-item"><div class="feature-dot">📷</div><h3 class="feature-title">Camera metadata, automatically</h3><p class="feature-body">EXIF from your reference photos fills in camera family, format, focal length and framelines for you.</p></div>
-    <div class="feature-item"><div class="feature-dot">📤</div><h3 class="feature-title">Share without the fuss</h3><p class="feature-body">PDF shot lists per day or scene, a self-contained web export with media, or publish a shareable online page.</p></div>
-    <div class="feature-item"><div class="feature-dot">🖥️</div><h3 class="feature-title">Across your Apple devices</h3><p class="feature-body">Mac is the planning office, iPad refines and presents, iPhone is the set companion. One universal app, same projects everywhere.</p></div>
-    <div class="feature-item"><div class="feature-dot">🔒</div><h3 class="feature-title">Reliable on the floor</h3><p class="feature-body">iCloud sync, offline-first, automatic local backups and recovery, and full undo/redo on every edit.</p></div>
-    <div class="feature-item"><div class="feature-dot">◐</div><h3 class="feature-title">CineStager bridge</h3><p class="feature-body">Import AR setups and top-down maps from the companion app CineStager through a shared iCloud folder, read-only.</p></div>
+    <div class="feature-item"><div class="feature-dot">🖼️</div><h3 class="feature-title">Reference frames &amp; gear</h3><p class="feature-body">Link lookbook images, previz renders or location photos to each shot, and log bodies, lens sets, focal lengths, aspect ratios and formats right beneath them.</p></div>
+    <div class="feature-item"><div class="feature-dot">🗂️</div><h3 class="feature-title">Versions &amp; series</h3><p class="feature-body">Keep multiple script revisions side-by-side and copy shots between drafts, and split larger projects into episodes without losing organization.</p></div>
+    <div class="feature-item"><div class="feature-dot">📤</div><h3 class="feature-title">Flexible export</h3><p class="feature-body">Output your plan as an interactive HTML page, a PDF shot list, plain text, or a dedicated "Script with Coverage" PDF.</p></div>
+    <div class="feature-item"><div class="feature-dot">🔗</div><h3 class="feature-title">Live web links</h3><p class="feature-body">Publish your shot list to a shareable link complete with images and video — it updates automatically whenever you republish.</p></div>
+    <div class="feature-item"><div class="feature-dot">☁️</div><h3 class="feature-title">iCloud sync, Mac &amp; iPad</h3><p class="feature-body">Start planning at your desk on Mac, then carry your full plan onto set on your iPad. Touch-optimized controls throughout.</p></div>
+    <div class="feature-item"><div class="feature-dot">◐</div><h3 class="feature-title">CineStager integration</h3><p class="feature-body">Pull in setups directly from the CineStager AR companion app — what you scout on location flows into your plan.</p></div>
   </div>
 </div>
 
 <!-- WHO IT'S FOR -->
 <div class="usecases-wrap" id="who">
   <div class="section-wrap">
-    <div class="section-label">Who it's for</div>
-    <h2 class="section-title">For anyone who designs<br>their shots in advance.</h2>
-    <p class="section-sub">From commercials and music videos to shorts, features and series — wherever shots are planned before they're shot.</p>
+    <div class="section-label">Built for filmmakers</div>
+    <h2 class="section-title">Crafted for the people<br>who plan the shoot.</h2>
+    <p class="section-sub">Whether you're prepping a high-concept short or an episodic series, CinePlanner keeps your creative vision clear, organized and synced everywhere.</p>
     <div class="usecases-grid">
-      <div class="usecase-card"><span class="usecase-icon">🎥</span><div><h3 class="usecase-title">Directors</h3><p class="usecase-body">Capture your visual plan and follow it on the set, shot by shot, with the current setup always in front of you.</p></div></div>
-      <div class="usecase-card"><span class="usecase-icon">🎞️</span><div><h3 class="usecase-title">Cinematographers &amp; DPs</h3><p class="usecase-body">Prep sizes, lenses, cameras and blocking with structure — and block with true field-of-view, not guesswork.</p></div></div>
-      <div class="usecase-card"><span class="usecase-icon">📋</span><div><h3 class="usecase-title">1st ADs &amp; production</h3><p class="usecase-body">A workable shooting schedule and a reliable shoot-day checklist that hold up on the floor.</p></div></div>
-      <div class="usecase-card"><span class="usecase-icon">🎦</span><div><h3 class="usecase-title">Indie filmmakers &amp; small crews</h3><p class="usecase-body">Go from screenplay to shoot day without heavy software — and look professional with a shareable page.</p></div></div>
-      <div class="usecase-card"><span class="usecase-icon">🎓</span><div><h3 class="usecase-title">Students &amp; film schools</h3><p class="usecase-body">Learn the craft of shot planning with a tool that speaks the real language of the set.</p></div></div>
-      <div class="usecase-card"><span class="usecase-icon">📺</span><div><h3 class="usecase-title">Commercials, videos &amp; series</h3><p class="usecase-body">High ambition, tight turnaround — design every setup in advance and shoot your plan with confidence.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">🎥</span><div><h3 class="usecase-title">Directors &amp; DPs</h3><p class="usecase-body">Step on set with clear reference frames, lenses and blocking already pre-planned — your vision, laid out shot by shot.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">📋</span><div><h3 class="usecase-title">1st ADs &amp; Line Producers</h3><p class="usecase-body">A filterable, shareable shot list and a strip-board schedule to build efficient, realistic shoot days.</p></div></div>
+      <div class="usecase-card"><span class="usecase-icon">🎓</span><div><h3 class="usecase-title">Indie crews &amp; film students</h3><p class="usecase-body">A fast, visual, modern alternative to complex production suites — from screenplay to shoot day.</p></div></div>
     </div>
   </div>
 </div>
@@ -697,7 +775,7 @@
 <div class="maker-wrap">
   <div class="maker-inner">
     <div class="section-label" style="justify-content:center;">Built by a filmmaker</div>
-    <p class="maker-quote">"I wanted one place to go <b>from a script to a shoot day</b> — shot lists, blocking with real lenses, a schedule that knows the golden hour, and a mode that actually works <b>in my hand on the floor</b>. So I built it."</p>
+    <p class="maker-quote">"I wanted one place that sits <b>between the screenplay and the set</b> — read the script, mark what every shot covers, block it on a map, and then run the day <b>in my hand on the floor</b>. So I built it."</p>
     <div class="maker-attr">Yannick Giraud · Cinematographer &amp; maker of CinePlanner</div>
   </div>
 </div>
@@ -708,7 +786,7 @@
     <div class="cta-glow"></div>
     <img src="icon.svg" alt="CinePlanner" class="cta-icon">
     <h2 class="cta-title">Design your shots.<br><span>Shoot your plan.</span></h2>
-    <p class="cta-sub">CinePlanner is coming to the App Store and the Mac App Store. One universal app for Mac, iPad and iPhone.</p>
+    <p class="cta-sub">CinePlanner is coming to the App Store and the Mac App Store — native on Mac and iPad, with an iPhone Live Activity for the set.</p>
     <!-- Pre-launch: replace this pill with the App Store / Mac App Store badges once live. -->
     <div class="store-soon" style="margin: 0 auto;">
       <svg viewBox="0 0 24 24" fill="var(--gold)" xmlns="http://www.w3.org/2000/svg" style="width:26px;height:26px;"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.9-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.28-1.27 3.13-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13M14.53 4.43c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.55-.66.77-1.24 2-1.09 3.18 1.15.09 2.32-.58 3.04-1.45"/></svg>
