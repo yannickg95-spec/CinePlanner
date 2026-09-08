@@ -694,6 +694,10 @@ struct SceneMapEditorView: View {
             .overlay { backgroundAdjustButton(in: rect) }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
             .overlay { backgroundAdjustChrome(in: rect, canvas: geo.size) }
+            // Camera shot-info card — fixed chrome outside the map group's transform,
+            // so it stays upright and a constant size while the map is rotated,
+            // scaled or panned under it, tracking the marker's true screen position.
+            .overlay { cameraShotCard(in: rect, canvas: geo.size) }
             .onChange(of: reframeKey) { scheduleReframeRender(in: rect, canvas: geo.size) }
             .onChange(of: isReframeMode) { scheduleReframeRender(in: rect, canvas: geo.size) }
         }
@@ -899,11 +903,6 @@ struct SceneMapEditorView: View {
         // interactive shape to the (unscaled) frame so touches outside it — the
         // toolbar — pass through again.
         .contentShape(Rectangle())
-        // Camera shot-info card — a plain overlay (not a system popover), so the
-        // marker underneath stays draggable. Placed OUTSIDE the zoom transform so
-        // it's a constant on-screen size and always fits, tracking the marker's
-        // transformed screen position at any zoom.
-        .overlay { cameraShotCard(in: rect, canvas: geo.size) }
         // Two-finger trackpad swipe pans the zoomed map (and any satellite map,
         // where panning reframes it); a mouse wheel zooms. macOS only: on iPad the
         // transparent catcher overlay sat on the touch/pinch path and is the
@@ -1606,19 +1605,32 @@ struct SceneMapEditorView: View {
             // work in screen space: map the marker's logical position through the
             // scaleEffect(anchor: .center) + offset(pan) to where it actually appears.
             let compact = DeviceLayout.isPhone
-            let cardW: CGFloat = compact ? 190 : 264
-            let estH: CGFloat = compact ? 230 : 300
             let gap: CGFloat = 24
-            let mLogicalX = rect.minX + element.x * rect.width
-            let mLogicalY = rect.minY + element.y * rect.height
-            let cxScreen = canvas.width / 2 + (mLogicalX - canvas.width / 2) * zoom + pan.width
-            let cyScreen = canvas.height / 2 + (mLogicalY - canvas.height / 2) * zoom + pan.height
+            // Shrink the card to whatever the (possibly resized) canvas allows, so it
+            // always fits, then let the still scale with it.
+            let baseW: CGFloat = compact ? 190 : 264
+            let cardW = max(140, min(baseW, canvas.width - 2 * (gap + 8)))
+            // Header + 16:9 still + info rows + padding — tracks the scaled width.
+            let estH: CGFloat = (cardW - 24) * 9 / 16 + 150
+            // The marker's true screen point: the logical position through the canvas
+            // zoom/pan, then the map group's placement (rotate + scale about the
+            // centre, then offset) — the same transform the map is drawn with.
+            let cxMid = canvas.width / 2, cyMid = canvas.height / 2
+            let zx = cxMid + (rect.minX + element.x * rect.width - cxMid) * zoom + pan.width
+            let zy = cyMid + (rect.minY + element.y * rect.height - cyMid) * zoom + pan.height
+            let place = mapPlacement
+            let theta = (place.rotation - reframeTurn) * .pi / 180
+            let c = cos(theta), s = sin(theta)
+            let rx = (zx - cxMid) * c - (zy - cyMid) * s
+            let ry = (zx - cxMid) * s + (zy - cyMid) * c
+            let cxScreen = cxMid + CGFloat(place.scale) * rx + CGFloat(place.offsetX) * rect.width
+            let cyScreen = cyMid + CGFloat(place.scale) * ry + CGFloat(place.offsetY) * rect.height
             let placeRight = cxScreen + gap + cardW <= canvas.width
             let cxRaw = placeRight ? cxScreen + gap + cardW / 2 : cxScreen - gap - cardW / 2
             // Clamp to the screen so an edge marker's card stays fully visible.
             let cx = min(max(cxRaw, cardW / 2 + 8), max(cardW / 2 + 8, canvas.width - cardW / 2 - 8))
             let cy = min(max(cyScreen, estH / 2 + 8), max(estH / 2 + 8, canvas.height - estH / 2 - 8))
-            CameraShotPopover(shot: shot, compact: compact)
+            CameraShotPopover(shot: shot, compact: compact, width: cardW)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                 .shadow(color: .black.opacity(0.22), radius: 9, y: 2)
@@ -3211,9 +3223,17 @@ private struct CameraShotPopover: View {
     let shot: Shot
     /// iPhone: a narrower card with a smaller still, so it fits the screen.
     var compact: Bool = false
+    /// Resolved card width — capped by the caller to the space available, so the
+    /// card (and its still) shrink to fit a small or resized window.
+    var width: CGFloat = 264
 
-    private var cardWidth: CGFloat { compact ? 190 : 264 }
-    private var imageSize: CGSize { compact ? CGSize(width: 166, height: 93) : CGSize(width: 240, height: 135) }
+    private var cardWidth: CGFloat { width }
+    /// The still fills the card width (minus padding) at a 16:9 crop, so it scales
+    /// with the card.
+    private var imageSize: CGSize {
+        let w = width - 24
+        return CGSize(width: w, height: (w * 9 / 16).rounded())
+    }
 
     private var referenceImage: PlatformImage? {
         shot.references.sorted { $0.sortOrder < $1.sortOrder }
