@@ -182,6 +182,7 @@
   .fr-list li::before { content: ""; margin-top: 8px; flex-shrink: 0; width: 6px; height: 6px; border-radius: 2px; background: linear-gradient(135deg, var(--cyan), var(--blue)); }
   .fr-visual { border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 24px 64px rgba(0,0,0,0.4); background: var(--surface); }
   .fr-visual svg { width: 100%; height: auto; display: block; }
+  .fr-visual > img { width: 100%; height: auto; display: block; }
 
   /* USE CASES */
   .usecases-wrap { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -311,61 +312,15 @@
   <div class="hero-screens">
     <!-- iPad scene map (side) -->
     <div class="hs-frame hs-side" style="-webkit-mask-image:linear-gradient(to right,transparent,black 55%);mask-image:linear-gradient(to right,transparent,black 55%);">
-      <svg width="230" height="172" viewBox="0 0 230 172" xmlns="http://www.w3.org/2000/svg" aria-label="Overhead scene map">
-        <rect width="230" height="172" fill="#0c0c14"/>
-        <!-- satellite-ish blocks -->
-        <g fill="#12131f"><rect x="18" y="26" width="70" height="48" rx="3"/><rect x="120" y="20" width="86" height="40" rx="3"/><rect x="140" y="96" width="66" height="52" rx="3"/></g>
-        <path d="M0 84 H230 M100 0 V172" stroke="#1a1a2e" stroke-width="6" opacity="0.6"/>
-        <!-- sun arc -->
-        <path d="M20 44 A70 70 0 0 1 150 44" fill="none" stroke="rgba(62,207,255,0.35)" stroke-width="1" stroke-dasharray="3 3"/>
-        <circle cx="60" cy="20" r="4" fill="#3ecfff"/>
-        <!-- movement path -->
-        <path d="M92 110 q30 -20 60 -8" stroke="#6a6a8a" stroke-width="1.4" stroke-dasharray="4 3" fill="none"/>
-        <!-- camera + actors -->
-        <circle cx="150" cy="120" r="8" fill="#3ecfff"/><rect x="146" y="116" width="8" height="8" fill="#0c0c14"/>
-        <circle cx="92" cy="110" r="5" fill="#e8e8f5"/>
-        <circle cx="120" cy="128" r="5" fill="#6a6a8a"/>
-        <text x="202" y="26" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="9" text-anchor="end">N</text>
-      </svg>
+      <img src="img/hero-ipad-map.jpg" alt="Overhead scene map on iPad" style="height:210px;width:auto;display:block;">
     </div>
-    <!-- Mac shot list (center, hero) -->
+    <!-- Mac main view (center, hero) -->
     <div class="hs-frame">
-      <svg width="360" height="230" viewBox="0 0 360 230" xmlns="http://www.w3.org/2000/svg" aria-label="Shot list on Mac">
-        <rect width="360" height="230" fill="#0c0c14"/>
-        <rect width="360" height="30" fill="#111120"/>
-        <circle cx="16" cy="15" r="4" fill="#1a4aff"/><circle cx="30" cy="15" r="4" fill="#3ecfff"/><circle cx="44" cy="15" r="4" fill="#2a2a3e"/>
-        <text x="180" y="19" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="9" text-anchor="middle">Scene 14 — INT. KITCHEN — NIGHT</text>
-        <g font-family="DM Mono, monospace" font-size="8.5" fill="#6a6a8a">
-          <text x="16" y="52">SHOT</text><text x="70" y="52">SIZE</text><text x="130" y="52">MOVE</text><text x="200" y="52">LENS</text><text x="280" y="52">CAMERA</text>
-        </g>
-        <line x1="12" y1="60" x2="348" y2="60" stroke="#1a1a2e"/>
-        <g font-family="DM Sans, sans-serif" font-size="9.5" fill="#e8e8f5">
-          <rect x="10" y="66" width="340" height="24" rx="4" fill="rgba(62,207,255,0.06)"/>
-          <text x="16" y="82">14A</text><text x="70" y="82">WS</text><text x="130" y="82">Static</text><text x="200" y="82">21mm</text><text x="280" y="82">ALEXA 35</text>
-          <text x="16" y="112">14B</text><text x="70" y="112">MS</text><text x="130" y="112">Dolly in</text><text x="200" y="112">40mm</text><text x="280" y="112">ALEXA 35</text>
-          <text x="16" y="142">14C</text><text x="70" y="142">CU</text><text x="130" y="142">Handheld</text><text x="200" y="142">75mm</text><text x="280" y="142">ALEXA 35</text>
-          <text x="16" y="172">14D</text><text x="70" y="172">OTS</text><text x="130" y="172">Static</text><text x="200" y="172">50mm</text><text x="280" y="172">ALEXA 35</text>
-          <text x="16" y="202">14E</text><text x="70" y="202">Insert</text><text x="130" y="202">Static</text><text x="200" y="202">100mm</text><text x="280" y="202">ALEXA 35</text>
-        </g>
-        <g stroke="#1a1a2e"><line x1="12" y1="96" x2="348" y2="96"/><line x1="12" y1="126" x2="348" y2="126"/><line x1="12" y1="156" x2="348" y2="156"/><line x1="12" y1="186" x2="348" y2="186"/></g>
-      </svg>
+      <img src="img/hero-mac-main.jpg" alt="CinePlanner on Mac: scenes, shot list and script" style="height:250px;width:auto;display:block;">
     </div>
     <!-- iPhone On-Set (side) -->
     <div class="hs-frame hs-side" style="-webkit-mask-image:linear-gradient(to left,transparent,black 55%);mask-image:linear-gradient(to left,transparent,black 55%);">
-      <svg width="120" height="180" viewBox="0 0 120 180" xmlns="http://www.w3.org/2000/svg" aria-label="On-Set mode on iPhone">
-        <rect width="120" height="180" fill="#0c0c14"/>
-        <rect x="34" y="8" width="52" height="14" rx="7" fill="#111120"/>
-        <text x="60" y="42" fill="#3ecfff" font-family="DM Mono, monospace" font-size="7" text-anchor="middle">NOW SHOOTING</text>
-        <rect x="12" y="50" width="96" height="52" rx="8" fill="rgba(62,207,255,0.08)" stroke="#3ecfff" stroke-width="1"/>
-        <text x="20" y="68" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="11" font-weight="700">14B · MS</text>
-        <text x="20" y="84" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="7.5">Dolly in · 40mm</text>
-        <text x="20" y="95" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="7.5">ALEXA 35</text>
-        <g>
-          <rect x="12" y="112" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="120" r="4" fill="#3ecfff"/><rect x="20" y="118" width="4" height="4" fill="#0c0c14"/><text x="32" y="123" fill="#6a6a8a" font-family="DM Sans" font-size="7">14A · WS · done</text>
-          <rect x="12" y="132" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="140" r="4" fill="none" stroke="#2a2a3e"/><text x="32" y="143" fill="#e8e8f5" font-family="DM Sans" font-size="7">14C · CU · next</text>
-          <rect x="12" y="152" width="96" height="16" rx="4" fill="#111120"/><circle cx="22" cy="160" r="4" fill="none" stroke="#2a2a3e"/><text x="32" y="163" fill="#6a6a8a" font-family="DM Sans" font-size="7">14D · OTS</text>
-        </g>
-      </svg>
+      <img src="img/onset-phone.jpg" alt="On-Set mode on iPhone" style="height:250px;width:auto;display:block;">
     </div>
   </div>
 
@@ -406,40 +361,7 @@
       </ul>
     </div>
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Script with detected scenes">
-        <rect width="440" height="300" fill="#0c0c14"/>
-        <rect x="24" y="24" width="180" height="252" rx="8" fill="#111120"/>
-        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a">
-          <text x="38" y="48">SCENES</text>
-        </g>
-        <g font-family="DM Sans, sans-serif" font-size="10">
-          <rect x="34" y="58" width="160" height="30" rx="5" fill="rgba(62,207,255,0.10)" stroke="#3ecfff" stroke-width="1"/>
-          <text x="46" y="77" fill="#e8e8f5">14. INT. KITCHEN — NIGHT</text>
-          <text x="46" y="107" fill="#6a6a8a">15. EXT. DRIVEWAY — NIGHT</text>
-          <text x="46" y="137" fill="#6a6a8a">16. INT. CAR — NIGHT</text>
-          <text x="46" y="167" fill="#6a6a8a">17. EXT. FIELD — DAWN</text>
-          <text x="46" y="197" fill="#6a6a8a">18. INT. HALLWAY — DAY</text>
-          <text x="46" y="227" fill="#6a6a8a">19. INT. BEDROOM — DAY</text>
-        </g>
-        <g font-family="DM Mono, monospace" font-size="8" fill="#3ecfff" text-anchor="end">
-          <text x="192" y="77">5</text>
-        </g>
-        <g font-family="DM Mono, monospace" font-size="8" fill="#3a3a52" text-anchor="end">
-          <text x="192" y="107">4</text><text x="192" y="137">2</text><text x="192" y="167">3</text><text x="192" y="197">2</text><text x="192" y="227">6</text>
-        </g>
-        <rect x="220" y="24" width="196" height="252" rx="8" fill="#111120"/>
-        <g font-family="DM Mono, monospace" font-size="9" fill="#3ecfff"><text x="236" y="52">INT. KITCHEN — NIGHT</text></g>
-        <g font-family="DM Sans, sans-serif" font-size="8.5" fill="#9a9ab0">
-          <rect x="236" y="66" width="120" height="11" rx="3" fill="rgba(62,207,255,0.14)"/>
-          <text x="236" y="97">MAYA stands at the counter,</text>
-          <text x="236" y="112">the kettle screaming. She</text>
-          <rect x="236" y="120" width="150" height="11" rx="3" fill="rgba(62,207,255,0.14)"/>
-          <text x="236" y="142">doesn't move. Headlights</text>
-          <text x="236" y="157">sweep across the wall.</text>
-          <text x="236" y="187" fill="#6a6a8a">                MAYA</text>
-          <text x="236" y="202">      He's here.</text>
-        </g>
-      </svg>
+      <img src="img/row-breakdown.jpg" alt="CinePlanner main view on iPad: scenes, shot list and script" loading="lazy" decoding="async" style="width:100%;height:auto;display:block;">
     </div>
   </div>
 
@@ -447,30 +369,7 @@
   <div style="border-top: 1px solid var(--border); background: var(--surface);">
   <div class="feature-row reverse">
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Shot list detail">
-        <rect width="440" height="300" fill="#0c0c14"/>
-        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a">
-          <text x="24" y="40">SHOT</text><text x="80" y="40">SIZE</text><text x="150" y="40">MOVEMENT</text><text x="248" y="40">LENS</text><text x="320" y="40">GRIP</text><text x="384" y="40">✓</text>
-        </g>
-        <line x1="24" y1="50" x2="416" y2="50" stroke="#1a1a2e"/>
-        <g font-family="DM Sans, sans-serif" font-size="11" fill="#e8e8f5">
-          <rect x="18" y="58" width="404" height="34" rx="5" fill="rgba(62,207,255,0.06)"/>
-          <text x="24" y="80">14A</text><text x="80" y="80">WS</text><text x="150" y="80">Single</text><text x="248" y="80">21mm</text><text x="320" y="80">Tripod</text>
-          <circle cx="388" cy="75" r="6" fill="#3ecfff"/><path d="M385 75 l2 2 l4 -4" stroke="#0c0c14" stroke-width="1.5" fill="none"/>
-          <text x="24" y="120">14B</text><text x="80" y="120">MS</text><text x="150" y="120">OTS</text><text x="248" y="120">40mm</text><text x="320" y="120">Dolly</text>
-          <circle cx="388" cy="115" r="6" fill="none" stroke="#2a2a3e"/>
-          <text x="24" y="160">14C</text><text x="80" y="160">CU</text><text x="150" y="160">Single</text><text x="248" y="160">75mm</text><text x="320" y="160">Steadicam</text>
-          <circle cx="388" cy="155" r="6" fill="none" stroke="#2a2a3e"/>
-          <text x="24" y="200">14D</text><text x="80" y="200">Top</text><text x="150" y="200">Insert</text><text x="248" y="200">50mm</text><text x="320" y="200">Gimbal</text>
-          <circle cx="388" cy="195" r="6" fill="none" stroke="#2a2a3e"/>
-        </g>
-        <g stroke="#1a1a2e"><line x1="24" y1="98" x2="416" y2="98"/><line x1="24" y1="138" x2="416" y2="138"/><line x1="24" y1="178" x2="416" y2="178"/></g>
-        <rect x="24" y="226" width="392" height="52" rx="8" fill="#111120"/>
-        <g font-family="DM Mono, monospace" font-size="8" fill="#6a6a8a">
-          <text x="36" y="246">GEAR · ALEXA 35 · Super 35 · 40mm · 2.39:1</text>
-        </g>
-        <g font-family="DM Sans, sans-serif" font-size="8.5" fill="#3ecfff"><text x="36" y="264">▣ Reference frame attached</text></g>
-      </svg>
+      <img src="img/row-shotlogging.jpg" alt="Shot setup: size, type, focal length, grip and camera information" loading="lazy" decoding="async" style="width:100%;height:auto;display:block;">
     </div>
     <div>
       <div class="fr-emoji">🎬</div>
@@ -491,46 +390,7 @@
   <div style="position:absolute; top:-120px; left:-80px; width:520px; height:520px; background: radial-gradient(ellipse at center, rgba(62,207,255,0.07), transparent 70%); pointer-events:none;"></div>
   <div class="feature-row reverse">
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Visual script coverage with color-coded coverage lines">
-        <rect width="440" height="300" fill="#0c0c14"/>
-        <!-- script page -->
-        <rect x="150" y="20" width="210" height="260" rx="6" fill="#111120"/>
-        <g font-family="DM Mono, monospace" font-size="8" fill="#3ecfff"><text x="166" y="42">INT. KITCHEN — NIGHT</text></g>
-        <!-- script text bars -->
-        <g fill="#26263c">
-          <rect x="166" y="56" width="150" height="7" rx="2"/>
-          <rect x="166" y="72" width="176" height="7" rx="2"/>
-          <rect x="166" y="88" width="120" height="7" rx="2"/>
-          <rect x="210" y="112" width="60" height="7" rx="2"/>
-          <rect x="196" y="128" width="120" height="7" rx="2"/>
-          <rect x="166" y="152" width="170" height="7" rx="2"/>
-          <rect x="166" y="168" width="140" height="7" rx="2"/>
-          <rect x="210" y="192" width="64" height="7" rx="2"/>
-          <rect x="196" y="208" width="120" height="7" rx="2"/>
-          <rect x="166" y="232" width="160" height="7" rx="2"/>
-          <rect x="166" y="248" width="96" height="7" rx="2"/>
-        </g>
-        <!-- coverage lines in the margin, numbered + color-coded -->
-        <g stroke-width="3" stroke-linecap="round">
-          <line x1="140" y1="54" x2="140" y2="97" stroke="#3ecfff"/>
-          <line x1="132" y1="54" x2="132" y2="135" stroke="#1a4aff"/>
-          <line x1="140" y1="150" x2="140" y2="215" stroke="#a78bfa"/>
-          <line x1="132" y1="190" x2="132" y2="255" stroke="#7bd88f"/>
-        </g>
-        <g font-family="DM Mono, monospace" font-size="8" text-anchor="middle">
-          <text x="140" y="50" fill="#3ecfff">1</text>
-          <text x="124" y="50" fill="#1a4aff">2</text>
-          <text x="140" y="146" fill="#a78bfa">3</text>
-          <text x="124" y="186" fill="#7bd88f">4</text>
-        </g>
-        <!-- legend -->
-        <g font-family="DM Mono, monospace" font-size="9">
-          <circle cx="384" cy="60" r="4" fill="#3ecfff"/><text x="394" y="63" fill="#9a9ab0">14A</text>
-          <circle cx="384" cy="82" r="4" fill="#1a4aff"/><text x="394" y="85" fill="#9a9ab0">14B</text>
-          <circle cx="384" cy="104" r="4" fill="#a78bfa"/><text x="394" y="107" fill="#9a9ab0">14C</text>
-          <circle cx="384" cy="126" r="4" fill="#7bd88f"/><text x="394" y="129" fill="#9a9ab0">14D</text>
-        </g>
-      </svg>
+      <img src="img/row-coverage.jpg" alt="The script with numbered, color-coded coverage lines in the margin" loading="lazy" decoding="async" style="width:100%;height:auto;display:block;">
     </div>
     <div>
       <div class="fr-eyebrow">Signature feature <span></span></div>
@@ -560,35 +420,7 @@
       </ul>
     </div>
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Overhead scene map with satellite location and sun">
-        <rect width="440" height="300" fill="#0c0c14"/>
-        <!-- satellite underlay: building blocks + roads -->
-        <g fill="#13141f"><rect x="30" y="150" width="150" height="110" rx="4"/><rect x="250" y="40" width="150" height="90" rx="4"/><rect x="290" y="160" width="110" height="100" rx="4"/></g>
-        <g stroke="#191a28" stroke-width="10" opacity="0.7"><path d="M0 140 H440"/><path d="M210 0 V300"/></g>
-        <g stroke="#141428" stroke-width="1">
-          <path d="M0 40 H440 M0 90 H440 M0 190 H440 M0 240 H440"/>
-          <path d="M60 0 V300 M120 0 V300 M300 0 V300 M360 0 V300"/>
-        </g>
-        <!-- sun arc + position -->
-        <path d="M40 96 A170 170 0 0 1 380 96" fill="none" stroke="rgba(62,207,255,0.4)" stroke-width="1.2" stroke-dasharray="4 4"/>
-        <circle cx="120" cy="40" r="7" fill="#3ecfff"/>
-        <line x1="120" y1="40" x2="150" y2="90" stroke="rgba(62,207,255,0.5)" stroke-width="1" stroke-dasharray="2 3"/>
-        <text x="300" y="30" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8">Sunrise 06:58 · Sunset 19:52</text>
-        <!-- compass -->
-        <g transform="translate(406,40)"><line x1="0" y1="10" x2="0" y2="-10" stroke="#3ecfff" stroke-width="1.4"/><path d="M0 -12 l4 6 l-8 0 Z" fill="#3ecfff"/><text x="0" y="24" fill="#3ecfff" font-family="DM Mono, monospace" font-size="9" text-anchor="middle">N</text></g>
-        <!-- movement path -->
-        <path d="M150 210 q40 -34 92 -18" stroke="#6a6a8a" stroke-width="1.4" stroke-dasharray="5 3" fill="none"/>
-        <path d="M242 192 l-8 -2 l3 7 Z" fill="#6a6a8a"/>
-        <!-- camera move -->
-        <path d="M300 230 q-18 -30 -40 -40" stroke="#3ecfff" stroke-width="1.2" stroke-dasharray="4 3" fill="none"/>
-        <!-- camera + actors -->
-        <circle cx="300" cy="230" r="11" fill="#3ecfff"/><rect x="294" y="224" width="12" height="12" rx="2" fill="#0c0c14"/>
-        <text x="316" y="234" fill="#3ecfff" font-family="DM Mono, monospace" font-size="9">CAM</text>
-        <circle cx="150" cy="210" r="8" fill="#e8e8f5"/><text x="150" y="232" fill="#9a9ab0" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">MAYA</text>
-        <circle cx="242" cy="192" r="8" fill="#6a6a8a"/><text x="242" y="176" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="8" text-anchor="middle">TOM</text>
-        <!-- location pin -->
-        <g transform="translate(360,150)"><path d="M0 0 c-8 -12 -8 -18 0 -18 c8 0 8 6 0 18Z" fill="#1a4aff" transform="translate(0,-2)"/><circle cx="0" cy="-13" r="3" fill="#0c0c14"/></g>
-      </svg>
+      <img src="img/row-scenemap.jpg" alt="Overhead scene map with camera and actor markers over a satellite location" loading="lazy" decoding="async" style="width:100%;height:auto;display:block;">
     </div>
   </div>
   </div>
@@ -597,31 +429,7 @@
   <div style="border-top: 1px solid var(--border); background: var(--surface);">
   <div class="feature-row reverse">
     <div class="fr-visual">
-      <svg viewBox="0 0 440 300" xmlns="http://www.w3.org/2000/svg" aria-label="Strip-board shooting schedule">
-        <rect width="440" height="300" fill="#0c0c14"/>
-        <!-- day columns -->
-        <g font-family="DM Mono, monospace" font-size="9" fill="#6a6a8a" text-anchor="middle">
-          <text x="90" y="40">DAY 1</text><text x="220" y="40">DAY 2</text><text x="350" y="40">DAY 3</text>
-        </g>
-        <g fill="#0a0a12" stroke="#141428"><rect x="26" y="50" width="128" height="224" rx="8"/><rect x="156" y="50" width="128" height="224" rx="8"/><rect x="286" y="50" width="128" height="224" rx="8"/></g>
-        <!-- strips: day 1 -->
-        <g font-family="DM Sans, sans-serif" font-size="9" fill="#e8e8f5">
-          <rect x="34" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="34" y="62" width="5" height="34" rx="2" fill="#1a4aff"/><text x="46" y="78">Sc 14 · INT</text><text x="46" y="90" fill="#6a6a8a" font-size="7.5">Kitchen · 5</text>
-          <rect x="34" y="102" width="112" height="34" rx="5" fill="#15152a"/><rect x="34" y="102" width="5" height="34" rx="2" fill="#3ecfff"/><text x="46" y="118">Sc 15 · EXT</text><text x="46" y="130" fill="#6a6a8a" font-size="7.5">Driveway · 4</text>
-          <!-- day 2 -->
-          <rect x="164" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="164" y="62" width="5" height="34" rx="2" fill="#3ecfff"/><text x="176" y="78">Sc 17 · EXT</text><text x="176" y="90" fill="#6a6a8a" font-size="7.5">Field (1/2) · 3</text>
-          <rect x="164" y="102" width="112" height="34" rx="5" fill="#15152a"/><rect x="164" y="102" width="5" height="34" rx="2" fill="#1a4aff"/><text x="176" y="118">Sc 19 · INT</text><text x="176" y="130" fill="#6a6a8a" font-size="7.5">Bedroom · 2</text>
-          <!-- day 3 -->
-          <rect x="294" y="62" width="112" height="34" rx="5" fill="#15152a"/><rect x="294" y="62" width="5" height="34" rx="2" fill="#3ecfff"/><text x="306" y="78">Sc 17 · EXT</text><text x="306" y="90" fill="#6a6a8a" font-size="7.5">Field (2/2) · 4</text>
-        </g>
-        <!-- strip being dragged between day 2 and day 3 -->
-        <g font-family="DM Sans, sans-serif" font-size="9">
-          <rect x="240" y="150" width="120" height="36" rx="6" fill="#1c1c33" stroke="#3ecfff" stroke-width="1.2"/>
-          <rect x="240" y="150" width="5" height="36" rx="2" fill="#1a4aff"/>
-          <text x="253" y="167" fill="#e8e8f5">Sc 16 · INT</text><text x="253" y="180" fill="#6a6a8a" font-size="7.5">Car · 2 shots</text>
-          <text x="352" y="172" fill="#3ecfff" font-family="DM Mono, monospace" font-size="8">⇕ drag</text>
-        </g>
-      </svg>
+      <img src="img/row-schedule.jpg" alt="Strip-board shooting schedule with days and golden-hour times" loading="lazy" decoding="async" style="width:100%;height:auto;display:block;">
     </div>
     <div>
       <div class="fr-emoji">🗓️</div>
@@ -654,52 +462,11 @@
         <li>Progress at a glance — shots done, scenes wrapped</li>
       </ul>
     </div>
-    <div class="fr-visual" style="background:transparent; border:none; box-shadow:none; display:flex; justify-content:center; gap:22px; align-items:center;">
+    <div class="fr-visual" style="background:transparent; border:none; box-shadow:none; display:flex; flex-wrap:wrap; justify-content:center; gap:26px; align-items:center;">
       <!-- iPhone On-Set full -->
-      <svg width="196" height="400" viewBox="0 0 196 400" xmlns="http://www.w3.org/2000/svg" aria-label="On-Set mode full screen" style="width:auto; max-width:200px; border-radius:28px; border:1px solid var(--border); box-shadow:0 24px 64px rgba(0,0,0,0.6);">
-        <rect width="196" height="400" rx="28" fill="#0c0c14"/>
-        <rect x="66" y="14" width="64" height="18" rx="9" fill="#111120"/>
-        <text x="24" y="60" fill="#3ecfff" font-family="DM Mono, monospace" font-size="9">NOW SHOOTING · SCENE 14</text>
-        <rect x="18" y="70" width="160" height="96" rx="12" fill="rgba(62,207,255,0.08)" stroke="#3ecfff" stroke-width="1.2"/>
-        <text x="30" y="98" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="18" font-weight="900">14B</text>
-        <text x="30" y="120" fill="#e8e8f5" font-family="DM Sans, sans-serif" font-size="12">MS · Dolly in</text>
-        <text x="30" y="138" fill="#9a9ab0" font-family="DM Sans, sans-serif" font-size="10">40mm · ALEXA 35 · Dolly</text>
-        <g font-family="DM Mono, monospace" font-size="7">
-          <text x="30" y="157" fill="#6a6a8a">TAKES</text>
-          <circle cx="70" cy="153" r="7" fill="#111120" stroke="#2a2a3e"/><text x="70" y="156" fill="#6a6a8a" text-anchor="middle">1</text>
-          <circle cx="90" cy="153" r="7" fill="#111120" stroke="#3ecfff" stroke-width="1.4"/><text x="90" y="156" fill="#3ecfff" text-anchor="middle">2</text>
-          <circle cx="110" cy="153" r="7" fill="#111120" stroke="#2a2a3e"/><text x="110" y="156" fill="#6a6a8a" text-anchor="middle">3</text>
-          <text x="126" y="156" fill="#3ecfff" font-size="6.5">◎ keeper</text>
-        </g>
-        <g font-family="DM Mono, monospace" font-size="8">
-          <rect x="18" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="56" y="190" fill="#3ecfff" text-anchor="middle">REF</text>
-          <rect x="102" y="176" width="76" height="22" rx="6" fill="#111120" stroke="#1a1a2e"/><text x="140" y="190" fill="#3ecfff" text-anchor="middle">MAP</text>
-        </g>
-        <g font-family="DM Sans, sans-serif" font-size="10">
-          <rect x="18" y="212" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="225" r="6" fill="#3ecfff"/><path d="M31 225 l2 2 l4 -4" stroke="#0c0c14" stroke-width="1.4" fill="none"/><text x="48" y="229" fill="#6a6a8a">14A · WS · Static</text>
-          <rect x="18" y="244" width="160" height="26" rx="7" fill="#15152a" stroke="rgba(62,207,255,0.3)"/><circle cx="34" cy="257" r="6" fill="none" stroke="#3ecfff"/><text x="48" y="261" fill="#e8e8f5">14C · CU · Handheld</text>
-          <rect x="18" y="276" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="289" r="6" fill="none" stroke="#2a2a3e"/><text x="48" y="293" fill="#6a6a8a">14D · OTS · Static</text>
-          <rect x="18" y="308" width="160" height="26" rx="7" fill="#111120"/><circle cx="34" cy="321" r="6" fill="none" stroke="#2a2a3e"/><text x="48" y="325" fill="#6a6a8a">14E · Insert · Static</text>
-        </g>
-        <rect x="18" y="348" width="160" height="34" rx="10" fill="#111120"/>
-        <rect x="18" y="348" width="96" height="34" rx="10" fill="rgba(62,207,255,0.12)"/>
-        <text x="30" y="369" fill="#e8e8f5" font-family="DM Mono, monospace" font-size="8">2 / 5 SHOTS · SCENE 14</text>
-      </svg>
-      <!-- Live Activity card -->
-      <svg width="176" height="120" viewBox="0 0 176 120" xmlns="http://www.w3.org/2000/svg" aria-label="Live Activity on lock screen" style="width:auto; max-width:180px; border-radius:20px; border:1px solid var(--border); box-shadow:0 16px 40px rgba(0,0,0,0.55);">
-        <rect width="176" height="120" rx="20" fill="#08080f"/>
-        <rect x="12" y="12" width="26" height="26" rx="7" fill="url(#lg)"/>
-        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3ecfff"/><stop offset="1" stop-color="#1a4aff"/></linearGradient></defs>
-        <text x="46" y="24" fill="#6a6a8a" font-family="DM Mono, monospace" font-size="7">CINEPLANNER · ON SET</text>
-        <text x="46" y="37" fill="#e8e8f5" font-family="Unbounded, sans-serif" font-size="11" font-weight="700">14B · MS · 40mm</text>
-        <text x="12" y="60" fill="#6a6a8a" font-family="DM Sans, sans-serif" font-size="8">Next · 14C · CU · Handheld</text>
-        <rect x="12" y="70" width="152" height="6" rx="3" fill="#1a1a2e"/>
-        <rect x="12" y="70" width="60" height="6" rx="3" fill="#3ecfff"/>
-        <g font-family="DM Mono, monospace" font-size="8">
-          <rect x="12" y="86" width="72" height="24" rx="8" fill="#15152a"/><text x="48" y="102" fill="#3ecfff" text-anchor="middle">✓ DONE</text>
-          <rect x="92" y="86" width="72" height="24" rx="8" fill="#15152a"/><text x="128" y="102" fill="#e8e8f5" text-anchor="middle">NEXT →</text>
-        </g>
-      </svg>
+      <img src="img/onset-phone.jpg" alt="On-Set mode on iPhone: the shoot day, checked off shot by shot" loading="lazy" decoding="async" style="height:440px; width:auto; border-radius:34px; border:1px solid var(--border); box-shadow:0 24px 64px rgba(0,0,0,0.6);">
+      <!-- Live Activity banner -->
+      <img src="img/onset-liveactivity.jpg" alt="CinePlanner Live Activity on the iPhone Lock Screen" loading="lazy" decoding="async" style="width:300px; max-width:88%; border-radius:16px; box-shadow:0 16px 40px rgba(0,0,0,0.55);">
     </div>
   </div>
 </div>
