@@ -37,6 +37,12 @@ struct MapElement: Identifiable, Codable, Equatable {
     /// For a camera imported from a shot: the shot's stable uid, so the marker's
     /// label tracks the shot's number if it's renumbered. nil = free-standing.
     var shotUID: String? = nil
+    /// ARKit world position (metres) this marker came from, for markers imported
+    /// from CineStager. It's the same whichever shot/map framing it appears in, so a
+    /// later import can tell an unmoved mannequin (already on the map) from one that
+    /// moved. nil for hand-placed markers. Not used for drawing.
+    var worldX: Double? = nil
+    var worldZ: Double? = nil
     var colorHex: String = "#4C8DFF"
 
     // Camera-only: drives the FOV cone.
@@ -48,7 +54,7 @@ struct MapElement: Identifiable, Codable, Equatable {
     var fovBasis: FOVBasis? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, x, y, rotation, label, labelHidden, labelOffset, shotUID, colorHex, focalLengthMM, sensorWidthMM, fovBasis
+        case id, kind, x, y, rotation, label, labelHidden, labelOffset, shotUID, worldX, worldZ, colorHex, focalLengthMM, sensorWidthMM, fovBasis
     }
 
     init(kind: Kind, x: Double, y: Double) {
@@ -67,6 +73,8 @@ struct MapElement: Identifiable, Codable, Equatable {
         labelHidden = try c.decodeIfPresent(Bool.self, forKey: .labelHidden) ?? false
         labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
         shotUID = try c.decodeIfPresent(String.self, forKey: .shotUID)
+        worldX = try c.decodeIfPresent(Double.self, forKey: .worldX)
+        worldZ = try c.decodeIfPresent(Double.self, forKey: .worldZ)
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#4C8DFF"
         focalLengthMM = try c.decodeIfPresent(Double.self, forKey: .focalLengthMM) ?? 35
         sensorWidthMM = try c.decodeIfPresent(Double.self, forKey: .sensorWidthMM) ?? 24.89

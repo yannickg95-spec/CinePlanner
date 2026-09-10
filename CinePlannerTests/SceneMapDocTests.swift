@@ -30,6 +30,25 @@ final class SceneMapDocTests: XCTestCase {
         XCTAssertEqual(SceneMapDoc.load(from: json), doc)
     }
 
+    func testMarkerWorldPositionRoundTrips() {
+        var el = MapElement(kind: .character, x: 0.4, y: 0.6)
+        el.worldX = 0.959
+        el.worldZ = -1.389
+        var doc = SceneMapDoc()
+        doc.elements = [el]
+        let back = SceneMapDoc.load(from: doc.jsonString)
+        XCTAssertEqual(back.elements.first?.worldX ?? .nan, 0.959, accuracy: 0.0001)
+        XCTAssertEqual(back.elements.first?.worldZ ?? .nan, -1.389, accuracy: 0.0001)
+    }
+
+    func testHandPlacedMarkerHasNoWorldPosition() {
+        var doc = SceneMapDoc()
+        doc.elements = [MapElement(kind: .camera, x: 0.5, y: 0.5)]
+        let back = SceneMapDoc.load(from: doc.jsonString)
+        XCTAssertNil(back.elements.first?.worldX)
+        XCTAssertNil(back.elements.first?.worldZ)
+    }
+
     func testArrowOnlyDocPersists() {
         var doc = SceneMapDoc()
         doc.arrows = [MapArrow(fromID: UUID(), toID: UUID(),

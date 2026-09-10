@@ -9,6 +9,8 @@
 
 import SwiftUI
 import SwiftData
+import ImageIO
+import CoreGraphics
 
 struct CineStagerImportSheet: View {
     /// Supplies the reference to fill, called only once the user confirms a
@@ -489,63 +491,113 @@ struct CineStagerImportSheet: View {
                                   cleanData: Data?, replaceBackground: Bool) async {
         guard let scene = ref.shot?.scene else { return }
 
-        // Background: the marker-free location map. Set it when the scene has none,
-        // or when the user chose to replace an existing one; otherwise leave the
-        // scene's current map untouched.
+        // The marker map's EXIF carries both the marker positions and the room's
+        // footprint within the (framed-wider) scan. Fetch it first so the background
+        // can be cropped to the room before it's stored.
+        let mapData = await library.data(at: library.mapURL(for: cs))
+        let markers = mapData.flatMap { CineStagerMapMetadata.markers(from: $0) }
+        let roomRect = markers?.roomRect
+
+        // Re-maps a marker's image-space (u,v) into the cropped room's space, so a
+        // marker the capture framed *outside* the room lands outside 0…1 — the editor
+        // then shows it in the margin around the map. Identity without a room rect.
+        func toRoom(_ u: Double, _ v: Double) -> (x: Double, y: Double) {
+            guard let r = roomRect, r.width > 0, r.height > 0 else { return (u, v) }
+            return ((u - Double(r.minX)) / Double(r.width),
+                    (v - Double(r.minY)) / Double(r.height))
+        }
+
+        // Background: the marker-free location map, cropped to the room when known.
+        // Set it when the scene has none, or when the user chose to replace an
+        // existing one; otherwise leave the scene's current map untouched.
         ref.mapCleanData = cleanData   // keep the clean map for later re-adds
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
-            scene.sceneMapBackgroundData = clean
+            let bg = roomRect.flatMap { Self.cropped(clean, toNormalizedRect: $0) } ?? clean
+            scene.sceneMapBackgroundData = bg
             scene.sceneMapBackgroundIsSatellite = false
             // Remember which location this map is, so another shot of the same
             // location adds its markers without a replace prompt.
             let loc = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
             scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
-            // Real-world scale: CineStager renders the top-down as a *square* map
-            // sized to the room's longer side, so the full map spans
-            // max(width, length) metres (verified against the marker world coords).
-            // The camera's physical width is exported in cm.
+            // Real-world scale. Cropped to the room, the map spans the room's width;
+            // otherwise (older exports, no room rect) the whole square, which
+            // CineStager sizes to the room's longer side. Camera width is in cm.
             let span = max(ref.mapLocationWidth ?? 0, ref.mapLocationLength ?? 0)
-            scene.sceneMapMetersWide = span > 0 ? span : nil
+            let metersWide = (roomRect != nil ? ref.mapLocationWidth : nil) ?? span
+            scene.sceneMapMetersWide = metersWide > 0 ? metersWide : nil
             scene.sceneMapCameraSizeMeters = (ref.mapCameraPhysicalWidth ?? 0) > 0
                 ? ref.mapCameraPhysicalWidth! / 100 : nil
         }
 
-        // Marker coordinates live in the top-down map image's EXIF.
-        guard let mapData = await library.data(at: library.mapURL(for: cs)),
-              let markers = CineStagerMapMetadata.markers(from: mapData) else { return }
+        guard let markers else { return }
 
         var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
 
         if let cam = markers.camera {
-            var element = MapElement(kind: .camera, x: cam.u, y: cam.v)
+            let p = toRoom(cam.u, cam.v)
+            var element = MapElement(kind: .camera, x: p.x, y: p.y)
             element.label = ref.shot?.displayNumber ?? "Cam"
             element.shotUID = ref.shot?.uid
             element.colorHex = "#FF9500"
+            element.worldX = cam.worldX
+            element.worldZ = cam.worldZ
             if let rot = cam.rotationDeg { element.rotation = rot }
             doc.elements.append(element)
         }
 
-        // Add each mannequin, but skip ones that sit on essentially the exact spot
-        // of a mannequin already on the map (the same, unmoved mannequin appearing
-        // in multiple shots — CineStager exports deterministic coordinates, so an
-        // unmoved mannequin repeats to 4 decimals). A mannequin that actually moved
-        // between shots is a different position and gets its own marker.
-        let sameSpot = 0.004   // ~0.4% of the map — "the same point", not "nearby"
+        // Add each mannequin, but skip ones already on the map from an earlier import.
+        // Match on the ARKit world position, which is the same mannequin's position
+        // whatever shot or map framing it appears in — far more reliable than the
+        // on-map coordinate, which shifts when a later import frames the map
+        // differently. Fall back to the on-map position for markers with no world
+        // coordinate (older imports, hand-placed).
+        let sameWorld = 0.03   // metres — "the same spot", not "nearby"
+        let sameSpot = 0.004   // normalized fallback (~0.4% of the map)
         for mannequin in markers.mannequins {
+            let p = toRoom(mannequin.u, mannequin.v)
             let duplicate = doc.elements.contains { element in
-                element.kind == .character
-                    && abs(element.x - mannequin.u) < sameSpot
-                    && abs(element.y - mannequin.v) < sameSpot
+                guard element.kind == .character else { return false }
+                if let ex = element.worldX, let ez = element.worldZ,
+                   let mx = mannequin.worldX, let mz = mannequin.worldZ {
+                    return abs(ex - mx) < sameWorld && abs(ez - mz) < sameWorld
+                }
+                return abs(element.x - p.x) < sameSpot && abs(element.y - p.y) < sameSpot
             }
             guard !duplicate else { continue }
-            var element = MapElement(kind: .character, x: mannequin.u, y: mannequin.v)
+            var element = MapElement(kind: .character, x: p.x, y: p.y)
             element.colorHex = "#4C8DFF"
+            element.worldX = mannequin.worldX
+            element.worldZ = mannequin.worldZ
             if let rot = mannequin.rotationDeg { element.rotation = rot }
             doc.elements.append(element)
         }
 
         assignSceneCharacters(to: &doc, scene: scene)
         scene.sceneMapJSON = doc.jsonString
+
+        // Let the scene map fit itself to these markers (see SceneMapEditorView's
+        // mapPlacement): reset any placement to identity so the live auto-fit governs
+        // and a camera dropped on or beyond the room's edge comes into view. A manual
+        // alignment made afterwards overrides it; re-importing returns to auto-fit.
+        if !scene.sceneMapBackgroundIsSatellite {
+            scene.sceneMapBackgroundTransform = .init()
+        }
+    }
+
+    /// Crops image `data` to a normalized rect (0…1, origin top-left) and returns
+    /// JPEG bytes — used to trim a CineStager scan to the room's footprint. The rect
+    /// is clamped to the image, and a degenerate result falls back to nil (caller
+    /// keeps the uncropped scan).
+    private static func cropped(_ data: Data, toNormalizedRect rect: CGRect) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let px = CGRect(x: rect.minX * w, y: rect.minY * h, width: rect.width * w, height: rect.height * h)
+            .integral
+            .intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        guard px.width >= 1, px.height >= 1, let out = cg.cropping(to: px) else { return nil }
+        return PlatformImage.fromCGImage(out, size: CGSize(width: out.width, height: out.height))
+            .jpegRepresentation(quality: 0.9)
     }
 
     /// Best-effort: label the scene map's unlabeled mannequins with the scene's

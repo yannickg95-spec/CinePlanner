@@ -35,6 +35,10 @@ enum CineStagerMapMetadata {
         var camera: Marker?
         var mannequins: [Marker] = []
         var actors: [Marker] = []
+        /// The room's footprint within the map image (normalized 0…1, origin
+        /// top-left), when CineStager recorded it. Lets the import crop the scan to
+        /// the room so markers the capture framed outside it read as outside.
+        var roomRect: CGRect?
 
         var isEmpty: Bool { camera == nil && mannequins.isEmpty && actors.isEmpty }
     }
@@ -65,6 +69,12 @@ enum CineStagerMapMetadata {
         }
         if let actors = fields["ActorsMap2D"] {
             markers.actors = applyRotations(parsePoints(actors), fields["ActorsMapRot"])
+        }
+        if let rect = fields["RoomRectMap2D"] {
+            let n = rect.components(separatedBy: ",").compactMap { Double($0) }
+            if n.count == 4, n[2] > n[0], n[3] > n[1] {
+                markers.roomRect = CGRect(x: n[0], y: n[1], width: n[2] - n[0], height: n[3] - n[1])
+            }
         }
         return markers.isEmpty ? nil : markers
     }
