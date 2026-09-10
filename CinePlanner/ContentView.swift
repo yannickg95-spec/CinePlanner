@@ -819,6 +819,8 @@ struct ShotListView: View {
         if shot.camera.isEmpty { shot.camera = project.defaultCamera }
         if shot.framelines.isEmpty { shot.framelines = project.defaultFramelines }
         if shot.lensPreset.isEmpty { shot.lensPreset = project.defaultLens }
+        // A new shot inherits the scene-wide film tool, if one is set.
+        scene.applyFilmTool(to: shot, context: scene.modelContext)
     }
 
     private func addShot() {
@@ -902,6 +904,8 @@ struct ShotListView: View {
         // fields (and only falls back to the project default for gaps), so the
         // imported values always lead.
         scene.shots.append(newShot)
+        // An imported shot inherits the scene-wide film tool, like any new shot.
+        scene.applyFilmTool(to: newShot, context: scene.modelContext)
         let reference = ShotReference(sortOrder: 0)
         reference.shot = newShot
         newShot.references.append(reference)
@@ -1082,6 +1086,31 @@ private struct FilmStockRow: View {
                 Text("Film length")
                     .font(.headline)
                 Spacer()
+                Menu {
+                    Button {
+                        item.shot?.scene?.enableSceneFilmTool(
+                            gauge: item.filmGauge, fps: item.filmFPS, mode: item.filmMode,
+                            context: item.modelContext)
+                        try? item.modelContext?.save()
+                    } label: {
+                        Label("Apply to all shots in scene", systemImage: "square.stack.3d.up")
+                    }
+                    if item.shot?.scene?.sceneFilmToolEnabled == true {
+                        Text("New shots inherit these settings")
+                        Button {
+                            item.shot?.scene?.sceneFilmToolEnabled = false
+                            try? item.modelContext?.save()
+                        } label: {
+                            Label("Stop applying to new shots", systemImage: "xmark.circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .foregroundStyle(.secondary)
+                .help("Use these film settings for every shot in the scene")
+
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                 }

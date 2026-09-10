@@ -405,6 +405,16 @@ final class Scene {
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
     var sceneMapLocation: String?
 
+    /// Scene-wide film-length tool. When enabled (from the tool's gear menu), every
+    /// shot in the scene gets a film-length field with these stock settings, and new
+    /// shots inherit it too. The per-shot length/time stays per shot; only the stock
+    /// (gauge, frame rate, direction) is shared. Default off, so scenes without it
+    /// are untouched.
+    var sceneFilmToolEnabled: Bool = false
+    var sceneFilmGauge: String = "35-4"
+    var sceneFilmFPS: Double = 25
+    var sceneFilmMode: String = "meters"
+
     /// Optional drawn floor plan (walls + doors/windows) as a JSON FloorPlan,
     /// used as the scene-map background instead of an image.
     var sceneFloorPlanJSON: String?
@@ -589,6 +599,10 @@ extension Scene {
         copy.sceneMapShowCameraFOV = sceneMapShowCameraFOV
         copy.sceneMapViewableMarkerSize = sceneMapViewableMarkerSize
         copy.sceneMapLocation = sceneMapLocation
+        copy.sceneFilmToolEnabled = sceneFilmToolEnabled
+        copy.sceneFilmGauge = sceneFilmGauge
+        copy.sceneFilmFPS = sceneFilmFPS
+        copy.sceneFilmMode = sceneFilmMode
         copy.sceneFloorPlanJSON = sceneFloorPlanJSON
         copy.sceneCharactersJSON = sceneCharactersJSON
         copy.sunSettingsJSON = sunSettingsJSON
@@ -1638,6 +1652,38 @@ extension Shot {
 // MARK: - Scene map ↔ shot links
 
 extension Scene {
+    /// Give `shot` a film-length field carrying this scene's shared stock settings,
+    /// when the scene-wide film tool is on. The shot keeps its own length/time; only
+    /// the gauge, frame rate and direction are shared. A new field is inserted via
+    /// `context`; an existing one is updated in place. No-op when the tool is off.
+    func applyFilmTool(to shot: Shot, context: ModelContext?) {
+        guard sceneFilmToolEnabled else { return }
+        if let existing = shot.customInfo.first(where: { $0.kind == "filmstock" }) {
+            existing.filmGauge = sceneFilmGauge
+            existing.filmFPS = sceneFilmFPS
+            existing.filmMode = sceneFilmMode
+        } else {
+            let next = (shot.customInfo.map(\.sortOrder).max() ?? -1) + 1
+            let info = ShotCustomInfo(sortOrder: next, kind: "filmstock")
+            info.filmGauge = sceneFilmGauge
+            info.filmFPS = sceneFilmFPS
+            info.filmMode = sceneFilmMode
+            info.shot = shot
+            context?.insert(info)
+        }
+    }
+
+    /// Turn on the scene-wide film tool with these stock settings and roll it out to
+    /// every shot now — future shots pick it up as they're created (see
+    /// `applyFilmTool`). The per-shot length/time is left untouched.
+    func enableSceneFilmTool(gauge: String, fps: Double, mode: String, context: ModelContext?) {
+        sceneFilmToolEnabled = true
+        sceneFilmGauge = gauge
+        sceneFilmFPS = fps
+        sceneFilmMode = mode
+        for shot in shots { applyFilmTool(to: shot, context: context) }
+    }
+
     /// Removes any scene-map camera markers linked to the given shot uid.
     /// Called when a shot is deleted so its camera doesn't linger on the map.
     func removeSceneMapMarkers(forShotUID uid: String) {
