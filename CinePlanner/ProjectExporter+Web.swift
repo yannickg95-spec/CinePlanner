@@ -442,7 +442,7 @@ extension ProjectExporter {
                               filmEntries: filmEntries,
                               filmTotals: filmTotals,
                               projectFilmTotals: projectFilmTotals,
-                              shots: shots + aliasShots)
+                              shots: aliasShots + shots)
         }
     }
 

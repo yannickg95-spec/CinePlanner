@@ -343,6 +343,28 @@ extension ProjectExporter {
                 }
                 yPosition = drawSceneHeaderRow(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
 
+                // 0) Read-only aliases first: shots from earlier scenes whose
+                // coverage runs into this one. A compact dimmed line each — edited in
+                // their own scene, so no full row.
+                let aliasShots = scene.coverageAliasShots
+                if !aliasShots.isEmpty {
+                    for shot in aliasShots {
+                        let rowH: CGFloat = 18
+                        if yPosition + rowH > bottomLimit {
+                            endContentPage(); beginContentPage()
+                            yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                        }
+                        let home = shot.scene
+                        let note = home.map { " — continues from Scene \($0.sceneNumber)\($0.suffix)" } ?? ""
+                        NSAttributedString(string: "↳ Shot \(shot.displayNumber)\(note)",
+                                           attributes: [.font: PlatformFont.systemFont(ofSize: 10),
+                                                        .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
+                            .draw(at: CGPoint(x: margin, y: yPosition))
+                        yPosition += rowH
+                    }
+                    yPosition += 6
+                }
+
                 // 1) Shot list.
                 if orderedShots.isEmpty {
                     NSAttributedString(string: "No shots in this scene.",
@@ -358,28 +380,6 @@ extension ProjectExporter {
                             yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
                         }
                         yPosition = drawShotRow(shot, in: pdfContext, at: yPosition, margin: margin, textWidth: textWidth, offDay: dim)
-                    }
-                }
-
-                // 1b) Read-only aliases: shots from other scenes whose coverage runs
-                // into this one. A compact dimmed line each — edited in their own
-                // scene, so no full row.
-                let aliasShots = scene.coverageAliasShots
-                if !aliasShots.isEmpty {
-                    yPosition += 6
-                    for shot in aliasShots {
-                        let rowH: CGFloat = 18
-                        if yPosition + rowH > bottomLimit {
-                            endContentPage(); beginContentPage()
-                            yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
-                        }
-                        let home = shot.scene
-                        let note = home.map { " — continues from Scene \($0.sceneNumber)\($0.suffix)" } ?? ""
-                        NSAttributedString(string: "↳ Shot \(shot.displayNumber)\(note)",
-                                           attributes: [.font: PlatformFont.systemFont(ofSize: 10),
-                                                        .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
-                            .draw(at: CGPoint(x: margin, y: yPosition))
-                        yPosition += rowH
                     }
                 }
 
