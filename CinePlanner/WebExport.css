@@ -217,6 +217,7 @@
   .scene-media .mi > summary { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .scene-media .thumb-label { display: block; margin-top: 0; }
   .scene-media .mi-doc > summary,
+  .scene-media .mi-map > summary,
   .scene-media .mi-report > summary { width: auto; }
   /* Portrait phone: the scene cards drop onto their own line under the
      heading, left-aligned to start where "Scene x" does (past the caret),
@@ -245,6 +246,21 @@
                             background-size: 100% auto; background-position: top center; }
   .mi-doc > summary { width: 120px; }
   .mi-doc[open] > summary .thumb-label { display: none; }
+
+  /* Scene map: like the coverage thumbnail it's a background image (embedded
+     once), but unlike the tall script pages it must fit the screen whole, not
+     scroll. So it opens like the photo lightbox — centred and letterboxed —
+     rather than the scrolling document. `--ar` (from .map-N) sizes the box to
+     the largest rectangle that fits both axes, so it's whole in portrait and
+     landscape alike; without it a background image has no size to fit. */
+  .mi-map[open] > summary { position: absolute; inset: 0; display: flex;
+                            align-items: center; justify-content: center; padding: 20px; }
+  .mi-map[open] > summary .cover-thumb {
+      width: min(96vw, calc(92vh * var(--ar)));
+      height: min(92vh, calc(96vw / var(--ar)));
+      background-size: contain; background-position: center; background-color: transparent;
+      border-radius: 6px; }
+  .mi-map[open] > summary .thumb-label { display: none; }
 
   /* Film-length report: a thumbnail tile that opens an embedded stats
      panel (text, not an image). */

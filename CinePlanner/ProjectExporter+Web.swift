@@ -1085,7 +1085,11 @@ extension ProjectExporter {
             var mapClass: String? = nil
             if let map = scene.map {
                 let cls = "map-\(e)-\(index)"
-                coverageStyles += "          .\(cls) { background-image: url(\(assetURL(map.data, "map_\(e)_\(index)"))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); }\n"
+                // `--ar` (the ratio as a plain number) lets the fullscreen viewer size
+                // the map to fit the screen in both orientations — see `.mi-map[open]`
+                // in WebExport.css. A background image has no intrinsic size to fit.
+                let ratio = map.height > 0 ? Double(map.width) / Double(map.height) : 1
+                coverageStyles += "          .\(cls) { background-image: url(\(assetURL(map.data, "map_\(e)_\(index)"))); aspect-ratio: \(Int(map.width)) / \(Int(map.height)); --ar: \(String(format: "%.5f", ratio)); }\n"
                 mapClass = cls
             }
             let timeLabel = scene.isDay ? "DAY" : "NIGHT"
@@ -1119,7 +1123,7 @@ extension ProjectExporter {
                 cards += "      <details class=\"mi mi-doc\"><summary onclick=\"event.stopPropagation()\" title=\"Script with coverage for this scene\"><span class=\"cover-thumb \(cls)\"></span><span class=\"thumb-label\">Coverage</span></summary></details>\n"
             }
             if let cls = mapClass {
-                cards += "      <details class=\"mi mi-doc\"><summary onclick=\"event.stopPropagation()\" title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
+                cards += "      <details class=\"mi mi-map\"><summary onclick=\"event.stopPropagation()\" title=\"Scene map\"><span class=\"cover-thumb is-map \(cls)\"></span><span class=\"thumb-label\">Scene map</span></summary></details>\n"
             }
             if !scene.filmEntries.isEmpty {
                 var preview = "<span class=\"rp-title\">Film length</span>"
