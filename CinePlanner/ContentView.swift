@@ -570,6 +570,17 @@ struct ShotListView: View {
     
     var body: some View {
         List(selection: $selectedShots) {
+            // Shots from earlier scenes whose coverage runs into this one, shown as
+            // read-only aliases at the top — they're edited in their own scene. Each
+            // row notes which scene it continues from, so no section title is needed.
+            let aliasShots = scene.coverageAliasShots
+            if !aliasShots.isEmpty {
+                Section {
+                    ForEach(aliasShots, id: \.uid) { shot in
+                        coverageAliasRow(shot)
+                    }
+                }
+            }
             Section {
                 ForEach(sortedShots, id: \.uid) { shot in
                 NavigationLink(value: shot) {
@@ -760,6 +771,45 @@ struct ShotListView: View {
             .padding(.vertical, 2)
             .background(Color.secondary.opacity(0.15))
             .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    /// A read-only alias row: a shot from another scene whose coverage runs into
+    /// this one. Dimmed and non-interactive — it's edited in its own scene.
+    @ViewBuilder
+    private func coverageAliasRow(_ shot: Shot) -> some View {
+        let sizeText = sizeSummary(for: shot)
+        let typeText = typeSummary(for: shot)
+        let nickname = shot.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Shot \(shot.displayNumber)")
+                    .font(.title3).fontWeight(.semibold).lineLimit(1)
+                // Nickname sits where a normal row has it — between number and labels.
+                if !nickname.isEmpty {
+                    Text(nickname)
+                        .font(.headline).fontWeight(.regular).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if sizeText != nil || typeText != nil {
+                    HStack(spacing: 4) {
+                        if let sizeText { detailTag(sizeText) }
+                        if let typeText { detailTag(typeText) }
+                    }
+                }
+                // The "continues from" note goes under the labels.
+                if let home = shot.scene {
+                    Text("continues from Scene \(home.sceneNumber)\(home.suffix)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .opacity(0.7)
+        .selectionDisabled()
+        #if os(iOS)
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+        #endif
     }
 
     /// The shot's type for the row subtitle — "Static", or "Static + Handheld"
@@ -1821,6 +1871,7 @@ struct ShotDetailView: View {
 
                     Button(role: .destructive) {
                         shot.scriptCoverageSelections = nil
+                        shot.coverageSceneUIDs = nil   // no coverage → no aliases
                     } label: {
                         Image(systemName: "trash")
                     }

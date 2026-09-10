@@ -361,6 +361,28 @@ extension ProjectExporter {
                     }
                 }
 
+                // 1b) Read-only aliases: shots from other scenes whose coverage runs
+                // into this one. A compact dimmed line each — edited in their own
+                // scene, so no full row.
+                let aliasShots = scene.coverageAliasShots
+                if !aliasShots.isEmpty {
+                    yPosition += 6
+                    for shot in aliasShots {
+                        let rowH: CGFloat = 18
+                        if yPosition + rowH > bottomLimit {
+                            endContentPage(); beginContentPage()
+                            yPosition = drawSceneContinuationHeader(scene, in: pdfContext, at: yPosition, margin: margin, pageWidth: pageWidth)
+                        }
+                        let home = shot.scene
+                        let note = home.map { " — continues from Scene \($0.sceneNumber)\($0.suffix)" } ?? ""
+                        NSAttributedString(string: "↳ Shot \(shot.displayNumber)\(note)",
+                                           attributes: [.font: PlatformFont.systemFont(ofSize: 10),
+                                                        .foregroundColor: PlatformColor(white: 0.5, alpha: 1)])
+                            .draw(at: CGPoint(x: margin, y: yPosition))
+                        yPosition += rowH
+                    }
+                }
+
                 // 2) Reference gallery (only the day's shots for a split scene).
                 let items = pdfOptions.includeReferenceImages ? pdfGalleryItems(for: scene, onlyShotUIDs: scheduledShotUIDs) : []
                 if !items.isEmpty {

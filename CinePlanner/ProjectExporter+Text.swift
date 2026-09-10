@@ -272,6 +272,16 @@ extension ProjectExporter {
 
                 output += "\n"
             }
+
+            // Read-only aliases: shots from other scenes whose coverage runs in here.
+            for shot in scene.coverageAliasShots {
+                var line = "  SHOT \(shot.displayNumber)"
+                if let home = shot.scene {
+                    line += " (continues from Scene \(home.sceneNumber)\(home.suffix))"
+                }
+                if !shot.nickname.isEmpty { line += " — \(shot.nickname)" }
+                output += line + "\n\n"
+            }
         }
 
         Log.export.debug("✅ [EXPORT_TEXT] Scene breakdown complete!")

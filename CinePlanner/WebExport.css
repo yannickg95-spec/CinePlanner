@@ -420,3 +420,9 @@
   /* With the search/chips hidden in day view, the phone-portrait line break
      would leave an empty wrapped row (and its row-gap) under the switch. */
   .days-mode .tb-break { display: none; }
+
+  /* Coverage alias: a read-only pointer to a shot from another scene whose
+     coverage runs into this one. Dimmed, with a small "continues from" note. */
+  .shot-alias { opacity: 0.72; }
+  .shot-alias-note { font-size: 11px; color: var(--faint); font-style: italic;
+                     white-space: nowrap; }

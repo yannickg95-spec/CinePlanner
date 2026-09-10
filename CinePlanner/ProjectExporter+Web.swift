@@ -41,6 +41,10 @@ extension ProjectExporter {
         let coveragePreview: String?
         let hasCoverage: Bool
         let references: [MediaReference]
+        /// Set when this row is a read-only alias — a shot from another scene whose
+        /// coverage runs into this one. `aliasNote` reads "continues from Scene X".
+        var isAlias: Bool = false
+        var aliasNote: String? = nil
     }
 
     private struct MediaScene {
@@ -394,6 +398,25 @@ extension ProjectExporter {
                     }
                 )
             }
+            // Read-only aliases: shots from other scenes whose coverage runs in here.
+            // No references (they live with the home shot) and left out of the film
+            // totals below — they're a pointer, not a second shot.
+            let aliasShots = scene.coverageAliasShots.map { shot -> MediaShot in
+                let home = shot.scene
+                let note = home.map { "continues from Scene \($0.sceneNumber)\($0.suffix)" }
+                return MediaShot(
+                    displayNumber: shot.displayNumber,
+                    slug: shot.displayNumber.map { $0.isLetter || $0.isNumber ? $0 : "_" }.map(String.init).joined(),
+                    nickname: shot.nickname,
+                    details: shotDetails(shot),
+                    coverageText: coverageSummary(shot),
+                    coveragePreview: nil,
+                    hasCoverage: !(shot.scriptCoverageSelections?.isEmpty ?? true),
+                    references: [],
+                    isAlias: true,
+                    aliasNote: note)
+            }
+
             let filmEntries: [FilmReportEntry] = scene.shots
                 .sorted { $0.shotNumber < $1.shotNumber }
                 .flatMap { shot in
@@ -419,7 +442,7 @@ extension ProjectExporter {
                               filmEntries: filmEntries,
                               filmTotals: filmTotals,
                               projectFilmTotals: projectFilmTotals,
-                              shots: shots)
+                              shots: shots + aliasShots)
         }
     }
 
@@ -1188,7 +1211,8 @@ extension ProjectExporter {
                 // still opens in Quick Look) — unlike a <details>, this lets the row
                 // carry its own openable media thumbnails without their clicks
                 // fighting the expand.
-                body += "    <div class=\"shot\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
+                let shotClass = shot.isAlias ? "shot shot-alias" : "shot"
+                body += "    <div class=\"\(shotClass)\" data-media=\"\(hasMedia ? 1 : 0)\" data-text=\"\(esc(shotSearch))\">\n"
                 body += "      <input type=\"checkbox\" class=\"shot-toggle\" id=\"\(toggleID)\">\n"
                 body += "      <div class=\"shot-row\">\n"
                 // The text part is a <label> for the checkbox, so clicking it (but
@@ -1196,6 +1220,9 @@ extension ProjectExporter {
                 body += "        <label class=\"shot-main\" for=\"\(toggleID)\">\n"
                 body += "          <span class=\"shot-caret\" aria-hidden=\"true\"></span>\n"
                 body += "          <span class=\"shot-num\">\(esc(shot.displayNumber))</span>\n"
+                if let note = shot.aliasNote {
+                    body += "          <span class=\"shot-alias-note\">\(esc(note))</span>\n"
+                }
                 if !shot.nickname.isEmpty { body += "          <span class=\"shot-nick\">\(esc(shot.nickname))</span>\n" }
                 if inlineDetails.isEmpty {
                     body += "          <span class=\"si-vals si-empty\">No details</span>\n"

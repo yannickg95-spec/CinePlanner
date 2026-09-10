@@ -637,6 +637,20 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             return named[min(index, named.count - 1)].top
         }
 
+        /// Records which *other* scenes this shot's coverage runs into, so the shot
+        /// can appear as a read-only alias in their shot lists. Each selection line
+        /// is placed against the scene headings (page + heading Y) to find the scene
+        /// it falls in; scenes other than the shot's own are stored on the shot. Runs
+        /// while the marking PDF is laid out, so heading positions are available.
+        /// Records which other scenes this shot's coverage runs into (so it can
+        /// appear as a read-only alias there), computed while the marking PDF is
+        /// laid out. See CoverageAlias.
+        private func updateCoverageAliasScenes(for shot: Shot) {
+            guard let doc = document else { return }
+            let uids = CoverageAlias.overlappedSceneUIDs(for: shot, in: doc)
+            shot.coverageSceneUIDs = uids.isEmpty ? nil : uids
+        }
+
         private func shotsWithCoverage() -> [Shot] {
             var result: [Shot] = []
             for scene in (version?.scenes ?? project?.scenes ?? []) {
@@ -670,6 +684,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let ts = ScriptTextSelection(pageRanges: pageRanges, fullText: selection.string ?? "")
             if shot.scriptCoverageSelections == nil { shot.scriptCoverageSelections = [] }
             shot.scriptCoverageSelections?.append(ts)
+            updateCoverageAliasScenes(for: shot)
 
             recomputeBars()
             if let cv = collectionView {

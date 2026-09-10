@@ -1246,7 +1246,12 @@ final class Shot {
     
     // Script Coverage - stores text selection information
     var scriptCoverageSelections: [ScriptTextSelection]?
-    
+    /// uids of *other* scenes this shot's coverage runs into (the shot's marking
+    /// crosses their script region). The shot then appears as a read-only alias in
+    /// those scenes' shot lists. Computed when coverage is marked (the PDF is laid
+    /// out then); cleared when coverage is cleared. nil/empty = no alias.
+    var coverageSceneUIDs: [String]?
+
     /// Reference photos/videos, each with an optional top-down map. Replaces the
     /// fixed photo1/photo2/video slots; those are migrated on first open.
     @Relationship(deleteRule: .cascade, originalName: "references", inverse: \ShotReference.shot)
@@ -1682,6 +1687,24 @@ extension Scene {
         sceneFilmFPS = fps
         sceneFilmMode = mode
         for shot in shots { applyFilmTool(to: shot, context: context) }
+    }
+
+    /// Shots from *other* scenes whose coverage runs into this scene — shown as
+    /// read-only aliases in this scene's shot list (editor and exports). Ordered by
+    /// their home scene then shot number so they read consistently.
+    var coverageAliasShots: [Shot] {
+        let all = scriptVersion?.orderedScenes
+            ?? project?.scenes.sorted { $0.sortOrder < $1.sortOrder }
+            ?? []
+        var result: [Shot] = []
+        for other in all where other !== self {
+            for shot in other.shots where (shot.coverageSceneUIDs ?? []).contains(uid) {
+                result.append(shot)
+            }
+        }
+        return result.sorted {
+            ($0.scene?.sortOrder ?? 0, $0.shotNumber) < ($1.scene?.sortOrder ?? 0, $1.shotNumber)
+        }
     }
 
     /// Removes any scene-map camera markers linked to the given shot uid.

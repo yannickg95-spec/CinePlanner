@@ -1799,7 +1799,13 @@ struct PDFViewerWithCoverageRepresentable {
                     shot.scriptCoverageSelections = []
                 }
                 shot.scriptCoverageSelections?.append(textSelection)
-                
+                // Record which other scenes this coverage runs into, so the shot can
+                // show as a read-only alias there (see CoverageAlias).
+                if let doc = pdfView.document {
+                    let uids = CoverageAlias.overlappedSceneUIDs(for: shot, in: doc)
+                    shot.coverageSceneUIDs = uids.isEmpty ? nil : uids
+                }
+
                 Log.script.debug("✅ Saved coverage with \(pageRanges.count) page(s)")
                 Log.script.debug("   📝 Text: \"\(selectedText.prefix(50))...\"")
                 
