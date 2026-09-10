@@ -20,7 +20,19 @@ struct ShootingScheduleView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
-    private var isPhone: Bool { DeviceLayout.isPhone }
+    /// The board (scene palette + day columns side by side) needs room for the
+    /// palette plus a couple of columns. Below that — iPad portrait, Split View, a
+    /// narrow window — it doesn't fit and used to overflow the sheet; the sectioned
+    /// list reads far better there. Decided on the actual available width, not the
+    /// device: an iPad is only "wide" when it's actually wide. macOS always keeps the
+    /// board — its window can't shrink past the min width set below.
+    private func useBoard(width: CGFloat) -> Bool {
+        #if os(macOS)
+        return true
+        #else
+        return width >= 1100
+        #endif
+    }
 
     /// Drag feedback: the strip we'd drop before, or the day whose end we'd append to.
     @State private var dropBeforeUID: String?
@@ -99,8 +111,11 @@ struct ShootingScheduleView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isPhone { phoneLayout } else { boardLayout }
+            GeometryReader { geo in
+                Group {
+                    if useBoard(width: geo.size.width) { boardLayout } else { phoneLayout }
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             }
             .sheet(item: $shotSelectFor) { entry in
                 if let scene = entry.scene {
@@ -151,10 +166,13 @@ struct ShootingScheduleView: View {
                 #endif
             }
         }
-        .frame(minWidth: isPhone ? nil : 1100, idealWidth: isPhone ? nil : 1500,
-               maxWidth: isPhone ? nil : .infinity,
-               minHeight: isPhone ? nil : 640, idealHeight: isPhone ? nil : 920,
-               maxHeight: isPhone ? nil : .infinity)
+        // Window sizing for the resizable macOS window. On iOS the sheet is
+        // full-screen, so forcing a width here only made the board overflow in
+        // portrait — the layout now adapts to the width it's actually given.
+        #if os(macOS)
+        .frame(minWidth: 1100, idealWidth: 1500, maxWidth: .infinity,
+               minHeight: 640, idealHeight: 920, maxHeight: .infinity)
+        #endif
     }
 
     // MARK: - Wide board (iPad / Mac)
