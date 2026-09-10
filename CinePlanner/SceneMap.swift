@@ -227,9 +227,11 @@ struct SceneMapDoc: Codable, Equatable {
     }
 
     /// Encoded string, or nil when the map is empty (so an untouched scene
-    /// stores nothing).
+    /// stores nothing). "Empty" means no elements *and* no arrows *and* no
+    /// furniture — keying only on elements silently dropped a map that had just
+    /// furniture (or just arrows), so it never persisted.
     var jsonString: String? {
-        guard !elements.isEmpty else { return nil }
+        guard !isEmpty else { return nil }
         guard let data = try? JSONEncoder().encode(self) else { return nil }
         return String(data: data, encoding: .utf8)
     }

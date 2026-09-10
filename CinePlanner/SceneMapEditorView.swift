@@ -452,12 +452,16 @@ struct SceneMapEditorView: View {
                     }
                     Button { backgroundImportKind = .model } label: { Label("3D Model…", systemImage: "cube") }
                     Menu {
-                        let others = scenesWithBackground
+                        let others = scenesWithMap
                         if others.isEmpty {
-                            Text("No other scene has a background")
+                            Text("No other scene has a map")
                         } else {
                             ForEach(others, id: \.uid) { other in
-                                Button(sceneBackgroundLabel(other)) { setBackgroundFromScene(other) }
+                                Button {
+                                    setBackgroundFromScene(other)
+                                } label: {
+                                    Label(sceneBackgroundLabel(other), systemImage: sceneMapSymbol(other))
+                                }
                             }
                         }
                     } label: { Label("From Another Scene…", systemImage: "square.on.square") }
@@ -2458,17 +2462,30 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Other scenes in the project that have a background image to borrow.
-    private var scenesWithBackground: [Scene] {
+    /// Other scenes in the project whose map can be borrowed: an image or satellite
+    /// background, or a drawn floor plan (which lives in its own field, not in
+    /// `sceneMapBackgroundData`, so it used to be invisible here).
+    private var scenesWithMap: [Scene] {
         (scene.project?.scenes ?? [])
-            .filter { $0.uid != scene.uid && $0.sceneMapBackgroundData != nil }
+            .filter { $0.uid != scene.uid && ($0.sceneMapBackgroundData != nil || Self.hasFloorPlan($0)) }
             .sorted { ($0.sceneNumber, $0.suffix) < ($1.sceneNumber, $1.suffix) }
+    }
+
+    private static func hasFloorPlan(_ other: Scene) -> Bool {
+        !FloorPlan.load(from: other.sceneFloorPlanJSON).isEmpty
     }
 
     private func sceneBackgroundLabel(_ other: Scene) -> String {
         let nickname = other.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = "Scene \(other.sceneNumber)\(other.suffix)"
         return nickname.isEmpty ? base : "\(base) – \(nickname)"
+    }
+
+    /// The kind of map a borrow would bring, so the menu can show it at a glance.
+    private func sceneMapSymbol(_ other: Scene) -> String {
+        if other.satelliteCapture != nil { return "globe.europe.africa.fill" }
+        if other.sceneMapBackgroundData != nil { return "photo" }
+        return "pencil.and.ruler"
     }
 
     /// Sets a rendered satellite still as the scene-map background (replacing any
@@ -2569,8 +2586,12 @@ struct SceneMapEditorView: View {
     /// Copies another scene's background image (and its location tag) onto this
     /// scene, replacing any current image or drawn floor plan.
     private func setBackgroundFromScene(_ other: Scene) {
-        guard let data = other.sceneMapBackgroundData else { return }
         isDrawing = false
+        guard let data = other.sceneMapBackgroundData else {
+            // No image or satellite background — borrow the drawn floor plan instead.
+            setFloorPlanFromScene(other)
+            return
+        }
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         scene.sceneMapBackgroundData = data
@@ -2594,6 +2615,32 @@ struct SceneMapEditorView: View {
         // painstakingly aligned image comes across still aligned.
         scene.sceneMapBackgroundTransform = other.satelliteCapture == nil ? other.sceneMapBackgroundTransform : .init()
         backgroundImage = PlatformImage(data: data)
+        try? scene.modelContext?.save()
+    }
+
+    /// Copies another scene's drawn floor plan — the walls and the furniture on them
+    /// — onto this scene. A floor plan and an image/satellite background are mutually
+    /// exclusive, so this clears the image side the same way starting a fresh drawing
+    /// does. The furniture is part of the room; the source scene's blocking (cameras,
+    /// actors, arrows) is not, so that stays behind. Both the plan and the furniture
+    /// are stored normalized to the same content rect, so they land in register.
+    private func setFloorPlanFromScene(_ other: Scene) {
+        let plan = FloorPlan.load(from: other.sceneFloorPlanJSON)
+        guard !plan.isEmpty else { return }
+        // Fresh ids so a copied piece is never confused with the original.
+        let furniture = SceneMapDoc.load(from: other.sceneMapJSON).furniture
+            .map { var f = $0; f.id = UUID(); return f }
+        backgroundImage = nil
+        scene.sceneMapBackgroundData = nil
+        scene.clearSatelliteCapture()
+        scene.sceneMapMetersWide = nil
+        scene.sceneMapCameraSizeMeters = nil
+        scene.sceneMapBackgroundTransform = .init()
+        floorPlan = plan
+        doc.furniture = furniture
+        scene.sceneFloorPlanJSON = other.sceneFloorPlanJSON
+        scene.sceneMapJSON = doc.jsonString
+        scene.sceneMapLocation = other.sceneMapLocation
         try? scene.modelContext?.save()
     }
 
