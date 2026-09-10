@@ -145,6 +145,15 @@ struct SceneMapEditorView: View {
     @State private var chainLastVertex: UUID?
     /// Cursor position (canvas points) for the rubber-band preview while drawing.
     @State private var drawHover: CGPoint?
+    /// Drawing to real-world scale: after the first wall the user enters its length,
+    /// which sets the map's metres-wide so every later wall, marker and furniture
+    /// piece is correctly scaled and shown with live measurements.
+    @State private var drawToScale = false
+    /// The first wall awaiting its real length (drives the length prompt). nil once
+    /// the map is calibrated (or when not drawing to scale).
+    @State private var scaleWallID: UUID?
+    /// Length entry for the calibration wall, in metres (decimal).
+    @State private var scaleInput = ""
     /// Door/window selected for editing.
     @State private var openingSelectedID: UUID?
     /// An in-progress "move to/from": the next canvas click places the second
@@ -281,6 +290,10 @@ struct SceneMapEditorView: View {
             if let project = scene.project {
                 ManageCharactersSheet(project: project)
             }
+        }
+        .sheet(isPresented: Binding(get: { scaleWallID != nil },
+                                    set: { if !$0 { scaleWallID = nil } })) {
+            scaleLengthSheet
         }
         .sheet(isPresented: $showSunSettings) {
             SunSettingsSheet(settings: $sun, onChange: saveSun,
@@ -475,6 +488,9 @@ struct SceneMapEditorView: View {
                     } label: { Label("From Another Scene…", systemImage: "square.on.square") }
                     Divider()
                     Button { startDrawing() } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
+                    Button { startDrawing(toScale: true) } label: {
+                        Label("Draw Floor Plan to Scale…", systemImage: "ruler")
+                    }
                     if backgroundImage != nil || !floorPlan.isEmpty {
                         Divider()
                         Button(role: .destructive) { clearBackground() } label: { Label("Clear Background", systemImage: "xmark") }
@@ -598,6 +614,54 @@ struct SceneMapEditorView: View {
             && floorPlan.isEmpty && backgroundImage == nil
     }
 
+    /// Asks for the first wall's real length; confirming scales the whole map.
+    private var scaleLengthSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        TextField("Length", text: $scaleInput)
+                            .frame(maxWidth: 120)
+                            #if os(iOS)
+                            .keyboardType(.decimalPad)
+                            #endif
+                            .onSubmit { confirmScaleLength() }
+                        Text("metres").foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Length of the wall you just drew")
+                } footer: {
+                    Text("The whole map scales to this, so every marker and furniture piece matches real dimensions. You can also enter centimetres as a decimal, e.g. 3.45.")
+                }
+            }
+            .navigationTitle("Set Map Scale")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    // Keep the wall but stop scaling — drawing continues unmeasured.
+                    Button("Cancel") { scaleWallID = nil; drawToScale = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Set") { confirmScaleLength() }
+                        .disabled(Double(scaleInput.replacingOccurrences(of: ",", with: ".")).map { $0 <= 0 } ?? true)
+                }
+            }
+        }
+        .frame(minWidth: 340, minHeight: 200)
+    }
+
+    private var scaleHint: String {
+        if drawToScale && scene.sceneMapMetersWide == nil && drawTool == .wall {
+            return "Draw the first wall, then enter its real length to set the scale."
+        }
+        if drawTool == .wall {
+            return "Click to drop points; click a point again to close the room."
+        }
+        return "Click a wall to place a \(drawTool.rawValue.lowercased())."
+    }
+
     private var drawToolbar: some View {
         HStack(spacing: 10) {
             Image(systemName: "pencil.tip.crop.circle").foregroundStyle(.secondary)
@@ -608,15 +672,13 @@ struct SceneMapEditorView: View {
             .labelsHidden()
             .fixedSize()
             .onChange(of: drawTool) { _, _ in endChain() }
-            Text(drawTool == .wall
-                 ? "Click to drop points; click a point again to close the room."
-                 : "Click a wall to place a \(drawTool.rawValue.lowercased()).")
+            Text(scaleHint)
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
             if drawTool == .wall && chainLastVertex != nil {
                 Button("Finish Line") { endChain() }
             }
-            Button("Done") { endChain(); isDrawing = false }
+            Button("Done") { endChain(); isDrawing = false; drawToScale = false; scaleWallID = nil }
                 .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 16)
@@ -2728,13 +2790,47 @@ struct SceneMapEditorView: View {
 
     /// Enters floor-plan drawing mode, clearing any image background (one
     /// background per scene).
-    private func startDrawing() {
+    /// Calibrate the map from the first wall's real length: the wall's on-map length
+    /// (a fraction of the square) maps to the entered metres, giving the map's
+    /// metres-wide — which every marker and furniture size, and the live wall
+    /// readouts, then scale against.
+    private func confirmScaleLength() {
+        defer { scaleWallID = nil; scaleInput = "" }
+        guard let wid = scaleWallID,
+              let wall = floorPlan.walls.first(where: { $0.id == wid }),
+              let metres = Double(scaleInput.replacingOccurrences(of: ",", with: ".")),
+              metres > 0 else { return }
+        let normLen = floorPlan.length(wall)
+        guard normLen > 1e-6 else { return }
+        let metersWide = metres / normLen
+        scene.sceneMapMetersWide = metersWide
+        mapMetersWide = metersWide
+        saveContext()
+    }
+
+    /// A wall's real length in the scene, or nil until the map is scaled. Reads the
+    /// normalized length against the map's metres-wide.
+    private func realLength(of wall: Wall) -> Double? {
+        guard let metersWide = mapMetersWide, metersWide > 0 else { return nil }
+        return floorPlan.length(wall) * metersWide
+    }
+
+    /// A length in metres as a compact label: "3.45 m", or "45 cm" under a metre.
+    private func lengthLabel(_ metres: Double) -> String {
+        metres < 1 ? "\(Int((metres * 100).rounded())) cm" : String(format: "%.2f m", metres)
+    }
+
+    private func startDrawing(toScale: Bool = false) {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
         scene.clearSatelliteCapture()
         scene.sceneMapMetersWide = nil
         scene.sceneMapCameraSizeMeters = nil
         scene.sceneMapBackgroundTransform = .init()
+        mapMetersWide = nil
+        drawToScale = toScale
+        scaleWallID = nil
+        scaleInput = ""
         drawTool = .wall
         chainLastVertex = nil
         isDrawing = true
@@ -2843,6 +2939,14 @@ struct SceneMapEditorView: View {
         }
         chainLastVertex = vertex.id
         persistFloorPlan()
+
+        // Drawing to scale: the first wall calibrates the map. Ask for its real
+        // length once it exists (two points → one wall) and the map isn't scaled yet.
+        if drawToScale, scene.sceneMapMetersWide == nil, floorPlan.walls.count == 1,
+           let first = floorPlan.walls.first {
+            scaleInput = ""
+            scaleWallID = first.id
+        }
     }
 
     /// Ends the current chain, dropping a dangling single point.
@@ -2925,6 +3029,16 @@ struct SceneMapEditorView: View {
         func point(_ nx: Double, _ ny: Double) -> CGPoint {
             CGPoint(x: rect.minX + CGFloat(nx) * rect.width, y: rect.minY + CGFloat(ny) * rect.height)
         }
+        // A measurement pill, centred on `p`, legible over the map.
+        func drawLength(_ text: String, at p: CGPoint) {
+            let resolved = ctx.resolve(Text(text).font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white))
+            let size = resolved.measure(in: CGSize(width: 240, height: 40))
+            let box = CGRect(x: p.x - size.width / 2 - 4, y: p.y - size.height / 2 - 2,
+                             width: size.width + 8, height: size.height + 4)
+            ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(Color(white: 0.1).opacity(0.78)))
+            ctx.draw(resolved, at: p)
+        }
         let wallShading = GraphicsContext.Shading.color(.primary.opacity(0.85))
         let wallWidth: CGFloat = 4
 
@@ -3003,6 +3117,14 @@ struct SceneMapEditorView: View {
             }
         }
 
+        // Live measurements: each wall's real length once the map is scaled.
+        for wall in floorPlan.walls {
+            guard let metres = realLength(of: wall), let (a, b) = floorPlan.endpoints(wall) else { continue }
+            let mid = CGPoint(x: (point(a.x, a.y).x + point(b.x, b.y).x) / 2,
+                              y: (point(a.x, a.y).y + point(b.x, b.y).y) / 2)
+            drawLength(lengthLabel(metres), at: mid)
+        }
+
         // While drawing: show every corner point, and rubber-band from the
         // chain's last point to the cursor.
         if isDrawing {
@@ -3023,6 +3145,13 @@ struct SceneMapEditorView: View {
                 path.move(to: point(lastV.x, lastV.y)); path.addLine(to: point(target.x, target.y))
                 ctx.stroke(path, with: .color(.accentColor.opacity(0.6)),
                            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 4]))
+                // Live length of the segment being drawn, once the map is scaled.
+                if let metersWide = mapMetersWide, metersWide > 0 {
+                    let norm = hypot(target.x - lastV.x, target.y - lastV.y)
+                    let a = point(lastV.x, lastV.y), b = point(target.x, target.y)
+                    drawLength(lengthLabel(norm * metersWide),
+                               at: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
+                }
             }
         }
     }
