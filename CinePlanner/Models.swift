@@ -1771,6 +1771,19 @@ enum ScheduleSummary {
         return (entries.count, entries.reduce(0) { $0 + $1.resolvedShots.count })
     }
 
+    /// The sun-seeker `dateEpoch` a scene should adopt from the schedule so its
+    /// scene-map daylight matches the day it's planned for: the shoot date at noon in
+    /// the scene's timezone (noon avoids day-boundary drift), but only when the scene
+    /// sits on exactly one dated day. On no dated day there's nothing to adopt; split
+    /// across several there's no single date, so the per-strip warning guides the
+    /// choice instead. `datedShootDates` are the dates of the dated days the scene is
+    /// scheduled on.
+    static func adoptedSunDateEpoch(datedShootDates: [Date], timeZone: TimeZone) -> Double? {
+        guard datedShootDates.count == 1 else { return nil }
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = timeZone
+        return cal.startOfDay(for: datedShootDates[0]).addingTimeInterval(12 * 3600).timeIntervalSince1970
+    }
+
     /// The first scheduled scene on the day that carries a sun location, used as the
     /// day's representative location for daylight times.
     static func representativeSun(for day: ShootingDay) -> SunSettings? {

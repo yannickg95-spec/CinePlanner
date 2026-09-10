@@ -233,6 +233,14 @@ struct SceneMapEditorView: View {
             guard incoming != floorPlan, !(incoming.isEmpty && !floorPlan.isEmpty) else { return }
             floorPlan = incoming
         }
+        // Pick up sun settings changed from outside the editor — e.g. scheduling the
+        // scene on a dated day carries that date into the sun seeker. Round-trip
+        // equality means our own `saveSun` writes don't reload (and clobber) an edit.
+        .onChange(of: scene.sunSettingsJSON) { _, _ in
+            let incoming = scene.sunSettings
+            guard incoming != sun else { return }
+            sun = incoming
+        }
         .fileImporter(
             isPresented: Binding(
                 get: { backgroundImportKind != nil },

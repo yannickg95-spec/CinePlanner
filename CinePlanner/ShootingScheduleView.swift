@@ -366,7 +366,8 @@ struct ShootingScheduleView: View {
 
     /// Date control for a day — a tinted calendar chip that opens a graphical picker.
     private func dayDateControl(_ day: ShootingDay) -> some View {
-        DayDateChip(day: day, onChange: save)
+        // A new shoot date flows straight into the scenes planned on the day.
+        DayDateChip(day: day, onChange: { adoptShootDateForScenes(on: day); save() })
     }
 
     private func stripRow(_ entry: ScheduleEntry) -> some View {
@@ -738,6 +739,33 @@ struct ShootingScheduleView: View {
         save()
     }
 
+    /// Carry a scene's shoot date into its sun-seeker (location) settings, so the
+    /// scene map's daylight matches the day it's planned for without anyone typing
+    /// the date twice. Done only when the scene sits on exactly one dated day: split
+    /// across days there's no single date to adopt, so the per-strip warning guides
+    /// the choice rather than a silent guess overwriting it. A later manual change in
+    /// the scene settings that then differs is caught by `sunWarningTag`, as before.
+    /// Does not save — callers fold it into their own save.
+    private func adoptShootDate(into scene: Scene) {
+        let datedShootDates = version.shootingDays.compactMap { day -> Date? in
+            guard let date = day.date,
+                  day.entries.contains(where: { $0.scene === scene }) else { return nil }
+            return date
+        }
+        var sun = scene.sunSettings
+        guard let epoch = ScheduleSummary.adoptedSunDateEpoch(datedShootDates: datedShootDates,
+                                                              timeZone: sun.timeZone),
+              sun.dateEpoch != epoch else { return }
+        sun.dateEpoch = epoch
+        scene.sunSettings = sun
+    }
+
+    /// After a day's date changes, carry it into the sun settings of every scene on
+    /// that day (each one that resolves to a single dated day).
+    private func adoptShootDateForScenes(on day: ShootingDay) {
+        for scene in day.entries.compactMap(\.scene) { adoptShootDate(into: scene) }
+    }
+
     private func sceneTag(_ scene: Scene) -> some View {
         VStack(spacing: 2) {
             Text(scene.isInterior ? "INT" : "EXT").font(.caption2.bold())
@@ -807,6 +835,7 @@ struct ShootingScheduleView: View {
         context.insert(entry)
         day.entries.append(entry)
         if let before { insert(entry, in: day, before: before) } else { reindex(day) }
+        adoptShootDate(into: scene)
         save()
     }
 
@@ -820,6 +849,7 @@ struct ShootingScheduleView: View {
             if let source { reindex(source) }
         }
         insert(entry, in: day, before: before)
+        if let scene = entry.scene { adoptShootDate(into: scene) }
         save()
     }
 
