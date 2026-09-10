@@ -448,23 +448,24 @@ struct CineStagerImportSheet: View {
         ref.captureType = cs.type
         ref.dateTimeOriginal = cs.timestamp
 
-        // Seed the parent shot's camera fields. The CineStager values lead: they
-        // overwrite a field that's empty OR still holds the project default, but
-        // never a value the user typed. Any field the import leaves empty then
-        // falls back to the project default.
+        // Seed only the parent shot's *empty* camera fields. Camera information the
+        // user — or a project default — already put there is left alone; the
+        // CineStager values stay on the reference and are offered in the camera
+        // dropdowns instead. Any field still empty then falls back to the project
+        // default.
         if let shot = ref.shot {
             let project = shot.scene?.resolvedProject
             let defCamera = project?.defaultCamera ?? ""
             let defFramelines = project?.defaultFramelines ?? ""
             let defLens = project?.defaultLens ?? ""
             let csCamera = Shot.combinedCamera(cs.cameraFamily, cs.cameraFormat)
-            if !csCamera.isEmpty, shot.camera.isEmpty || shot.camera == defCamera {
+            if !csCamera.isEmpty, shot.camera.isEmpty {
                 shot.camera = csCamera
             }
-            if let lines = cs.framelines, shot.framelines.isEmpty || shot.framelines == defFramelines {
+            if let lines = cs.framelines, shot.framelines.isEmpty {
                 shot.framelines = lines
             }
-            if let lens = cs.lensPresetName, shot.lensPreset.isEmpty || shot.lensPreset == defLens {
+            if let lens = cs.lensPresetName, shot.lensPreset.isEmpty {
                 shot.lensPreset = lens
             }
             if let focal = cs.focalLengthMM, focal > 0, shot.lensfocal == 0 {

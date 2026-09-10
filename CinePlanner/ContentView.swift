@@ -1232,9 +1232,29 @@ struct ShotDetailView: View {
     @State private var showingCardSettings = false
 
     // Computed properties for autocomplete suggestions
+    /// Camera / framelines / lens values carried on imported reference metadata
+    /// across the project. Offered in the camera dropdowns so an imported value is
+    /// still one tap away even though it's no longer copied onto a shot's own camera
+    /// fields when those already hold something.
+    private var referenceMetadataOptions: (cameras: Set<String>, framelines: Set<String>, lenses: Set<String>) {
+        var cameras = Set<String>(), framelines = Set<String>(), lenses = Set<String>()
+        guard let project = shot.scene?.project else { return (cameras, framelines, lenses) }
+        for scene in project.scenes {
+            for projectShot in scene.shots {
+                for ref in projectShot.references {
+                    let cam = Shot.combinedCamera(ref.cameraFamily ?? "", ref.cameraFormat ?? "")
+                    if !cam.isEmpty { cameras.insert(cam) }
+                    if let fl = ref.framelines, !fl.isEmpty { framelines.insert(fl) }
+                    if let lp = ref.lensPreset, !lp.isEmpty { lenses.insert(lp) }
+                }
+            }
+        }
+        return (cameras, framelines, lenses)
+    }
+
     private var previousCameraValues: [String] {
         guard let project = shot.scene?.project else { return [] }
-        
+
         var cameras = Set<String>()
         for scene in project.scenes {
             for projectShot in scene.shots {
@@ -1244,6 +1264,7 @@ struct ShotDetailView: View {
                 }
             }
         }
+        cameras.formUnion(referenceMetadataOptions.cameras)
         return Array(cameras).sorted()
     }
     
@@ -1277,6 +1298,7 @@ struct ShotDetailView: View {
                 }
             }
         }
+        lenses.formUnion(referenceMetadataOptions.lenses)
         return Array(lenses).sorted()
     }
 
@@ -1291,6 +1313,7 @@ struct ShotDetailView: View {
                 }
             }
         }
+        values.formUnion(referenceMetadataOptions.framelines)
         return Array(values).sorted()
     }
 

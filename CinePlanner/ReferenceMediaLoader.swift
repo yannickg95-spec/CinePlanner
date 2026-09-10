@@ -54,22 +54,20 @@ enum ReferenceMediaLoader {
         reference.framelines = metadata.framelines
         reference.software = metadata.tiffSoftware
 
-        // Fill the shot's camera fields from the first reference that has them.
-        // An imported (EXIF/Cadrage) value leads: overwrite a field that's empty
-        // OR still holds the project default — but never a value the user typed.
+        // Fill only the shot's *empty* camera fields from the metadata. Camera
+        // information the user — or a project default — already put there is left
+        // alone; the imported values stay on the reference and are offered in the
+        // camera dropdowns instead. (Shot-setup fields — size, type, focal length —
+        // keep their own fill behaviour below and above.)
         if let shot = reference.shot {
-            let project = shot.scene?.resolvedProject
-            let defCamera = project?.defaultCamera ?? ""
-            let defFramelines = project?.defaultFramelines ?? ""
-            let defLens = project?.defaultLens ?? ""
             let combined = Shot.combinedCamera(metadata.cameraFamily ?? "", metadata.cameraFormat ?? "")
-            if !combined.isEmpty, shot.camera.isEmpty || shot.camera == defCamera {
+            if !combined.isEmpty, shot.camera.isEmpty {
                 shot.camera = combined
             }
-            if let lines = metadata.framelines, shot.framelines.isEmpty || shot.framelines == defFramelines {
+            if let lines = metadata.framelines, shot.framelines.isEmpty {
                 shot.framelines = lines
             }
-            if let lens = metadata.lensPreset, shot.lensPreset.isEmpty || shot.lensPreset == defLens {
+            if let lens = metadata.lensPreset, shot.lensPreset.isEmpty {
                 shot.lensPreset = lens
             }
             // A single focal length is a prime lens; only fill it when the shot
