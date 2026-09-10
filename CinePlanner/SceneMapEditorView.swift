@@ -1384,7 +1384,16 @@ struct SceneMapEditorView: View {
     /// The live placement applied to the whole map group. A satellite map is never
     /// manually placed (it reframes instead), so it stays identity.
     private var mapPlacement: SceneMapBackgroundTransform {
-        scene.sceneMapBackgroundIsSatellite ? .init() : bgTransform
+        if scene.sceneMapBackgroundIsSatellite { return .init() }
+        if isBackgroundAdjustMode { return bgTransform }   // live while aligning
+        let stored = scene.sceneMapBackgroundTransform
+        // A map the user has aligned by hand keeps that placement. Otherwise (a fresh
+        // import, identity placement) fit the view to the markers live, so cameras a
+        // CineStager import dropped on or beyond the room's edge come fully into view
+        // — computed each render, so it needs no re-import and stays right if a
+        // marker moves.
+        guard stored.isIdentity else { return stored }
+        return SceneMapBackgroundTransform.fittingMarkers(doc.elements.map { CGPoint(x: $0.x, y: $0.y) })
     }
 
     /// Widest / tightest the image may be scaled, and the geometric zoom slider.
@@ -1397,7 +1406,9 @@ struct SceneMapEditorView: View {
         cameraInfoElementID = nil
         selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
         zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero
-        bgTransform = scene.sceneMapBackgroundTransform
+        // Start from what's on screen — including an auto-fit that hasn't been saved —
+        // so opening the tool doesn't jump the map back to 1×.
+        bgTransform = mapPlacement
         isBackgroundAdjustMode = true
     }
 
@@ -1793,15 +1804,15 @@ struct SceneMapEditorView: View {
     }
 
     /// Commits a group drag: shifts every selected marker by the drag translation
-    /// (canvas points), clamped to the map.
+    /// (canvas points). Not clamped to the map — markers may sit outside the image.
     private func commitGroupDrag(_ translation: CGSize, in rect: CGRect) {
         defer { groupDragTranslation = nil }
         guard rect.width > 0, rect.height > 0 else { return }
         for i in doc.elements.indices where selectedIDs.contains(doc.elements[i].id) {
             let cx = rect.minX + doc.elements[i].x * rect.width + translation.width
             let cy = rect.minY + doc.elements[i].y * rect.height + translation.height
-            doc.elements[i].x = min(max((cx - rect.minX) / rect.width, 0), 1)
-            doc.elements[i].y = min(max((cy - rect.minY) / rect.height, 0), 1)
+            doc.elements[i].x = (cx - rect.minX) / rect.width
+            doc.elements[i].y = (cy - rect.minY) / rect.height
         }
         persist()
     }
@@ -1995,7 +2006,7 @@ struct SceneMapEditorView: View {
         if let target = nearestElement(to: loc, in: rect, kind: origin.kind, excluding: origin.id) {
             endID = target.id
         } else {
-            let n = normalizedFromCanvas(loc, in: rect)
+            let n = normalizedFromCanvas(loc, in: rect, clamped: false)
             var moved = MapElement(kind: origin.kind, x: n.x, y: n.y)
             moved.colorHex = origin.colorHex
             moved.rotation = origin.rotation
@@ -2844,9 +2855,13 @@ struct SceneMapEditorView: View {
         persistFloorPlan()
     }
 
-    private func normalizedFromCanvas(_ p: CGPoint, in rect: CGRect) -> CGPoint {
+    /// `clamped` keeps a point on the map (0…1) — right for floor-plan corners and
+    /// arrow pivots, which belong to the drawing. Markers pass `false`: they may be
+    /// placed in the space around the image.
+    private func normalizedFromCanvas(_ p: CGPoint, in rect: CGRect, clamped: Bool = true) -> CGPoint {
         let nx = rect.width > 0 ? (p.x - rect.minX) / rect.width : 0
         let ny = rect.height > 0 ? (p.y - rect.minY) / rect.height : 0
+        guard clamped else { return CGPoint(x: nx, y: ny) }
         return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
     }
 

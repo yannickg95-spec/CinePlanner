@@ -27,6 +27,35 @@ struct SceneMapBackgroundTransform: Equatable {
     var rotation: Double = 0  // degrees, clockwise
 
     var isIdentity: Bool { scale == 1 && offsetX == 0 && offsetY == 0 && rotation == 0 }
+
+    /// Widest / tightest a placement may be scaled — matches the align tool's slider.
+    static let scaleRange: ClosedRange<Double> = 0.2...5
+
+    /// A placement that scales the map down (about its centre) just enough to bring
+    /// every marker into view, including ones a CineStager import placed outside — or
+    /// right along the edge of — the background image. `points` are marker positions
+    /// normalized to the content rect (0…1 = the image's edges); the image's own
+    /// corners are always kept in view. `markerHalfExtent` is how far a marker's icon
+    /// reaches beyond its anchor (in the same normalized units), so a camera sitting
+    /// on the top wall (v≈0) isn't left with its icon clipped by the pane edge — the
+    /// common CineStager case, where the anchor is just inside but the glyph is not.
+    /// Returns identity when everything already fits, so it never zooms in and never
+    /// disturbs a map whose markers sit comfortably on the image. The scale is
+    /// uniform because the placement's is — the axis that reaches furthest sets it.
+    static func fittingMarkers(_ points: [CGPoint],
+                               markerHalfExtent: Double = 0.15,
+                               padding: Double = 0.9) -> SceneMapBackgroundTransform {
+        var minX = 0.0, maxX = 1.0, minY = 0.0, maxY = 1.0   // keep the image in view too
+        for p in points {
+            minX = min(minX, p.x - markerHalfExtent); maxX = max(maxX, p.x + markerHalfExtent)
+            minY = min(minY, p.y - markerHalfExtent); maxY = max(maxY, p.y + markerHalfExtent)
+        }
+        // Furthest any content reaches from the centre (0.5), per axis.
+        let reach = max(0.5 - minX, maxX - 0.5, 0.5 - minY, maxY - 0.5)
+        guard reach > 0.5 else { return .init() }            // all inside → no change
+        let scale = max(scaleRange.lowerBound, min(1.0, (0.5 / reach) * padding))
+        return SceneMapBackgroundTransform(scale: scale)
+    }
 }
 
 extension Scene {

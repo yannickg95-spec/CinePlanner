@@ -140,11 +140,14 @@ struct MapMarkerView: View {
         return (c.y + d + 14 > contentRect.maxY) ? -d : d
     }
 
-    /// Converts a canvas point back to normalized (0…1) content-rect coordinates.
+    /// Converts a canvas point back to normalized content-rect coordinates. Not
+    /// clamped to 0…1: a marker may sit outside the map image — in the space a
+    /// zoomed-out reframe opens up around it, or where a CineStager import placed a
+    /// camera beyond the room — so a drag mustn't snap it back onto the image.
     private func normalized(_ point: CGPoint) -> CGPoint {
         let nx = contentRect.width > 0 ? (point.x - contentRect.minX) / contentRect.width : 0
         let ny = contentRect.height > 0 ? (point.y - contentRect.minY) / contentRect.height : 0
-        return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
+        return CGPoint(x: nx, y: ny)
     }
 
     /// Distance from the icon center to the rotation handle.
