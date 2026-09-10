@@ -45,6 +45,19 @@ enum DeviceLayout {
         return false
         #endif
     }
+
+    #if os(iOS)
+    /// Whether the interface is currently landscape, read from the active window
+    /// scene. Uses `interfaceOrientation`, not device orientation (which also
+    /// reports face-up/flat), so a full-screen view can tell portrait from
+    /// landscape even when a sheet's own bounds would not — a page sheet's card is
+    /// portrait-shaped in both. Re-read it when layout changes; it isn't observable.
+    static var isLandscape: Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        return scene?.interfaceOrientation.isLandscape ?? false
+    }
+    #endif
 }
 
 // MARK: - Conditional modifier

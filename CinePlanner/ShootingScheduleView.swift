@@ -20,17 +20,24 @@ struct ShootingScheduleView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
-    /// The board (scene palette + day columns side by side) needs room for the
-    /// palette plus a couple of columns. Below that — iPad portrait, Split View, a
-    /// narrow window — it doesn't fit and used to overflow the sheet; the sectioned
-    /// list reads far better there. Decided on the actual available width, not the
-    /// device: an iPad is only "wide" when it's actually wide. macOS always keeps the
-    /// board — its window can't shrink past the min width set below.
-    private func useBoard(width: CGFloat) -> Bool {
+    #if os(iOS)
+    /// Tracks landscape/portrait so the layout can follow the device. Seeded on
+    /// appear and refreshed whenever the sheet re-lays out (rotation), since the
+    /// orientation itself isn't observable.
+    @State private var landscape = false
+    #endif
+
+    /// The board (scene palette + day columns side by side) or the sectioned list.
+    /// The board wants a wide canvas: on iPad it fits in landscape but not portrait,
+    /// where it used to overflow the sheet — so portrait gets the list, landscape the
+    /// board. iPhone is always the list; macOS always the board (its window can't
+    /// shrink past the min width set below). Keyed on orientation, not the sheet's
+    /// own width — an iPad page sheet's card is portrait-shaped in both orientations.
+    private var useBoard: Bool {
         #if os(macOS)
         return true
         #else
-        return width >= 1100
+        return !DeviceLayout.isPhone && landscape
         #endif
     }
 
@@ -113,9 +120,18 @@ struct ShootingScheduleView: View {
         NavigationStack {
             GeometryReader { geo in
                 Group {
-                    if useBoard(width: geo.size.width) { boardLayout } else { phoneLayout }
+                    if useBoard { boardLayout } else { phoneLayout }
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                #if os(iOS)
+                // The orientation isn't observable, so refresh it from the layout:
+                // the sheet re-lays out on rotation, changing `geo.size`.
+                .onAppear { landscape = DeviceLayout.isLandscape }
+                .onChange(of: geo.size) { _, _ in
+                    let now = DeviceLayout.isLandscape
+                    if now != landscape { landscape = now }
+                }
+                #endif
             }
             .sheet(item: $shotSelectFor) { entry in
                 if let scene = entry.scene {
@@ -166,13 +182,14 @@ struct ShootingScheduleView: View {
                 #endif
             }
         }
-        // Window sizing for the resizable macOS window. On iOS the sheet is
-        // full-screen, so forcing a width here only made the board overflow in
-        // portrait — the layout now adapts to the width it's actually given.
-        #if os(macOS)
-        .frame(minWidth: 1100, idealWidth: 1500, maxWidth: .infinity,
-               minHeight: 640, idealHeight: 920, maxHeight: .infinity)
-        #endif
+        // Only the board wants the wide canvas: it sizes the resizable macOS window,
+        // and widens the iPad sheet in landscape so the columns fit. Portrait (and
+        // iPhone) show the list, which fills the sheet instead — forcing a width
+        // there is exactly what overflowed the screen in portrait.
+        .applyIf(useBoard) {
+            $0.frame(minWidth: 1100, idealWidth: 1500, maxWidth: .infinity,
+                     minHeight: 640, idealHeight: 920, maxHeight: .infinity)
+        }
     }
 
     // MARK: - Wide board (iPad / Mac)
