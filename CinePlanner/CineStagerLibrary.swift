@@ -89,7 +89,37 @@ final class CineStagerLibrary: ObservableObject {
             return
         }
         documentsURL = url
+        // Wake iCloud so it learns about files CineStager added since we last looked.
+        // Without this, `startDownloadingUbiquitousItem` trusts stale local metadata
+        // that still says shots.json is current, and we read yesterday's list.
+        await syncMetadata(in: url)
         await loadShots()
+    }
+
+    /// Runs a one-shot metadata query over the shared container so the iCloud daemon
+    /// reports the current state of its files (and starts pulling newer versions)
+    /// before we read them. Returns once the first gather finishes, or after a short
+    /// timeout so a stalled query never blocks the refresh.
+    private func syncMetadata(in documents: URL, timeout: TimeInterval = 8) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let query = NSMetadataQuery()
+            query.searchScopes = [documents]
+            query.predicate = NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, "*")
+            var finished = false
+            var observer: NSObjectProtocol?
+            func finish() {
+                guard !finished else { return }
+                finished = true
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                query.stop()
+                continuation.resume()
+            }
+            observer = NotificationCenter.default.addObserver(
+                forName: .NSMetadataQueryDidFinishGathering, object: query, queue: .main
+            ) { _ in finish() }
+            query.start()
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish() }
+        }
     }
 
     private func loadShots() async {
