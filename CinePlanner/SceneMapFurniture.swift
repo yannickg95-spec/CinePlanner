@@ -266,6 +266,7 @@ struct FurnitureView: View {
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                     .scaleEffect(1 / (zoom * placeScale), anchor: .center)
+                    .rotationEffect(.degrees(-placeRotation))
                     .offset(y: -(max(w, h) / 2 + 16))
                     .opacity(liveSize != nil ? 1 : 0)
                     .allowsHitTesting(false)

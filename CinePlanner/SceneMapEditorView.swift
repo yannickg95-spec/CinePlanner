@@ -2532,6 +2532,7 @@ struct SceneMapEditorView: View {
                         .background(Color.accentColor.opacity(0.92), in: Capsule())
                         .fixedSize()
                         .scaleEffect(labelCounterScale)
+                        .rotationEffect(.degrees(labelUprightRotation))
                         .position(x: center.x + side.x * 20, y: center.y + side.y * 20)
                 }
             }
@@ -3049,6 +3050,12 @@ struct SceneMapEditorView: View {
         1 / max(zoom * CGFloat(mapPlacement.scale), 0.0001)
     }
 
+    /// Counter-rotation that cancels the map's rotation, so an in-group measurement
+    /// label stays upright and horizontally readable at any map rotation.
+    private var labelUprightRotation: Double {
+        -(mapPlacement.rotation - reframeTurn)
+    }
+
     /// A draggable pill showing a wall's real length. Drag moves it per wall.
     @ViewBuilder
     private func wallMeasureLabel(_ wall: Wall, in rect: CGRect) -> some View {
@@ -3060,6 +3067,7 @@ struct SceneMapEditorView: View {
                 .background(Color(white: 0.1).opacity(0.78), in: Capsule())
                 .fixedSize()
                 .scaleEffect(labelCounterScale)
+                .rotationEffect(.degrees(labelUprightRotation))
                 .position(p)
                 .gesture(
                     // Read the drag in the canvas coordinate space (logical points,
