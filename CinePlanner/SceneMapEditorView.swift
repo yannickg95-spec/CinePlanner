@@ -2463,6 +2463,7 @@ struct SceneMapEditorView: View {
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.92), in: Capsule())
                         .fixedSize()
+                        .scaleEffect(labelCounterScale)
                         .position(x: center.x + side.x * 20, y: center.y + side.y * 20)
                 }
             }
@@ -2973,6 +2974,13 @@ struct SceneMapEditorView: View {
                        y: rect.minY + CGFloat(ny) * rect.height)
     }
 
+    /// Counter-scale for on-canvas measurement labels so they keep a constant,
+    /// readable on-screen size instead of growing with the canvas zoom or the map's
+    /// adjust (placement) scale — matching how marker labels behave.
+    private var labelCounterScale: CGFloat {
+        1 / max(zoom * CGFloat(mapPlacement.scale), 0.0001)
+    }
+
     /// A draggable pill showing a wall's real length. Drag moves it per wall.
     @ViewBuilder
     private func wallMeasureLabel(_ wall: Wall, in rect: CGRect) -> some View {
@@ -2982,18 +2990,22 @@ struct SceneMapEditorView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color(white: 0.1).opacity(0.78), in: Capsule())
+                .fixedSize()
+                .scaleEffect(labelCounterScale)
                 .position(p)
                 .gesture(
-                    DragGesture(minimumDistance: 1)
+                    // Read the drag in the canvas coordinate space (logical points,
+                    // before zoom and the map's placement scale), so the label's
+                    // counter-scale doesn't distort the drag and the nudge tracks the
+                    // finger 1:1 at any zoom. The offset is stored normalized.
+                    DragGesture(minimumDistance: 1, coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                         .onChanged { value in
-                            guard rect.width > 0 else { return }
+                            guard rect.width > 0, rect.height > 0 else { return }
                             let base = wallLabelDrag?.id == wall.id
                                 ? wallLabelDrag!.base : wall.labelOffset
                             if wallLabelDrag?.id != wall.id { wallLabelDrag = (wall.id, base) }
-                            let scale = rect.width * zoom * CGFloat(mapPlacement.scale)
-                            guard scale > 0 else { return }
-                            let dx = value.translation.width / scale
-                            let dy = value.translation.height / scale
+                            let dx = value.translation.width / rect.width
+                            let dy = value.translation.height / rect.height
                             setWallLabelOffset(wall.id, CGSize(width: base.width + dx,
                                                                height: base.height + dy))
                         }
