@@ -853,6 +853,10 @@ struct SceneMapEditorView: View {
                 .resizable()
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)
+        } else if !floorPlan.isEmpty || isDrawing {
+            // A drawn floor plan gets a plain white "paper" background (filled in the
+            // crisp floor-plan layer below this group) — no grid.
+            EmptyView()
         } else {
             // A grid stands in for the (missing) background. Kept free of
             // `doc` so it never redraws while a marker is being dragged.
@@ -3266,7 +3270,10 @@ struct SceneMapEditorView: View {
             ctx.fill(Path(roundedRect: box, cornerRadius: 4), with: .color(Color(white: 0.1).opacity(0.78)))
             ctx.draw(resolved, at: p)
         }
-        let wallShading = GraphicsContext.Shading.color(.primary.opacity(0.85))
+        // Fixed dark ink so the plan stays visible on its white paper background in
+        // both light and dark mode (a theme-adaptive .primary would vanish on white
+        // in dark mode).
+        let wallShading = GraphicsContext.Shading.color(Color(white: 0.15))
         let wallWidth: CGFloat = 4
 
         for wall in floorPlan.walls {
@@ -3332,7 +3339,7 @@ struct SceneMapEditorView: View {
                         let pt = CGPoint(x: hinge.x + d.x * gapLen, y: hinge.y + d.y * gapLen)
                         if i == 0 { arc.move(to: pt) } else { arc.addLine(to: pt) }
                     }
-                    ctx.stroke(arc, with: selected ? .color(.accentColor) : .color(.secondary), lineWidth: 1)
+                    ctx.stroke(arc, with: selected ? .color(.accentColor) : .color(Color(white: 0.5)), lineWidth: 1)
                 case .window:
                     for sign in [CGFloat(1.6), CGFloat(-1.6)] {
                         var line = Path()
@@ -3420,6 +3427,10 @@ struct SceneMapEditorView: View {
     private func drawFloorPlanLayer(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
         var ctx = baseCtx
         applyMapGroupTransform(&ctx, in: rect, canvas: canvas)
+        // Plain white "paper" behind the plan (no grid), so the drawing reads like a
+        // floor plan on paper. The linework is drawn in fixed dark ink (see
+        // drawFloorPlan) so it stays visible on white in dark mode too.
+        ctx.fill(Path(rect), with: .color(.white))
         drawFloorPlan(ctx, in: rect)
     }
 
