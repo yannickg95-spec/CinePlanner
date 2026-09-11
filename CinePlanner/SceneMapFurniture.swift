@@ -267,12 +267,24 @@ struct FurnitureView: View {
                     .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                     .scaleEffect(1 / (zoom * placeScale), anchor: .center)
                     .rotationEffect(.degrees(-placeRotation))
-                    .offset(y: -(max(w, h) / 2 + 16))
+                    // Sit just above the piece's actual top edge (its rotated
+                    // bounding-box half-height) plus a fixed on-screen gap — so a very
+                    // wide piece doesn't fling the label upward, and the gap stays the
+                    // same whether or not the map is zoomed in.
+                    .offset(y: -(rotatedHalfHeight(w: w, h: h) + 18 / max(zoom * placeScale, 0.0001)))
                     .opacity(liveSize != nil ? 1 : 0)
                     .allowsHitTesting(false)
             }
         }
         .position(livePosition ?? center)
+    }
+
+    /// The piece's vertical half-extent (group units) at its current rotation — the
+    /// distance from its centre to its top edge — so a label can sit just above the
+    /// piece rather than off `max(w, h)/2`, which flings it up for a wide piece.
+    private func rotatedHalfHeight(w: CGFloat, h: CGFloat) -> CGFloat {
+        let r = displayRotation * .pi / 180
+        return (abs(w * CGFloat(sin(r))) + abs(h * CGFloat(cos(r)))) / 2
     }
 
     /// The furniture's real-world dimensions ("W × H") from the current point size,
