@@ -1784,11 +1784,30 @@ struct SceneMapEditorView: View {
             let ry = (zx - cxMid) * s + (zy - cyMid) * c
             let cxScreen = cxMid + CGFloat(place.scale) * rx + CGFloat(place.offsetX) * rect.width
             let cyScreen = cyMid + CGFloat(place.scale) * ry + CGFloat(place.offsetY) * rect.height
-            let placeRight = cxScreen + gap + cardW <= canvas.width
+            // Keep the card off the rotation handle. The handle orbits the marker in
+            // its facing direction, turned by the map's placement, so put the card on
+            // the side away from it. Fall back to the other side only when the
+            // preferred one won't fit, and then nudge the card vertically clear.
+            let handleAngle = (element.rotation + place.rotation - reframeTurn) * .pi / 180
+            let handleDX = sin(handleAngle)     // >0 handle to the right, <0 to the left
+            let handleDY = -cos(handleAngle)    // >0 handle below the marker, <0 above
+            let handleThreshold = 0.15          // treat a near-vertical handle as neither side
+            let fitsRight = cxScreen + gap + cardW <= canvas.width
+            let fitsLeft = cxScreen - gap - cardW >= 0
+            // Handle on the right → prefer the left side (right only if left won't fit).
+            // Otherwise (handle on the left, or ~vertical) → the usual right-if-it-fits.
+            let placeRight = (handleDX > handleThreshold) ? !fitsLeft : fitsRight
             let cxRaw = placeRight ? cxScreen + gap + cardW / 2 : cxScreen - gap - cardW / 2
             // Clamp to the screen so an edge marker's card stays fully visible.
             let cx = min(max(cxRaw, cardW / 2 + 8), max(cardW / 2 + 8, canvas.width - cardW / 2 - 8))
-            let cy = min(max(cyScreen, estH / 2 + 8), max(estH / 2 + 8, canvas.height - estH / 2 - 8))
+            // If the card had to land on the handle's own side, shift it vertically
+            // away from the handle so its body still doesn't sit over it.
+            let cardOnHandleSide = (placeRight && handleDX > handleThreshold) ||
+                (!placeRight && handleDX < -handleThreshold)
+            let cyBase = cardOnHandleSide
+                ? cyScreen + (handleDY >= 0 ? -1 : 1) * (estH / 2 + 44)
+                : cyScreen
+            let cy = min(max(cyBase, estH / 2 + 8), max(estH / 2 + 8, canvas.height - estH / 2 - 8))
             CameraShotPopover(shot: shot, compact: compact, width: cardW)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
