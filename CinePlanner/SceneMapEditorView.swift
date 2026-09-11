@@ -158,6 +158,9 @@ struct SceneMapEditorView: View {
     @State private var wallLabelDrag: (id: UUID, base: CGSize)?
     /// Door/window selected for editing.
     @State private var openingSelectedID: UUID?
+    /// Window currently being resized by dragging a handle — drives a temporary
+    /// width label beside it while the drag is in progress.
+    @State private var resizingOpeningID: UUID?
     /// An in-progress "move to/from": the next canvas click places the second
     /// marker and connects it to `origin` with an arrow.
     @State private var pendingMove: (origin: UUID, direction: MoveDirection)?
@@ -489,9 +492,20 @@ struct SceneMapEditorView: View {
                         }
                     } label: { Label("From Another Scene…", systemImage: "square.on.square") }
                     Divider()
-                    Button { startDrawing() } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
-                    Button { startDrawing(toScale: true) } label: {
-                        Label("Draw Floor Plan to Scale…", systemImage: "ruler")
+                    if floorPlan.isEmpty {
+                        Button { startDrawing() } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
+                        Button { startDrawing(toScale: true) } label: {
+                            Label("Draw Floor Plan to Scale…", systemImage: "ruler")
+                        }
+                    } else {
+                        // A plan already exists: add walls, doors and windows to it
+                        // (keeping the current walls and scale) rather than starting over.
+                        Button { resumeDrawing() } label: {
+                            Label("Add Walls, Doors & Windows…", systemImage: "pencil.and.ruler")
+                        }
+                        Button { startDrawing() } label: {
+                            Label("Redraw Floor Plan", systemImage: "arrow.counterclockwise")
+                        }
                     }
                     if backgroundImage != nil || !floorPlan.isEmpty {
                         Divider()
@@ -1196,29 +1210,48 @@ struct SceneMapEditorView: View {
     /// align panel carries its own way out.
     @ViewBuilder
     private func backgroundAdjustButton(in rect: CGRect) -> some View {
-        if hasAlignableBackground, !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
-            Button {
-                startBackgroundAdjust()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("ADJUST")
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.6)
+        // Top-trailing chrome for a placed map: edit a drawn plan's walls/doors/
+        // windows, and adjust the whole map's zoom, rotation and position. Hidden
+        // while a mode is already running or the map is being drawn.
+        Group {
+            if !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
+                HStack(spacing: 8) {
+                    if !floorPlan.isEmpty {
+                        mapChromePill("EDIT", systemImage: "pencil.and.ruler") { resumeDrawing() }
+                            .help("Add walls, doors and windows")
+                    }
+                    if hasAlignableBackground {
+                        mapChromePill("ADJUST", systemImage: "arrow.up.left.and.arrow.down.right") {
+                            startBackgroundAdjust()
+                        }
+                        .help("Move, zoom and rotate the map")
+                    }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-                .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+                .padding(10)
+                .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
+                .position(x: rect.midX, y: rect.midY)
             }
-            .buttonStyle(.plain)
-            .help("Move, zoom and rotate the background image")
-            .padding(10)
-            .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
-            .position(x: rect.midX, y: rect.midY)
         }
+    }
+
+    /// A small labelled capsule button used for the map's top-trailing chrome
+    /// (Edit / Adjust), so both pills share one look.
+    private func mapChromePill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .medium))
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.6)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+        }
+        .buttonStyle(.plain)
     }
 
     /// The reframe tool's furniture: the square that will be captured, everything
@@ -1441,11 +1474,12 @@ struct SceneMapEditorView: View {
 
     // MARK: - Aligning an image background under the markers
 
-    /// A plain image (not a satellite still) is the only background that can be
-    /// manually placed — a satellite map is positioned by reframing, a drawn plan
-    /// and the grid have nothing to align.
+    /// What the align tool can move, zoom and rotate: a plain image, or a drawn
+    /// floor plan. A satellite still is positioned by reframing instead, and the
+    /// bare grid has nothing to place.
     private var hasAlignableBackground: Bool {
-        backgroundImage != nil && !scene.sceneMapBackgroundIsSatellite && floorPlan.isEmpty
+        guard !scene.sceneMapBackgroundIsSatellite else { return false }
+        return backgroundImage != nil || !floorPlan.isEmpty
     }
 
     /// Whether the align tool is actually running.
@@ -2395,8 +2429,31 @@ struct SceneMapEditorView: View {
                     resizeHandle(opening.id, at: CGPoint(x: center.x - dir.x * halfPts, y: center.y - dir.y * halfPts), in: rect)
                     resizeHandle(opening.id, at: CGPoint(x: center.x + dir.x * halfPts, y: center.y + dir.y * halfPts), in: rect)
                 }
+
+                // Temporary width readout while a window is being resized.
+                if resizingOpeningID == opening.id, let metres = openingRealWidth(opening) {
+                    let side = openingOutwardPerp(perp, center: center, in: rect)
+                    Text(lengthLabel(metres))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.92), in: Capsule())
+                        .fixedSize()
+                        .position(x: center.x + side.x * 20, y: center.y + side.y * 20)
+                }
             }
         }
+    }
+
+    /// The wall-perpendicular direction pointing to the OUTSIDE of the room (away
+    /// from the plan's centre), so a label sits clear of the wall rather than on it.
+    private func openingOutwardPerp(_ perp: CGPoint, center: CGPoint, in rect: CGRect) -> CGPoint {
+        let c = floorPlanCentroid()
+        let cx = rect.minX + CGFloat(c.x) * rect.width
+        let cy = rect.minY + CGFloat(c.y) * rect.height
+        let toCenter = CGPoint(x: center.x - cx, y: center.y - cy)
+        return (perp.x * toCenter.x + perp.y * toCenter.y) < 0
+            ? CGPoint(x: -perp.x, y: -perp.y) : perp
     }
 
     private func resizeHandle(_ id: UUID, at point: CGPoint, in rect: CGRect) -> some View {
@@ -2406,8 +2463,11 @@ struct SceneMapEditorView: View {
             .contentShape(Circle().inset(by: -(6 + sceneMapHandleSlop)))
             .gesture(
                 DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                    .onChanged { value in resizeWindow(id, handleLocation: value.location, in: rect) }
-                    .onEnded { _ in persistFloorPlan() }
+                    .onChanged { value in
+                        resizingOpeningID = id
+                        resizeWindow(id, handleLocation: value.location, in: rect)
+                    }
+                    .onEnded { _ in resizingOpeningID = nil; persistFloorPlan() }
             )
             .position(point)
     }
@@ -2813,6 +2873,12 @@ struct SceneMapEditorView: View {
         let metersWide = metres / normLen
         scene.sceneMapMetersWide = metersWide
         mapMetersWide = metersWide
+        // Now that the map has a real scale, size every door to a real 85 cm.
+        let doorWidth = doorNormalizedWidth(metersWide: metersWide)
+        for i in floorPlan.openings.indices where floorPlan.openings[i].kind == .door {
+            floorPlan.openings[i].width = doorWidth
+        }
+        persistFloorPlan()
         saveContext()
     }
 
@@ -2826,6 +2892,19 @@ struct SceneMapEditorView: View {
     /// A length in metres as a compact label: "3.45 m", or "45 cm" under a metre.
     private func lengthLabel(_ metres: Double) -> String {
         metres < 1 ? "\(Int((metres * 100).rounded())) cm" : String(format: "%.2f m", metres)
+    }
+
+    /// Standard real door width (85 cm) expressed in normalized content units for a
+    /// map of the given metres-wide, so a placed door draws at the right size.
+    private func doorNormalizedWidth(metersWide: Double) -> Double {
+        guard metersWide > 0 else { return 0.08 }
+        return 0.85 / metersWide
+    }
+
+    /// An opening's real width in metres, or nil until the map is scaled.
+    private func openingRealWidth(_ opening: Opening) -> Double? {
+        guard let metersWide = mapMetersWide, metersWide > 0 else { return nil }
+        return opening.width * metersWide
     }
 
     /// The floor plan's centre (normalized), used to push each wall's label to the
@@ -2907,6 +2986,22 @@ struct SceneMapEditorView: View {
         try? scene.modelContext?.save()
     }
 
+    /// Re-enters drawing on the EXISTING floor plan to add more walls, doors and
+    /// windows — keeping the current walls, background and (crucially) the scale,
+    /// unlike `startDrawing` which wipes them to begin a fresh plan. New walls
+    /// inherit the map's metres-wide, so they measure and scale like the rest.
+    private func resumeDrawing() {
+        drawToScale = false        // scale is already set; no calibration prompt
+        scaleWallID = nil
+        scaleInput = ""
+        drawTool = .wall
+        chainLastVertex = nil
+        wallSelectedID = nil
+        openingSelectedID = nil
+        selectedIDs = []
+        isDrawing = true
+    }
+
     /// Wipes the whole scene map — markers, arrows, furniture, floor plan and
     /// background — back to empty.
     private func clearAll() {
@@ -2976,9 +3071,14 @@ struct SceneMapEditorView: View {
         case .door, .window:
             let point = normalizedFromCanvas(loc, in: rect)
             if let (wall, t) = nearestWall(to: point, in: rect) {
-                floorPlan.openings.append(
-                    Opening(kind: drawTool == .door ? .door : .window, wallID: wall.id, t: t)
-                )
+                var opening = Opening(kind: drawTool == .door ? .door : .window, wallID: wall.id, t: t)
+                // A real-world door is 85 cm wide — set it from the map's scale so
+                // it's drawn at the correct size. Windows keep their default until
+                // the user resizes them.
+                if drawTool == .door, let m = mapMetersWide, m > 0 {
+                    opening.width = doorNormalizedWidth(metersWide: m)
+                }
+                floorPlan.openings.append(opening)
                 persistFloorPlan()
             }
         }
