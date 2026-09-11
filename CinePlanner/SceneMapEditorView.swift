@@ -2715,7 +2715,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapBackgroundData = data
         scene.recordSatelliteCapture(framing)
         scene.sceneMapLocation = label
-        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
+        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.45 m
         scene.sceneMapBackgroundTransform = .init() // satellite: never manually placed
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
