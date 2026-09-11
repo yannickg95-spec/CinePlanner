@@ -713,6 +713,16 @@ struct SceneMapEditorView: View {
                 // yet reads as being outside the map, where the page white read as a
                 // hole punched in it.
                 (reframeActive ? Color(white: 0.12) : Color.platformTextBackground)
+                // Drawn floor plan: a screen-space Canvas that replicates the group's
+                // transform, so walls/doors/windows stay crisp at any zoom or adjust
+                // scale (a Canvas inside the group would be a magnified 1× bitmap).
+                // Below the group, above the surround — so the markers, drawn in the
+                // group, still sit on top of it.
+                if !floorPlan.isEmpty || isDrawing {
+                    Canvas { ctx, _ in drawFloorPlanLayer(ctx, in: rect, canvas: geo.size) }
+                        .allowsHitTesting(false)
+                        .clipped()
+                }
                 // The background art rides the same transform as the content, but in
                 // its own layer so the sharp reframe render can slot in between it
                 // and the markers.
@@ -852,11 +862,8 @@ struct SceneMapEditorView: View {
 
     private func canvasContent(in rect: CGRect, geo: GeometryProxy) -> some View {
         ZStack {
-            // Drawn floor plan (walls + doors/windows), behind the markers.
-            if !floorPlan.isEmpty || isDrawing {
-                Canvas { ctx, _ in drawFloorPlan(ctx, in: rect) }
-                    .allowsHitTesting(false)
-            }
+            // The drawn floor plan itself is rendered crisply in a screen-space layer
+            // below this group (see `canvas`); only its edit handles live here.
             // Wall edit handles (below markers/openings), when not drawing.
             if !isDrawing {
                 ForEach(floorPlan.walls) { wall in
@@ -3386,15 +3393,14 @@ struct SceneMapEditorView: View {
         return pts
     }
 
-    private func drawArrows(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
-        // This Canvas sits outside the map group's transform, so replicate that whole
-        // transform on the context — both the map placement (rotate/scale about the
-        // centre, then offset) and the canvas zoom/pan. Drawing in logical (rect)
-        // coordinates then rasterizes crisply at the final on-screen scale, instead
-        // of a 1× bitmap magnified (and blurred) by the group's scaleEffect.
+    /// Applies the map group's full transform — the placement (rotate/scale about
+    /// the canvas centre, then offset) and the canvas zoom/pan — to a screen-space
+    /// graphics context. Content then drawn in logical (`rect`) coordinates
+    /// rasterizes crisply at the final on-screen scale, instead of being a 1× bitmap
+    /// magnified (and blurred) by the group's `scaleEffect`.
+    private func applyMapGroupTransform(_ ctx: inout GraphicsContext, in rect: CGRect, canvas: CGSize) {
         let place = mapPlacement
         let cx = canvas.width / 2, cy = canvas.height / 2
-        var ctx = baseCtx
         // Placement (outermost): offset, then scale + turn about the canvas centre.
         ctx.translateBy(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
         ctx.translateBy(x: cx, y: cy)
@@ -3405,6 +3411,23 @@ struct SceneMapEditorView: View {
         ctx.translateBy(x: cx * (1 - zoom) + pan.width,
                         y: cy * (1 - zoom) + pan.height)
         ctx.scaleBy(x: zoom, y: zoom)
+    }
+
+    /// Draws the floor plan (walls, doors, windows) in a screen-space Canvas that
+    /// replicates the map group's transform, so it stays crisp when the map is
+    /// zoomed or enlarged with the adjust tool rather than turning into a blurry,
+    /// pixelated magnification of a 1× bitmap.
+    private func drawFloorPlanLayer(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
+        var ctx = baseCtx
+        applyMapGroupTransform(&ctx, in: rect, canvas: canvas)
+        drawFloorPlan(ctx, in: rect)
+    }
+
+    private func drawArrows(_ baseCtx: GraphicsContext, in rect: CGRect, canvas: CGSize) {
+        // This Canvas sits outside the map group's transform, so replicate that whole
+        // transform on the context, then draw in logical (rect) coordinates.
+        var ctx = baseCtx
+        applyMapGroupTransform(&ctx, in: rect, canvas: canvas)
         // Counter-scale the shaft width and arrowhead so they don't balloon with the
         // map zoom — the path (endpoints, and the trim that clears the markers) still
         // scales, but the body thins and the head shrinks as you zoom in. `pow(…, 0.7)`
