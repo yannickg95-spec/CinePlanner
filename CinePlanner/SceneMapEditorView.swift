@@ -3036,6 +3036,20 @@ struct SceneMapEditorView: View {
         return CGPoint(x: sx / Double(vs.count), y: sy / Double(vs.count))
     }
 
+    /// Ray-cast test (normalized coords): is `p` inside the region the walls enclose?
+    /// Counts how many wall segments a rightward ray from `p` crosses — odd = inside.
+    private func isInsideRoom(_ p: CGPoint) -> Bool {
+        var inside = false
+        for wall in floorPlan.walls {
+            guard let (a, b) = floorPlan.endpoints(wall) else { continue }
+            if (a.y > p.y) != (b.y > p.y) {
+                let xCross = a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x)
+                if p.x < xCross { inside.toggle() }
+            }
+        }
+        return inside
+    }
+
     /// Where a wall's measurement label sits (canvas points): beside the wall on the
     /// outside of the room by default, plus the user's saved nudge.
     private func wallLabelPoint(_ wall: Wall, in rect: CGRect) -> CGPoint? {
@@ -3044,11 +3058,31 @@ struct SceneMapEditorView: View {
         let dx = b.x - a.x, dy = b.y - a.y
         let len = hypot(dx, dy)
         var perp = len > 1e-6 ? CGPoint(x: -dy / len, y: dx / len) : CGPoint(x: 0, y: -1)
-        // Flip so it points away from the room centre (outside the room).
-        let c = floorPlanCentroid()
-        let toMid = CGPoint(x: mid.x - c.x, y: mid.y - c.y)
-        if perp.x * toMid.x + perp.y * toMid.y < 0 { perp = CGPoint(x: -perp.x, y: -perp.y) }
-        let gap = 0.045   // normalized distance clear of the wall
+        // Put the label OUTSIDE the room: probe a little to each side and take the
+        // one that lands outside the walls (a point-in-polygon test, which is correct
+        // even for L-shaped / non-convex rooms where "away from the centre" isn't).
+        // Fall back to the centroid direction when the walls don't enclose a clear
+        // inside (an open plan).
+        let probe = 0.02
+        let outPlus = !isInsideRoom(CGPoint(x: mid.x + perp.x * probe, y: mid.y + perp.y * probe))
+        let outMinus = !isInsideRoom(CGPoint(x: mid.x - perp.x * probe, y: mid.y - perp.y * probe))
+        if outMinus && !outPlus {
+            perp = CGPoint(x: -perp.x, y: -perp.y)
+        } else if outPlus == outMinus {
+            let c = floorPlanCentroid()
+            let toMid = CGPoint(x: mid.x - c.x, y: mid.y - c.y)
+            if perp.x * toMid.x + perp.y * toMid.y < 0 { perp = CGPoint(x: -perp.x, y: -perp.y) }
+        }
+        // Offset so the pill's NEAR EDGE sits a small, constant on-screen distance
+        // from the wall, whatever the zoom or wall angle. The pill is a horizontal
+        // capsule, so its reach toward the wall is ~its half-width when offset
+        // sideways (a vertical wall) and ~its half-height when offset up/down (a
+        // horizontal wall); computing the offset from that keeps it tight without
+        // touching, instead of a fixed distance that reads far on vertical walls.
+        let halfW = 24.0, halfH = 9.0, margin = 5.0
+        let clearPts = margin + halfW * abs(perp.x) + halfH * abs(perp.y)
+        let denom = max(Double(rect.width) * Double(zoom) * mapPlacement.scale, 1)
+        let gap = clearPts / denom
         let nx = mid.x + perp.x * gap + Double(wall.labelOffset.width)
         let ny = mid.y + perp.y * gap + Double(wall.labelOffset.height)
         return CGPoint(x: rect.minX + CGFloat(nx) * rect.width,
