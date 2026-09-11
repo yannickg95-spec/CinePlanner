@@ -645,7 +645,7 @@ struct SceneMapEditorView: View {
                         Text("metres").foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("Length of the wall you just drew")
+                    Text(drawToScale ? "Length of the wall you just drew" : "Real length of this wall")
                 } footer: {
                     Text("The whole map scales to this, so every marker and furniture piece matches real dimensions. You can also enter centimetres as a decimal, e.g. 3.45.")
                 }
@@ -2284,6 +2284,11 @@ struct SceneMapEditorView: View {
                 .onTapGesture { selectWall(wall.id) }
                 .gesture(wallMoveGesture(wall.id, in: rect))
                 .contextMenu {
+                    Button { beginWallScale(wall.id) } label: {
+                        Label(realLength(of: wall) == nil ? "Set Length…" : "Change Length…",
+                              systemImage: "ruler")
+                    }
+                    Divider()
                     Button(role: .destructive) { deleteWall(wall.id) } label: {
                         Label("Delete Wall", systemImage: "trash")
                     }
@@ -2862,8 +2867,22 @@ struct SceneMapEditorView: View {
     /// (a fraction of the square) maps to the entered metres, giving the map's
     /// metres-wide — which every marker and furniture size, and the live wall
     /// readouts, then scale against.
+    /// Opens the length prompt for any wall (right-click → Set/Change Length). Setting
+    /// it recalibrates the whole map's scale from this wall, so every other wall,
+    /// marker, furniture piece, door and window matches. Pre-fills the current real
+    /// length when the map is already scaled.
+    private func beginWallScale(_ id: UUID) {
+        drawToScale = false
+        if let wall = floorPlan.wall(id), let metres = realLength(of: wall) {
+            scaleInput = String(format: "%g", (metres * 100).rounded() / 100)
+        } else {
+            scaleInput = ""
+        }
+        scaleWallID = id
+    }
+
     private func confirmScaleLength() {
-        defer { scaleWallID = nil; scaleInput = "" }
+        defer { scaleWallID = nil; scaleInput = ""; drawToScale = false }
         guard let wid = scaleWallID,
               let wall = floorPlan.walls.first(where: { $0.id == wid }),
               let metres = Double(scaleInput.replacingOccurrences(of: ",", with: ".")),
