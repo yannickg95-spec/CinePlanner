@@ -25,6 +25,23 @@ struct Wall: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var a: UUID
     var b: UUID
+    /// User nudge of this wall's measurement label, normalized to the content rect,
+    /// on top of its default position just beside the wall. Lets a label be moved
+    /// clear of a marker or another wall.
+    var labelOffset: CGSize = .zero
+
+    enum CodingKeys: String, CodingKey { case id, a, b, labelOffset }
+
+    init(a: UUID, b: UUID) { self.a = a; self.b = b }
+
+    // Tolerate missing keys so adding `labelOffset` can't break decoding of old plans.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        a = try c.decode(UUID.self, forKey: .a)
+        b = try c.decode(UUID.self, forKey: .b)
+        labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
+    }
 }
 
 /// A door or window sitting on a wall.

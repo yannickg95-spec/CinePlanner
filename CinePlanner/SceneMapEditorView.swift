@@ -154,6 +154,8 @@ struct SceneMapEditorView: View {
     @State private var scaleWallID: UUID?
     /// Length entry for the calibration wall, in metres (decimal).
     @State private var scaleInput = ""
+    /// Wall whose measurement label is being dragged, with its offset at drag start.
+    @State private var wallLabelDrag: (id: UUID, base: CGSize)?
     /// Door/window selected for editing.
     @State private var openingSelectedID: UUID?
     /// An in-progress "move to/from": the next canvas click places the second
@@ -845,6 +847,12 @@ struct SceneMapEditorView: View {
             if !isDrawing {
                 ForEach(floorPlan.walls) { wall in
                     wallHandle(wall, in: rect)
+                }
+                // Draggable measurement labels, once the map is scaled.
+                if mapMetersWide != nil {
+                    ForEach(floorPlan.walls) { wall in
+                        wallMeasureLabel(wall, in: rect)
+                    }
                 }
                 // Selecting any wall reveals every corner point for editing.
                 if wallSelectedID != nil {
@@ -2820,6 +2828,68 @@ struct SceneMapEditorView: View {
         metres < 1 ? "\(Int((metres * 100).rounded())) cm" : String(format: "%.2f m", metres)
     }
 
+    /// The floor plan's centre (normalized), used to push each wall's label to the
+    /// outside of the room.
+    private func floorPlanCentroid() -> CGPoint {
+        let vs = floorPlan.vertices
+        guard !vs.isEmpty else { return CGPoint(x: 0.5, y: 0.5) }
+        let sx = vs.reduce(0.0) { $0 + $1.x }, sy = vs.reduce(0.0) { $0 + $1.y }
+        return CGPoint(x: sx / Double(vs.count), y: sy / Double(vs.count))
+    }
+
+    /// Where a wall's measurement label sits (canvas points): beside the wall on the
+    /// outside of the room by default, plus the user's saved nudge.
+    private func wallLabelPoint(_ wall: Wall, in rect: CGRect) -> CGPoint? {
+        guard let (a, b) = floorPlan.endpoints(wall) else { return nil }
+        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = hypot(dx, dy)
+        var perp = len > 1e-6 ? CGPoint(x: -dy / len, y: dx / len) : CGPoint(x: 0, y: -1)
+        // Flip so it points away from the room centre (outside the room).
+        let c = floorPlanCentroid()
+        let toMid = CGPoint(x: mid.x - c.x, y: mid.y - c.y)
+        if perp.x * toMid.x + perp.y * toMid.y < 0 { perp = CGPoint(x: -perp.x, y: -perp.y) }
+        let gap = 0.045   // normalized distance clear of the wall
+        let nx = mid.x + perp.x * gap + Double(wall.labelOffset.width)
+        let ny = mid.y + perp.y * gap + Double(wall.labelOffset.height)
+        return CGPoint(x: rect.minX + CGFloat(nx) * rect.width,
+                       y: rect.minY + CGFloat(ny) * rect.height)
+    }
+
+    /// A draggable pill showing a wall's real length. Drag moves it per wall.
+    @ViewBuilder
+    private func wallMeasureLabel(_ wall: Wall, in rect: CGRect) -> some View {
+        if let metres = realLength(of: wall), let p = wallLabelPoint(wall, in: rect) {
+            Text(lengthLabel(metres))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color(white: 0.1).opacity(0.78), in: Capsule())
+                .position(p)
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            guard rect.width > 0 else { return }
+                            let base = wallLabelDrag?.id == wall.id
+                                ? wallLabelDrag!.base : wall.labelOffset
+                            if wallLabelDrag?.id != wall.id { wallLabelDrag = (wall.id, base) }
+                            let scale = rect.width * zoom * CGFloat(mapPlacement.scale)
+                            guard scale > 0 else { return }
+                            let dx = value.translation.width / scale
+                            let dy = value.translation.height / scale
+                            setWallLabelOffset(wall.id, CGSize(width: base.width + dx,
+                                                               height: base.height + dy))
+                        }
+                        .onEnded { _ in wallLabelDrag = nil; persistFloorPlan() }
+                )
+        }
+    }
+
+    private func setWallLabelOffset(_ id: UUID, _ offset: CGSize) {
+        guard let i = floorPlan.walls.firstIndex(where: { $0.id == id }) else { return }
+        floorPlan.walls[i].labelOffset = offset
+    }
+
     private func startDrawing(toScale: Bool = false) {
         backgroundImage = nil
         scene.sceneMapBackgroundData = nil
@@ -3117,13 +3187,8 @@ struct SceneMapEditorView: View {
             }
         }
 
-        // Live measurements: each wall's real length once the map is scaled.
-        for wall in floorPlan.walls {
-            guard let metres = realLength(of: wall), let (a, b) = floorPlan.endpoints(wall) else { continue }
-            let mid = CGPoint(x: (point(a.x, a.y).x + point(b.x, b.y).x) / 2,
-                              y: (point(a.x, a.y).y + point(b.x, b.y).y) / 2)
-            drawLength(lengthLabel(metres), at: mid)
-        }
+        // Placed walls' length labels are interactive, draggable views (see
+        // wallMeasureLabel); only the live segment below is drawn in the canvas.
 
         // While drawing: show every corner point, and rubber-band from the
         // chain's last point to the cursor.
