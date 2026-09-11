@@ -631,42 +631,54 @@ struct SceneMapEditorView: View {
             && floorPlan.isEmpty && backgroundImage == nil
     }
 
-    /// Asks for the first wall's real length; confirming scales the whole map.
+    /// Asks for a wall's real length; confirming scales the whole map. Used both
+    /// after drawing the first wall to-scale and from a wall's "Change Length".
+    private var scaleInvalid: Bool {
+        Double(scaleInput.replacingOccurrences(of: ",", with: ".")).map { $0 <= 0 } ?? true
+    }
+
     private var scaleLengthSheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        TextField("Length", text: $scaleInput)
-                            .frame(maxWidth: 120)
-                            #if os(iOS)
-                            .keyboardType(.decimalPad)
-                            #endif
-                            .onSubmit { confirmScaleLength() }
-                        Text("metres").foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text(drawToScale ? "Length of the wall you just drew" : "Real length of this wall")
-                } footer: {
-                    Text("The whole map scales to this, so every marker and furniture piece matches real dimensions. You can also enter centimetres as a decimal, e.g. 3.45.")
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Set Map Scale").font(.headline)
+                Text(drawToScale ? "Enter the real length of the wall you just drew."
+                                 : "Enter this wall's real length.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .navigationTitle("Set Map Scale")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    // Keep the wall but stop scaling — drawing continues unmeasured.
-                    Button("Cancel") { scaleWallID = nil; drawToScale = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Set") { confirmScaleLength() }
-                        .disabled(Double(scaleInput.replacingOccurrences(of: ",", with: ".")).map { $0 <= 0 } ?? true)
-                }
+
+            HStack(spacing: 8) {
+                TextField("Length", text: $scaleInput)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 140)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+                    .onSubmit { if !scaleInvalid { confirmScaleLength() } }
+                Text("metres").foregroundStyle(.secondary)
+            }
+
+            Text("The whole map scales to this, so every marker and furniture piece matches real dimensions. Centimetres work as a decimal, e.g. 3.45.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { scaleWallID = nil; drawToScale = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Set") { confirmScaleLength() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(scaleInvalid)
             }
         }
-        .frame(minWidth: 340, minHeight: 200)
+        .padding(20)
+        #if os(macOS)
+        .frame(width: 360)
+        #else
+        .frame(maxWidth: 420, alignment: .leading)
+        #endif
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var scaleHint: String {
