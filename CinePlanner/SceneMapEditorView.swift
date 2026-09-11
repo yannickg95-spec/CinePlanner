@@ -161,6 +161,10 @@ struct SceneMapEditorView: View {
     /// Window currently being resized by dragging a handle — drives a temporary
     /// width label beside it while the drag is in progress.
     @State private var resizingOpeningID: UUID?
+    /// While drawing: the corner point a gesture is on, and whether it has moved far
+    /// enough to count as a drag (move the corner) rather than a tap (start/end a wall).
+    @State private var vertexDragID: UUID?
+    @State private var vertexDragMoved = false
     /// An in-progress "move to/from": the next canvas click places the second
     /// marker and connects it to `origin` with an arrow.
     @State private var pendingMove: (origin: UUID, direction: MoveDirection)?
@@ -501,16 +505,9 @@ struct SceneMapEditorView: View {
                                 Label("Freehand", systemImage: "scribble")
                             }
                         } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
-                    } else {
-                        // A plan already exists: add walls, doors and windows to it
-                        // (keeping the current walls and scale) rather than starting over.
-                        Button { resumeDrawing() } label: {
-                            Label("Add Walls, Doors & Windows…", systemImage: "pencil.and.ruler")
-                        }
-                        Button { startDrawing() } label: {
-                            Label("Redraw Floor Plan", systemImage: "arrow.counterclockwise")
-                        }
                     }
+                    // When a plan already exists, editing/redrawing it lives on the
+                    // map's own EDIT button rather than in this menu.
                     if backgroundImage != nil || !floorPlan.isEmpty {
                         Divider()
                         Button(role: .destructive) { clearBackground() } label: { Label("Clear Background", systemImage: "xmark") }
@@ -1007,6 +1004,11 @@ struct SceneMapEditorView: View {
                         case .ended: drawHover = nil
                         }
                     }
+                // Draggable corner handles ABOVE the catcher: drag a blue point to
+                // move it, or tap one to start/finish a wall on it.
+                ForEach(floorPlan.vertices) { vertex in
+                    drawingVertexHandle(vertex, in: rect)
+                }
             }
             // Placing the second (moved) marker: the next click drops it and
             // draws the connecting arrow.
@@ -1252,21 +1254,25 @@ struct SceneMapEditorView: View {
     /// A small labelled capsule button used for the map's top-trailing chrome
     /// (Edit / Adjust), so both pills share one look.
     private func mapChromePill(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .medium))
-                Text(title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-            .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+        Button(action: action) { mapChromePillLabel(title, systemImage: systemImage) }
+            .buttonStyle(.plain)
+    }
+
+    /// The capsule label shared by the chrome pills, so a plain button and a menu
+    /// trigger look identical.
+    private func mapChromePillLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
     }
 
     /// The reframe tool's furniture: the square that will be captured, everything
@@ -2346,6 +2352,42 @@ struct SceneMapEditorView: View {
             .position(canvasPoint(vertex.x, vertex.y, in: rect))
     }
 
+    /// A corner handle shown while drawing (over the click catcher, so it wins the
+    /// gesture): drag it to move the corner, or tap it to begin a new wall from it —
+    /// or, if a chain is already in progress, to finish the wall on it.
+    private func drawingVertexHandle(_ vertex: FloorVertex, in rect: CGRect) -> some View {
+        // Transparent hit area over the drawn blue dot, generous enough to grab.
+        Circle().fill(Color.clear)
+            .frame(width: 26, height: 26)
+            .contentShape(Circle().inset(by: -sceneMapHandleSlop))
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                    .onChanged { value in
+                        if vertexDragID != vertex.id { vertexDragID = vertex.id; vertexDragMoved = false }
+                        if hypot(value.translation.width, value.translation.height) > 4 { vertexDragMoved = true }
+                        if vertexDragMoved { moveVertex(vertex.id, to: value.location, in: rect) }
+                    }
+                    .onEnded { _ in
+                        if vertexDragMoved { persistFloorPlan() } else { vertexChainTap(vertex.id) }
+                        vertexDragID = nil; vertexDragMoved = false
+                    }
+            )
+            .position(canvasPoint(vertex.x, vertex.y, in: rect))
+    }
+
+    /// Tapping a corner while drawing: start a new wall from it, or finish the
+    /// in-progress wall on it (joining/closing the room).
+    private func vertexChainTap(_ id: UUID) {
+        guard floorPlan.vertex(id) != nil else { return }
+        if let last = chainLastVertex, last != id {
+            floorPlan.walls.append(Wall(a: last, b: id))
+            chainLastVertex = nil
+        } else {
+            chainLastVertex = id
+        }
+        persistFloorPlan()
+    }
+
     private func wallMoveGesture(_ id: UUID, in rect: CGRect) -> some Gesture {
         DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
             .onChanged { value in
@@ -2379,6 +2421,14 @@ struct SceneMapEditorView: View {
         guard let index = floorPlan.vertices.firstIndex(where: { $0.id == id }) else { return }
         var pos = normalizedFromCanvas(loc, in: rect)
 
+        // Snap straight onto another corner when close, so points can be stacked
+        // exactly (e.g. to close a room by landing on an existing corner).
+        if let other = nearestVertex(to: pos, in: rect, excluding: id) {
+            floorPlan.vertices[index].x = other.x
+            floorPlan.vertices[index].y = other.y
+            return
+        }
+
         // Snap to axis alignment with any connected corner, so dragged walls
         // straighten just like when drawing. A corner can snap both axes.
         let neighborIDs = floorPlan.walls.compactMap { wall -> UUID? in
@@ -2400,6 +2450,10 @@ struct SceneMapEditorView: View {
         }
         if let snapX { pos.x = snapX }
         if let snapY { pos.y = snapY }
+
+        // Also line up with the x/y level of any other corner (not just connected
+        // ones), so a dragged point aligns with points across the plan.
+        pos = alignSnap(pos, in: rect, excluding: id)
 
         floorPlan.vertices[index].x = pos.x
         floorPlan.vertices[index].y = pos.y
@@ -3156,9 +3210,13 @@ struct SceneMapEditorView: View {
         let n = normalizedFromCanvas(loc, in: rect)
         if let existing = nearestVertex(to: n, in: rect, excluding: chainLastVertex) {
             if let last = chainLastVertex, last != existing.id {
+                // Continuing a chain onto an existing corner joins/closes it.
                 floorPlan.walls.append(Wall(a: last, b: existing.id))
+                chainLastVertex = nil
+            } else {
+                // No chain yet: start a new wall from this existing corner.
+                chainLastVertex = existing.id
             }
-            chainLastVertex = nil          // joining/closing ends the chain
             persistFloorPlan()
             return
         }
@@ -3228,12 +3286,13 @@ struct SceneMapEditorView: View {
 
     /// Aligns a point to the x/y of a nearby existing corner (within ~12pt), so
     /// walls line up — in particular the last wall closes a room cleanly.
-    private func alignSnap(_ pos: CGPoint, in rect: CGRect) -> CGPoint {
+    private func alignSnap(_ pos: CGPoint, in rect: CGRect, excluding: UUID? = nil) -> CGPoint {
         let threshold = 12.0 / max(Double(rect.width), 1)
+        let skip = excluding ?? chainLastVertex
         var p = pos
         var bestX: Double?
         var bestY: Double?
-        for vertex in floorPlan.vertices where vertex.id != chainLastVertex {
+        for vertex in floorPlan.vertices where vertex.id != skip {
             if abs(vertex.x - p.x) < threshold, bestX == nil || abs(vertex.x - p.x) < abs(bestX! - p.x) { bestX = vertex.x }
             if abs(vertex.y - p.y) < threshold, bestY == nil || abs(vertex.y - p.y) < abs(bestY! - p.y) { bestY = vertex.y }
         }
