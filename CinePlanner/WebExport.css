@@ -39,8 +39,10 @@
   .credit:not(:last-child)::after { content: "·"; margin: 0 12px; color: var(--faint); }
   .credit b { color: var(--text); font-weight: 600; }
   .brandline { position: absolute; top: 30px; right: 28px; display: flex; align-items: center;
-               gap: 7px; font-size: 12px; color: var(--muted); }
+               gap: 7px; font-size: 12px; color: var(--muted); text-decoration: none; }
   .brandline b { color: var(--text); font-weight: 700; }
+  a.brandline:hover { color: var(--text); }
+  a.brandline:hover b { text-decoration: underline; }
   .brandlogo { width: 20px; height: 20px; display: block; flex: none;
                background: #fff; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0,0,0,0.10); }
   /* On phones drop it back into the flow above the title so it can't overlap. */

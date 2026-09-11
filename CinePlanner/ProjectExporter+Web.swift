@@ -1370,7 +1370,7 @@ extension ProjectExporter {
         </head>
         <body>
         <div class="masthead">
-          <div class="brandline">
+          <a class="brandline" href="https://apps.apple.com/nl/app/cineplanner/id6800298885" target="_blank" rel="noopener">
             <svg class="brandlogo" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 100 100" aria-hidden="true">
               <defs><linearGradient id="cpg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ECFFF"></stop><stop offset="1" stop-color="#1A4AFF"></stop></linearGradient></defs>
               <rect x="11.6" y="15.6" width="76.4" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
@@ -1379,7 +1379,7 @@ extension ProjectExporter {
               <rect x="11.6" y="71.1" width="48.1" height="12.2" rx="6.1" fill="url(#cpg)"></rect>
             </svg>
             <span>Made with <b>CinePlanner</b></span>
-          </div>
+          </a>
           <h1>\(esc(filmName)) <span class="title-tag">Shot List</span></h1>
           \(creditsHTML)
           \(episodeStripHTML)
