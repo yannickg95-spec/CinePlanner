@@ -500,11 +500,11 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
     // otherwise (e.g. a satellite background) fall back to 0.45 m, matching the
     // mannequin's 0.45 m footprint.
     let realMeters = kind == .camera ? (cameraMeters ?? 0.45) : 0.45
-    // The icons' *drawn* widths at scale 1. The mannequin's ellipse fills its box
-    // (30), but `video.fill` leaves internal padding, so its visible glyph is
-    // narrower than its 26-pt frame — use 20 here so the camera renders at its true
-    // measured width and matches the CineStager map's camera marker.
-    let baseDiameter: CGFloat = kind == .camera ? 20 : 30
+    // The icons' *drawn* widths at scale 1. The mannequin's ellipse fills its 30-pt
+    // box; the camera's `video.fill` is drawn scaledToFit inside a 26-pt box (see the
+    // marker view), so its width at scale 1 is 26. These must match the real drawn
+    // sizes, otherwise the marker reads at the wrong real-world scale.
+    let baseDiameter: CGFloat = kind == .camera ? 26 : 30
     let target = CGFloat(realMeters / metersWide) * mapWidthPoints
     // Floor low enough that a person/camera can render at its true (tiny)
     // footprint on a wide satellite capture — a 0.5 floor there drew them several
