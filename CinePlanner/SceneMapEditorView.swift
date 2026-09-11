@@ -493,10 +493,14 @@ struct SceneMapEditorView: View {
                     } label: { Label("From Another Scene…", systemImage: "square.on.square") }
                     Divider()
                     if floorPlan.isEmpty {
-                        Button { startDrawing() } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
-                        Button { startDrawing(toScale: true) } label: {
-                            Label("Draw Floor Plan to Scale…", systemImage: "ruler")
-                        }
+                        Menu {
+                            Button { startDrawing(toScale: true) } label: {
+                                Label("To Scale…", systemImage: "ruler")
+                            }
+                            Button { startDrawing() } label: {
+                                Label("Freehand", systemImage: "scribble")
+                            }
+                        } label: { Label("Draw Floor Plan", systemImage: "pencil.and.ruler") }
                     } else {
                         // A plan already exists: add walls, doors and windows to it
                         // (keeping the current walls and scale) rather than starting over.
