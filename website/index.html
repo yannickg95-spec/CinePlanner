@@ -111,11 +111,12 @@
   .nav-logo img { height: 32px; width: 32px; border-radius: 8px; }
   .nav-logo-name { font-family: "Unbounded", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; color: var(--text); }
   .nav-links { display: flex; align-items: center; gap: 30px; list-style: none; }
+  .nav-right { display: flex; align-items: center; gap: 30px; }
   .nav-links a { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color 0.2s; }
   .nav-links a:hover { color: var(--text); }
   .nav-switch { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 100px; transition: border-color 0.2s !important; }
   .nav-switch:hover { border-color: var(--cyan); }
-  .nav-cta { background: var(--cyan) !important; color: var(--bg) !important; padding: 8px 20px; border-radius: 100px; font-weight: 500 !important; transition: opacity 0.2s !important; }
+  .nav-cta { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; text-decoration: none; background: var(--cyan) !important; color: var(--bg) !important; padding: 9px 18px; border-radius: 100px; font-weight: 500 !important; transition: opacity 0.2s !important; white-space: nowrap; }
   .nav-cta:hover { opacity: 0.85 !important; }
 
   /* SITE SWITCH (CinePlanner / CineStager) */
@@ -281,7 +282,11 @@
     footer { padding: 28px 24px; flex-direction: column; align-items: flex-start; }
   }
   @media (max-width: 680px) {
-    .hero-screens .hs-side { display: none; }
+    /* Mobile hero: show a single, legible device instead of the clipped trio */
+    .hero-screens { gap: 0; overflow: visible; }
+    .hero-screens > div:first-child,
+    .hero-screens > div:nth-child(2) { display: none; }
+    .hero-screens > div:last-child img { height: min(440px, 62vh) !important; }
   }
   @media (max-width: 560px) {
     .features-grid { grid-template-columns: 1fr; }
@@ -300,13 +305,15 @@
       <img src="img/cinestager-icon.svg" alt="CineStager"><span class="name">CineStager</span>
     </a>
   </div>
-  <ul class="nav-links">
-    <li><a href="#how">How it works</a></li>
-    <li><a href="#onset">On set</a></li>
-    <li><a href="#features">Features</a></li>
-    <li><a href="#who">Who it's for</a></li>
-    <li><a href="https://apps.apple.com/nl/app/cineplanner/id6800298885" target="_blank" rel="noopener" class="nav-cta">Get the app</a></li>
-  </ul>
+  <div class="nav-right">
+    <ul class="nav-links">
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#onset">On set</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#who">Who it's for</a></li>
+    </ul>
+    <a href="https://apps.apple.com/nl/app/cineplanner/id6800298885" target="_blank" rel="noopener" class="nav-cta">Get the app</a>
+  </div>
 </nav>
 
 <div class="hero">
