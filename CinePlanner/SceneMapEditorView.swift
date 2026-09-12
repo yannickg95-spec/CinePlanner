@@ -518,12 +518,21 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
-                    ForEach(Furniture.Kind.allCases, id: \.self) { kind in
+                    ForEach(Furniture.Kind.allCases.filter { !$0.isLight }, id: \.self) { kind in
                         Button(kind.rawValue) { addFurniture(kind) }
                     }
                 } label: { addMenuLabel("chair.fill") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
                 .help("Add Furniture")
+
+                segmentDivider
+                Menu {
+                    ForEach(Furniture.Kind.allCases.filter { $0.isLight }, id: \.self) { kind in
+                        Button(kind.rawValue) { addFurniture(kind) }
+                    }
+                } label: { addMenuLabel("lightbulb.fill") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)
+                .help("Add Light")
             }
             .modifier(SegmentedGroup(height: toolbarPillHeight))
     }
@@ -2064,8 +2073,9 @@ struct SceneMapEditorView: View {
     private func addFurniture(_ kind: Furniture.Kind) {
         let point = newElementPoint
         let size = kind.defaultSize
-        let item = Furniture(kind: kind, x: point.x, y: point.y,
+        var item = Furniture(kind: kind, x: point.x, y: point.y,
                              width: Double(size.width), height: Double(size.height))
+        item.colorHex = kind.defaultColorHex
         doc.furniture.append(item)
         selectFurniture(item.id)
         persist()

@@ -168,6 +168,103 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         let pot = CGRect(x: c.x - d * 0.16, y: c.y - d * 0.16, width: d * 0.32, height: d * 0.32)
         ctx.fill(Path(ellipseIn: pot), with: fillC)
         ctx.stroke(Path(ellipseIn: pot), with: detailC, lineWidth: lw * 0.7)
+
+    case .smallLight, .mediumLight, .bigLight:
+        // A light source seen from above: a bulb with radiating rays.
+        let d = min(w, h)
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let bulbR = d * 0.26
+        let bulb = CGRect(x: c.x - bulbR, y: c.y - bulbR, width: bulbR * 2, height: bulbR * 2)
+        ctx.fill(Path(ellipseIn: bulb), with: fillC)
+        ctx.stroke(Path(ellipseIn: bulb), with: strokeC, lineWidth: lw)
+        var rays = Path()
+        let rayCount = 8
+        let inner = d * 0.34, outer = d * 0.48
+        for i in 0..<rayCount {
+            let a = CGFloat(i) / CGFloat(rayCount) * 2 * .pi
+            rays.move(to: CGPoint(x: c.x + cos(a) * inner, y: c.y + sin(a) * inner))
+            rays.addLine(to: CGPoint(x: c.x + cos(a) * outer, y: c.y + sin(a) * outer))
+        }
+        ctx.stroke(rays, with: strokeC, lineWidth: lw)
+
+    case .lightBall:
+        // China ball: a soft round glow with a concentric ring.
+        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.5
+        let outer = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
+        ctx.fill(Path(ellipseIn: outer), with: fillC)
+        ctx.stroke(Path(ellipseIn: outer), with: strokeC, lineWidth: lw)
+        ctx.stroke(Path(ellipseIn: outer.insetBy(dx: R * 0.5, dy: R * 0.5)), with: detailC, lineWidth: lw * 0.7)
+
+    case .par:
+        // PAR can from above: a thick ring with a lens dot.
+        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.5
+        let outer = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
+        ctx.fill(Path(ellipseIn: outer), with: fillC)
+        ctx.stroke(Path(ellipseIn: outer), with: strokeC, lineWidth: lw)
+        ctx.stroke(Path(ellipseIn: outer.insetBy(dx: R * 0.28, dy: R * 0.28)), with: detailC, lineWidth: lw * 0.8)
+        ctx.fill(Path(ellipseIn: outer.insetBy(dx: R * 0.64, dy: R * 0.64)), with: detailC)
+
+    case .practical:
+        // A real in-scene lamp: shade circle with a lit centre.
+        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.42
+        let shade = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
+        ctx.fill(Path(ellipseIn: shade), with: fillC)
+        ctx.stroke(Path(ellipseIn: shade), with: strokeC, lineWidth: lw)
+        ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.55, dy: R * 0.55)), with: detailC)
+
+    case .tube:
+        // Fluorescent tube: a long capsule with a centre line.
+        let body = rr(rect, min(w, h) * 0.5)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        var line = Path()
+        line.move(to: CGPoint(x: rect.minX + w * 0.08, y: rect.midY))
+        line.addLine(to: CGPoint(x: rect.maxX - w * 0.08, y: rect.midY))
+        ctx.stroke(line, with: detailC, lineWidth: lw * 0.7)
+
+    case .bounce:
+        // Reflector board: a rectangle with diagonal hatching (clipped to it).
+        let body = rr(rect, min(w, h) * 0.08)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        var hatch = Path()
+        let step = max(min(w, h) * 0.28, 4)
+        var x = rect.minX + step
+        while x < rect.maxX + h {
+            hatch.move(to: CGPoint(x: x, y: rect.minY))
+            hatch.addLine(to: CGPoint(x: x - h, y: rect.maxY))
+            x += step
+        }
+        var clipped = ctx
+        clipped.clip(to: body)
+        clipped.stroke(hatch, with: detailC, lineWidth: lw * 0.6)
+
+    case .softbox:
+        // Softbox: a rounded square with a diffusion cross.
+        let body = rr(rect, min(w, h) * 0.12)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        var cross = Path()
+        cross.move(to: CGPoint(x: rect.midX, y: rect.minY + h * 0.10)); cross.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - h * 0.10))
+        cross.move(to: CGPoint(x: rect.minX + w * 0.10, y: rect.midY)); cross.addLine(to: CGPoint(x: rect.maxX - w * 0.10, y: rect.midY))
+        ctx.stroke(cross, with: detailC, lineWidth: lw * 0.7)
+
+    case .lightPanel:
+        // LED panel: a rectangle split into a grid of cells.
+        let body = rr(rect, min(w, h) * 0.06)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        var grid = Path()
+        let cols = 4, rows = 2
+        for i in 1..<cols {
+            let gx = rect.minX + w * CGFloat(i) / CGFloat(cols)
+            grid.move(to: CGPoint(x: gx, y: rect.minY)); grid.addLine(to: CGPoint(x: gx, y: rect.maxY))
+        }
+        for j in 1..<rows {
+            let gy = rect.minY + h * CGFloat(j) / CGFloat(rows)
+            grid.move(to: CGPoint(x: rect.minX, y: gy)); grid.addLine(to: CGPoint(x: rect.maxX, y: gy))
+        }
+        ctx.stroke(grid, with: detailC, lineWidth: lw * 0.6)
     }
 }
 

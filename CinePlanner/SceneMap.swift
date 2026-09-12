@@ -154,21 +154,64 @@ struct Furniture: Identifiable, Codable, Equatable {
         case bed = "Bed"
         case rug = "Rug"
         case plant = "Plant"
+        // Lights — shown on their own toolbar tab, in this order.
+        case smallLight = "Small Light"
+        case mediumLight = "Medium Light"
+        case bigLight = "Big Light"
+        case tube = "Tube"
+        case bounce = "Bounce"
+        case softbox = "Softbox"
+        case par = "PAR"
+        case lightBall = "Light Ball"
+        case practical = "Practical"
+        case lightPanel = "Light Panel"
 
         /// Default size (normalized to the map's content rect) for a new piece.
         var defaultSize: CGSize {
             switch self {
-            case .table:      return CGSize(width: 0.15, height: 0.10)
-            case .roundTable: return CGSize(width: 0.12, height: 0.12)
-            case .chair:      return CGSize(width: 0.05, height: 0.05)
-            case .sofa:       return CGSize(width: 0.22, height: 0.08)
-            case .bed:        return CGSize(width: 0.16, height: 0.20)
-            case .rug:        return CGSize(width: 0.26, height: 0.18)
-            case .plant:      return CGSize(width: 0.05, height: 0.05)
+            case .table:       return CGSize(width: 0.15, height: 0.10)
+            case .roundTable:  return CGSize(width: 0.12, height: 0.12)
+            case .chair:       return CGSize(width: 0.05, height: 0.05)
+            case .sofa:        return CGSize(width: 0.22, height: 0.08)
+            case .bed:         return CGSize(width: 0.16, height: 0.20)
+            case .rug:         return CGSize(width: 0.26, height: 0.18)
+            case .plant:       return CGSize(width: 0.05, height: 0.05)
+            case .smallLight:  return CGSize(width: 0.035, height: 0.035)
+            case .mediumLight: return CGSize(width: 0.055, height: 0.055)
+            case .bigLight:    return CGSize(width: 0.08, height: 0.08)
+            case .tube:        return CGSize(width: 0.20, height: 0.03)
+            case .bounce:      return CGSize(width: 0.14, height: 0.10)
+            case .softbox:     return CGSize(width: 0.10, height: 0.10)
+            case .par:         return CGSize(width: 0.06, height: 0.06)
+            case .lightBall:   return CGSize(width: 0.09, height: 0.09)
+            case .practical:   return CGSize(width: 0.04, height: 0.04)
+            case .lightPanel:  return CGSize(width: 0.13, height: 0.08)
             }
         }
 
-        var isRound: Bool { self == .roundTable || self == .plant }
+        var isRound: Bool {
+            switch self {
+            case .roundTable, .plant, .smallLight, .mediumLight, .bigLight,
+                 .par, .lightBall, .practical:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Lights live on their own toolbar tab, not in the furniture menu.
+        var isLight: Bool {
+            switch self {
+            case .smallLight, .mediumLight, .bigLight, .tube, .bounce, .softbox,
+                 .par, .lightBall, .practical, .lightPanel:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Default tint for a new piece — a warm glow for lights, neutral grey else.
+        var defaultColorHex: String { isLight ? "#F2C14E" : "#8E8E93" }
     }
 
     var id: UUID = UUID()
