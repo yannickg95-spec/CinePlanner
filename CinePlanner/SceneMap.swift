@@ -178,14 +178,30 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .plant:       return CGSize(width: 0.05, height: 0.05)
             case .smallLight:  return CGSize(width: 0.035, height: 0.035)
             case .mediumLight: return CGSize(width: 0.055, height: 0.055)
-            case .bigLight:    return CGSize(width: 0.08, height: 0.08)
-            case .tube:        return CGSize(width: 0.20, height: 0.03)
-            case .bounce:      return CGSize(width: 0.14, height: 0.10)
+            // Deeper than wide, matching the STORM CS32 top-view proportions.
+            case .bigLight:    return CGSize(width: 0.08, height: 0.109)
+            case .tube:        return CGSize(width: 0.22, height: 0.013)
+            case .bounce:      return CGSize(width: 0.20, height: 0.014)
             case .softbox:     return CGSize(width: 0.10, height: 0.10)
             case .par:         return CGSize(width: 0.06, height: 0.06)
-            case .lightBall:   return CGSize(width: 0.09, height: 0.09)
+            case .lightBall:   return CGSize(width: 0.12, height: 0.12)
             case .practical:   return CGSize(width: 0.04, height: 0.04)
             case .lightPanel:  return CGSize(width: 0.13, height: 0.08)
+            }
+        }
+
+        /// Real-world default footprint in metres, when a piece has a standard size.
+        /// Used on a scaled map so it's placed at true size (still freely resizable);
+        /// otherwise `defaultSize` (normalized) is used.
+        var defaultRealSize: CGSize? {
+            switch self {
+            case .lightBall: return CGSize(width: 0.70, height: 0.70)   // 70 cm across
+            case .tube:      return CGSize(width: 1.20, height: 0.07)   // 120 × 7 cm
+            case .bounce:    return CGSize(width: 1.00, height: 0.07)   // 100 × 7 cm
+            // Aputure STORM CS32 footprint from above: 52.9 cm wide with the yoke,
+            // and 35.8 cm head + 36.5 cm 30° reflector ("snoet") deep.
+            case .bigLight:  return CGSize(width: 0.53, height: 0.72)
+            default:         return nil
             }
         }
 

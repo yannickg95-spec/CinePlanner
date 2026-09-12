@@ -62,6 +62,172 @@ private func drawFurnitureCushions(_ rect: CGRect, count: Int, into ctx: inout G
     }
 }
 
+/// Four-leaf barn doors from above: two side leaves splaying out from the front rim
+/// plus the top leaf as a bar, with gaps between them so the mouth reads as open in
+/// the direction the fixture throws.
+private func drawBarnDoors(_ ctx: inout GraphicsContext, centerX: CGFloat, hingeY: CGFloat,
+                           hingeHalf: CGFloat, tipY: CGFloat, tipHalf: CGFloat,
+                           stroke: GraphicsContext.Shading, lineWidth lw: CGFloat) {
+    var doors = Path()
+    doors.move(to: CGPoint(x: centerX - hingeHalf, y: hingeY))
+    doors.addLine(to: CGPoint(x: centerX - tipHalf, y: tipY))
+    doors.move(to: CGPoint(x: centerX + hingeHalf, y: hingeY))
+    doors.addLine(to: CGPoint(x: centerX + tipHalf, y: tipY))
+    doors.move(to: CGPoint(x: centerX - tipHalf * 0.55, y: tipY))
+    doors.addLine(to: CGPoint(x: centerX + tipHalf * 0.55, y: tipY))
+    ctx.stroke(doors, with: stroke, lineWidth: lw * 1.05)
+}
+
+/// Yoke arms: a bar down each side of the head where it pivots on the stand.
+private func drawYokeArms(_ ctx: inout GraphicsContext, centerX: CGFloat, halfWidth: CGFloat,
+                          topY: CGFloat, bottomY: CGFloat,
+                          detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
+    var yoke = Path()
+    yoke.move(to: CGPoint(x: centerX - halfWidth, y: topY))
+    yoke.addLine(to: CGPoint(x: centerX - halfWidth, y: bottomY))
+    yoke.move(to: CGPoint(x: centerX + halfWidth, y: topY))
+    yoke.addLine(to: CGPoint(x: centerX + halfWidth, y: bottomY))
+    ctx.stroke(yoke, with: detail, lineWidth: lw)
+}
+
+/// Small ARRI-style tungsten fresnel from directly above: a compact boxy housing with
+/// the fresnel lens at its front, slim yoke arms and prominent four-leaf barn doors.
+/// Front = up at 0°, so rotating the piece aims the light.
+private func drawSmallFresnel(_ rect: CGRect, into ctx: inout GraphicsContext,
+                              fill: GraphicsContext.Shading, stroke: GraphicsContext.Shading,
+                              detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
+    let d = min(rect.width, rect.height)
+    let c = CGPoint(x: rect.midX, y: rect.midY)
+
+    // Housing.
+    let bodyW = d * 0.50, bodyH = d * 0.42
+    let bodyTop = c.y - d * 0.04
+    let body = CGRect(x: c.x - bodyW / 2, y: bodyTop, width: bodyW, height: bodyH)
+    let bodyPath = furnitureRoundedPath(body, d * 0.07)
+    ctx.fill(bodyPath, with: fill)
+    ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
+
+    // Fresnel lens at the front of the housing, with its stepped rings.
+    let lensR = bodyW * 0.33
+    let lensC = CGPoint(x: c.x, y: bodyTop + lensR * 1.02)
+    let lens = CGRect(x: lensC.x - lensR, y: lensC.y - lensR, width: lensR * 2, height: lensR * 2)
+    ctx.stroke(Path(ellipseIn: lens), with: detail, lineWidth: lw * 0.8)
+    ctx.stroke(Path(ellipseIn: lens.insetBy(dx: lensR * 0.46, dy: lensR * 0.46)), with: detail, lineWidth: lw * 0.6)
+
+    drawYokeArms(&ctx, centerX: c.x, halfWidth: bodyW / 2 + d * 0.06,
+                 topY: body.minY + bodyH * 0.22, bottomY: body.maxY - bodyH * 0.06,
+                 detail: detail, lineWidth: lw * 0.9)
+
+    drawBarnDoors(&ctx, centerX: c.x, hingeY: bodyTop, hingeHalf: bodyW * 0.46,
+                  tipY: c.y - d * 0.44, tipHalf: d * 0.44, stroke: stroke, lineWidth: lw)
+}
+
+/// ARRI M18-style HMI from directly above: a MAX-reflector head that tapers from the
+/// lamp at the back out to a wide, bowed reflector mouth, with yoke arms and barn
+/// doors. Front = up at 0°.
+private func drawM18HMI(_ rect: CGRect, into ctx: inout GraphicsContext,
+                        fill: GraphicsContext.Shading, stroke: GraphicsContext.Shading,
+                        detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
+    let d = min(rect.width, rect.height)
+    let c = CGPoint(x: rect.midX, y: rect.midY)
+
+    // Tapered head: narrow at the lamp end, flaring to the reflector mouth.
+    let frontHalf = d * 0.33, backHalf = d * 0.17
+    let frontY = c.y - d * 0.12, backY = c.y + d * 0.38
+    var head = Path()
+    head.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
+    head.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
+    head.addLine(to: CGPoint(x: c.x + backHalf, y: backY))
+    head.addLine(to: CGPoint(x: c.x - backHalf, y: backY))
+    head.closeSubpath()
+    ctx.fill(head, with: fill)
+    ctx.stroke(head, with: stroke, lineWidth: lw)
+
+    // The reflector mouth bows forward out of the head.
+    var mouth = Path()
+    mouth.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
+    mouth.addQuadCurve(to: CGPoint(x: c.x + frontHalf, y: frontY),
+                       control: CGPoint(x: c.x, y: frontY - d * 0.13))
+    ctx.stroke(mouth, with: detail, lineWidth: lw * 1.1)
+
+    // Lamp at the back of the reflector.
+    let lampR = d * 0.05
+    ctx.fill(Path(ellipseIn: CGRect(x: c.x - lampR, y: backY - lampR * 2.6,
+                                    width: lampR * 2, height: lampR * 2)), with: detail)
+
+    drawYokeArms(&ctx, centerX: c.x, halfWidth: d * 0.40,
+                 topY: c.y - d * 0.06, bottomY: c.y + d * 0.32,
+                 detail: detail, lineWidth: lw * 0.9)
+
+    drawBarnDoors(&ctx, centerX: c.x, hingeY: frontY - d * 0.02, hingeHalf: frontHalf * 0.94,
+                  tipY: c.y - d * 0.45, tipHalf: d * 0.46, stroke: stroke, lineWidth: lw)
+}
+
+/// Aputure STORM CS32-style fixture from directly above, following the shared design:
+/// a big rounded body carried between two yoke arms with tilt knobs, a reflector hood
+/// flaring out the front, a control strip across the back of the body and a connector
+/// at its back corner. Front = up at 0°, so rotating the piece aims the light.
+private func drawStormCS32(_ rect: CGRect, into ctx: inout GraphicsContext,
+                           fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
+                           stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
+                           lineWidth lw: CGFloat) {
+    // Geometry is expressed as fractions of the piece's bounding box.
+    func X(_ f: CGFloat) -> CGFloat { rect.minX + f * rect.width }
+    func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * rect.height }
+    func box(_ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat) -> CGRect {
+        CGRect(x: X(x0), y: Y(y0), width: (x1 - x0) * rect.width, height: (y1 - y0) * rect.height)
+    }
+    let unit = min(rect.width, rect.height)
+
+    // Reflector hood, flaring toward the front.
+    var hood = Path()
+    hood.move(to: CGPoint(x: X(0.178), y: Y(0.000)))
+    hood.addLine(to: CGPoint(x: X(0.786), y: Y(0.000)))
+    hood.addLine(to: CGPoint(x: X(0.710), y: Y(0.472)))
+    hood.addLine(to: CGPoint(x: X(0.298), y: Y(0.472)))
+    hood.closeSubpath()
+    ctx.fill(hood, with: deepFill)
+    ctx.stroke(hood, with: stroke, lineWidth: lw)
+
+    // Yoke arms down each side, behind the body.
+    for xs in [(CGFloat(0.081), CGFloat(0.155)), (CGFloat(0.852), CGFloat(0.929))] {
+        let arm = furnitureRoundedPath(box(xs.0, 0.528, xs.1, 0.950), unit * 0.03)
+        ctx.fill(arm, with: fill)
+        ctx.stroke(arm, with: stroke, lineWidth: lw)
+    }
+
+    // Body.
+    let bodyPath = furnitureRoundedPath(box(0.155, 0.495, 0.852, 0.968), unit * 0.07)
+    ctx.fill(bodyPath, with: fill)
+    ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
+
+    // Mount lip where the hood meets the body.
+    let lipRect = box(0.282, 0.472, 0.715, 0.499)
+    let lip = furnitureRoundedPath(lipRect, lipRect.height * 0.4)
+    ctx.fill(lip, with: fill)
+    ctx.stroke(lip, with: stroke, lineWidth: lw)
+
+    // Tilt knobs on the yoke.
+    let knobR = unit * 0.053
+    for cx in [X(0.053), X(0.947)] {
+        let knob = CGRect(x: cx - knobR, y: Y(0.706) - knobR, width: knobR * 2, height: knobR * 2)
+        ctx.fill(Path(ellipseIn: knob), with: fill)
+        ctx.stroke(Path(ellipseIn: knob), with: stroke, lineWidth: lw)
+    }
+
+    // Control strip across the back of the body.
+    var strip = Path()
+    for fy in [CGFloat(0.856), CGFloat(0.887), CGFloat(0.917)] {
+        strip.move(to: CGPoint(x: X(0.239), y: Y(fy)))
+        strip.addLine(to: CGPoint(x: X(0.761), y: Y(fy)))
+    }
+    ctx.stroke(strip, with: detail, lineWidth: lw * 0.6)
+
+    // Connector at the back corner.
+    let plugRect = box(0.234, 0.957, 0.354, 1.000)
+    ctx.fill(furnitureRoundedPath(plugRect, plugRect.height * 0.25), with: stroke)
+}
+
 /// Top-down silhouette per furniture kind, drawn into `rect`.
 private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: inout GraphicsContext,
                            fill: Color, stroke: Color, lineWidth lw: CGFloat) {
@@ -69,6 +235,8 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
     // the darker outline and detail lines still reading on top.
     let solidFill = fill.mixedWithWhite(0.72)
     let fillC = GraphicsContext.Shading.color(solidFill)
+    // A deeper tint for recessed parts (e.g. a reflector hood).
+    let deepFillC = GraphicsContext.Shading.color(fill.mixedWithWhite(0.42))
     let strokeC = GraphicsContext.Shading.color(stroke)
     let detailC = GraphicsContext.Shading.color(stroke.opacity(0.55))
     let w = rect.width, h = rect.height
@@ -169,102 +337,119 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.fill(Path(ellipseIn: pot), with: fillC)
         ctx.stroke(Path(ellipseIn: pot), with: detailC, lineWidth: lw * 0.7)
 
-    case .smallLight, .mediumLight, .bigLight:
-        // A light source seen from above: a bulb with radiating rays.
-        let d = min(w, h)
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let bulbR = d * 0.26
-        let bulb = CGRect(x: c.x - bulbR, y: c.y - bulbR, width: bulbR * 2, height: bulbR * 2)
-        ctx.fill(Path(ellipseIn: bulb), with: fillC)
-        ctx.stroke(Path(ellipseIn: bulb), with: strokeC, lineWidth: lw)
-        var rays = Path()
-        let rayCount = 8
-        let inner = d * 0.34, outer = d * 0.48
-        for i in 0..<rayCount {
-            let a = CGFloat(i) / CGFloat(rayCount) * 2 * .pi
-            rays.move(to: CGPoint(x: c.x + cos(a) * inner, y: c.y + sin(a) * inner))
-            rays.addLine(to: CGPoint(x: c.x + cos(a) * outer, y: c.y + sin(a) * outer))
-        }
-        ctx.stroke(rays, with: strokeC, lineWidth: lw)
+    case .smallLight:
+        drawSmallFresnel(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC, lineWidth: lw)
+
+    case .mediumLight:
+        drawM18HMI(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC, lineWidth: lw)
+
+    case .bigLight:
+        drawStormCS32(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
+                      stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .lightBall:
-        // China ball: a soft round glow with a concentric ring.
+        // China ball / space light from above: a sphere with a concentric ring
+        // and a faint frame cross. Non-directional.
         let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.5
         let outer = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
         ctx.fill(Path(ellipseIn: outer), with: fillC)
         ctx.stroke(Path(ellipseIn: outer), with: strokeC, lineWidth: lw)
         ctx.stroke(Path(ellipseIn: outer.insetBy(dx: R * 0.5, dy: R * 0.5)), with: detailC, lineWidth: lw * 0.7)
+        var frame = Path()
+        frame.move(to: CGPoint(x: c.x - R, y: c.y)); frame.addLine(to: CGPoint(x: c.x + R, y: c.y))
+        frame.move(to: CGPoint(x: c.x, y: c.y - R)); frame.addLine(to: CGPoint(x: c.x, y: c.y + R))
+        ctx.stroke(frame, with: detailC, lineWidth: lw * 0.5)
 
     case .par:
-        // PAR can from above: a thick ring with a lens dot.
-        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.5
-        let outer = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
-        ctx.fill(Path(ellipseIn: outer), with: fillC)
-        ctx.stroke(Path(ellipseIn: outer), with: strokeC, lineWidth: lw)
-        ctx.stroke(Path(ellipseIn: outer.insetBy(dx: R * 0.28, dy: R * 0.28)), with: detailC, lineWidth: lw * 0.8)
-        ctx.fill(Path(ellipseIn: outer.insetBy(dx: R * 0.64, dy: R * 0.64)), with: detailC)
+        // PAR can from above: a round can with a yoke hugging the sides and a lens.
+        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.40
+        let can = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
+        // Yoke arms wrapping the sides.
+        ctx.stroke(Path(ellipseIn: can.insetBy(dx: -d * 0.08, dy: -d * 0.08)), with: detailC, lineWidth: lw * 0.8)
+        ctx.fill(Path(ellipseIn: can), with: fillC)
+        ctx.stroke(Path(ellipseIn: can), with: strokeC, lineWidth: lw)
+        ctx.stroke(Path(ellipseIn: can.insetBy(dx: R * 0.30, dy: R * 0.30)), with: detailC, lineWidth: lw * 0.8)
+        ctx.fill(Path(ellipseIn: can.insetBy(dx: R * 0.66, dy: R * 0.66)), with: detailC)
 
     case .practical:
-        // A real in-scene lamp: shade circle with a lit centre.
+        // A real in-scene lamp from above: a shade ring with a lit bulb centre.
         let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.42
         let shade = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
         ctx.fill(Path(ellipseIn: shade), with: fillC)
         ctx.stroke(Path(ellipseIn: shade), with: strokeC, lineWidth: lw)
-        ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.55, dy: R * 0.55)), with: detailC)
+        ctx.stroke(Path(ellipseIn: shade.insetBy(dx: R * 0.30, dy: R * 0.30)), with: detailC, lineWidth: lw * 0.7)
+        ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.62, dy: R * 0.62)), with: detailC)
 
     case .tube:
-        // Fluorescent tube: a long capsule with a centre line.
+        // LED tube from above: a long capsule with end caps and a centre line.
         let body = rr(rect, min(w, h) * 0.5)
         ctx.fill(body, with: fillC)
         ctx.stroke(body, with: strokeC, lineWidth: lw)
-        var line = Path()
-        line.move(to: CGPoint(x: rect.minX + w * 0.08, y: rect.midY))
-        line.addLine(to: CGPoint(x: rect.maxX - w * 0.08, y: rect.midY))
-        ctx.stroke(line, with: detailC, lineWidth: lw * 0.7)
+        var caps = Path()
+        caps.move(to: CGPoint(x: rect.minX + w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.minX + w * 0.06, y: rect.maxY))
+        caps.move(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.maxY))
+        caps.move(to: CGPoint(x: rect.minX + w * 0.08, y: rect.midY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.08, y: rect.midY))
+        ctx.stroke(caps, with: detailC, lineWidth: lw * 0.7)
 
     case .bounce:
-        // Reflector board: a rectangle with diagonal hatching (clipped to it).
-        let body = rr(rect, min(w, h) * 0.08)
-        ctx.fill(body, with: fillC)
-        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        // Reflector board from above: the piece IS a thin board, so fill the whole
+        // rect as a rounded bar with a reflective (hatched) face.
+        let boardPath = rr(rect, min(w, h) * 0.5)
+        ctx.fill(boardPath, with: fillC)
+        ctx.stroke(boardPath, with: strokeC, lineWidth: lw)
         var hatch = Path()
-        let step = max(min(w, h) * 0.28, 4)
+        let step = max(w * 0.06, 4)
         var x = rect.minX + step
-        while x < rect.maxX + h {
+        while x < rect.maxX {
             hatch.move(to: CGPoint(x: x, y: rect.minY))
             hatch.addLine(to: CGPoint(x: x - h, y: rect.maxY))
             x += step
         }
         var clipped = ctx
-        clipped.clip(to: body)
+        clipped.clip(to: boardPath)
         clipped.stroke(hatch, with: detailC, lineWidth: lw * 0.6)
 
     case .softbox:
-        // Softbox: a rounded square with a diffusion cross.
-        let body = rr(rect, min(w, h) * 0.12)
-        ctx.fill(body, with: fillC)
-        ctx.stroke(body, with: strokeC, lineWidth: lw)
-        var cross = Path()
-        cross.move(to: CGPoint(x: rect.midX, y: rect.minY + h * 0.10)); cross.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - h * 0.10))
-        cross.move(to: CGPoint(x: rect.minX + w * 0.10, y: rect.midY)); cross.addLine(to: CGPoint(x: rect.maxX - w * 0.10, y: rect.midY))
-        ctx.stroke(cross, with: detailC, lineWidth: lw * 0.7)
+        // Softbox from above: a trapezoid tapering from the lamp (back) to the wide
+        // diffusion face (front, up), with the lamp shown at the back.
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let frontHalf = w * 0.46, backHalf = w * 0.18
+        let frontY = rect.minY + h * 0.12, backY = rect.maxY - h * 0.16
+        var box = Path()
+        box.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
+        box.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
+        box.addLine(to: CGPoint(x: c.x + backHalf, y: backY))
+        box.addLine(to: CGPoint(x: c.x - backHalf, y: backY))
+        box.closeSubpath()
+        ctx.fill(box, with: fillC)
+        ctx.stroke(box, with: strokeC, lineWidth: lw)
+        var face = Path()
+        face.move(to: CGPoint(x: c.x - frontHalf, y: frontY)); face.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
+        ctx.stroke(face, with: detailC, lineWidth: lw * 1.3)
+        let lampR = w * 0.055
+        ctx.fill(Path(ellipseIn: CGRect(x: c.x - lampR, y: backY - lampR * 1.6, width: lampR * 2, height: lampR * 2)), with: detailC)
 
     case .lightPanel:
-        // LED panel: a rectangle split into a grid of cells.
-        let body = rr(rect, min(w, h) * 0.06)
-        ctx.fill(body, with: fillC)
-        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        // Flat LED panel from above: a thin wide panel (emitting from the front, up)
+        // with an LED grid, on a small stand behind it.
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let panel = CGRect(x: rect.minX + w * 0.06, y: rect.minY + h * 0.16, width: w * 0.88, height: h * 0.40)
+        let panelPath = rr(panel, min(panel.width, panel.height) * 0.14)
+        ctx.fill(panelPath, with: fillC)
+        ctx.stroke(panelPath, with: strokeC, lineWidth: lw)
         var grid = Path()
-        let cols = 4, rows = 2
+        let cols = 4
         for i in 1..<cols {
-            let gx = rect.minX + w * CGFloat(i) / CGFloat(cols)
-            grid.move(to: CGPoint(x: gx, y: rect.minY)); grid.addLine(to: CGPoint(x: gx, y: rect.maxY))
+            let gx = panel.minX + panel.width * CGFloat(i) / CGFloat(cols)
+            grid.move(to: CGPoint(x: gx, y: panel.minY)); grid.addLine(to: CGPoint(x: gx, y: panel.maxY))
         }
-        for j in 1..<rows {
-            let gy = rect.minY + h * CGFloat(j) / CGFloat(rows)
-            grid.move(to: CGPoint(x: rect.minX, y: gy)); grid.addLine(to: CGPoint(x: rect.maxX, y: gy))
-        }
-        ctx.stroke(grid, with: detailC, lineWidth: lw * 0.6)
+        grid.move(to: CGPoint(x: panel.minX, y: panel.midY)); grid.addLine(to: CGPoint(x: panel.maxX, y: panel.midY))
+        var clip = ctx
+        clip.clip(to: panelPath)
+        clip.stroke(grid, with: detailC, lineWidth: lw * 0.6)
+        var stand = Path()
+        stand.move(to: CGPoint(x: c.x, y: panel.maxY)); stand.addLine(to: CGPoint(x: c.x, y: rect.maxY - h * 0.08))
+        ctx.stroke(stand, with: detailC, lineWidth: lw)
     }
 }
 

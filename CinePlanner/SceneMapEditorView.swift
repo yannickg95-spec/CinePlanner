@@ -2072,7 +2072,14 @@ struct SceneMapEditorView: View {
 
     private func addFurniture(_ kind: Furniture.Kind) {
         let point = newElementPoint
-        let size = kind.defaultSize
+        // Use the real-world default size on a scaled map (so it lands at true size),
+        // else the normalized default. Either way it stays freely resizable.
+        let size: CGSize
+        if let real = kind.defaultRealSize, let m = mapMetersWide, m > 0 {
+            size = CGSize(width: real.width / m, height: real.height / m)
+        } else {
+            size = kind.defaultSize
+        }
         var item = Furniture(kind: kind, x: point.x, y: point.y,
                              width: Double(size.width), height: Double(size.height))
         item.colorHex = kind.defaultColorHex
