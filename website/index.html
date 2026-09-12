@@ -118,6 +118,18 @@
   .nav-cta { background: var(--cyan) !important; color: var(--bg) !important; padding: 8px 20px; border-radius: 100px; font-weight: 500 !important; transition: opacity 0.2s !important; }
   .nav-cta:hover { opacity: 0.85 !important; }
 
+  /* SITE SWITCH (CinePlanner / CineStager) */
+  .site-switch { display: inline-flex; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 100px; background: rgba(12,12,20,0.6); backdrop-filter: blur(6px); }
+  .site-switch a { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 100px; text-decoration: none; transition: background 0.2s; }
+  .site-switch img { height: 22px; width: 22px; border-radius: 6px; display: block; }
+  .site-switch .name { font-family: "Unbounded", sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; }
+  .site-switch .ss-active { background: var(--surface2); }
+  .site-switch .ss-active .name { color: var(--text); }
+  .site-switch .ss-other .name { color: var(--muted); transition: color 0.2s; }
+  .site-switch .ss-other:hover { background: rgba(62,207,255,0.08); }
+  .site-switch .ss-other:hover .name { color: var(--text); }
+  @media (max-width: 560px) { .site-switch .name { display: none; } .site-switch a { padding: 6px; } }
+
   /* HERO */
   .hero {
     min-height: 100vh; display: flex; flex-direction: column;
@@ -280,19 +292,19 @@
 <body>
 
 <nav>
-  <a href="#" class="nav-logo">
-    <img src="icon.svg" alt="CinePlanner">
-    <span class="nav-logo-name">CINEPLANNER</span>
-  </a>
+  <div class="site-switch" role="group" aria-label="Switch between CinePlanner and CineStager">
+    <a href="#" class="ss-active" aria-current="page">
+      <img src="icon.svg" alt="CinePlanner"><span class="name">CinePlanner</span>
+    </a>
+    <a href="https://cinestager.com" class="ss-other" title="Go to CineStager">
+      <img src="img/cinestager-icon.png" alt="CineStager"><span class="name">CineStager</span>
+    </a>
+  </div>
   <ul class="nav-links">
     <li><a href="#how">How it works</a></li>
     <li><a href="#onset">On set</a></li>
     <li><a href="#features">Features</a></li>
     <li><a href="#who">Who it's for</a></li>
-    <li><a href="https://cinestager.com" class="nav-switch" target="_blank" rel="noopener">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3ecfff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-      CineStager
-    </a></li>
     <li><a href="https://apps.apple.com/nl/app/cineplanner/id6800298885" target="_blank" rel="noopener" class="nav-cta">Get the app</a></li>
   </ul>
 </nav>
