@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100" role="img" aria-label="CineStager">
+  <defs>
+    <linearGradient id="cs-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8e8ef"/>
+    </linearGradient>
+    <linearGradient id="cs-ring" x1="0.31" y1="0.21" x2="0.83" y2="0.94">
+      <stop offset="0" stop-color="#3ECFFF"/>
+      <stop offset="1" stop-color="#1A4AFF"/>
+    </linearGradient>
+    <radialGradient id="cs-sheen" cx="0.32" cy="0.24" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="100" height="100" fill="url(#cs-bg)"/>
+  <rect width="100" height="100" fill="url(#cs-sheen)"/>
+  <path fill="url(#cs-ring)" fill-rule="evenodd" d="M 9 50 a 41 41 0 1 0 82 0 a 41 41 0 1 0 -82 0 Z M 21.2 50 a 28.8 28.8 0 1 0 57.6 0 a 28.8 28.8 0 1 0 -57.6 0 Z M 27.5 50 a 22.5 22.5 0 1 0 45 0 a 22.5 22.5 0 1 0 -45 0 Z M 39.7 50 a 10.3 10.3 0 1 0 20.6 0 a 10.3 10.3 0 1 0 -20.6 0 Z"/>
+</svg>
