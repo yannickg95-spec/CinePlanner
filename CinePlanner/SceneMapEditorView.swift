@@ -885,17 +885,22 @@ struct SceneMapEditorView: View {
                 ForEach(floorPlan.walls) { wall in
                     wallHandle(wall, in: rect)
                 }
-                // Draggable measurement labels, once the map is scaled.
+                // While adjusting, disable editing so panning/zooming can't grab a wall.
+                .allowsHitTesting(!backgroundAdjustActive)
+                // Draggable measurement labels, once the map is scaled. Kept visible
+                // while adjusting, just not draggable.
                 if mapMetersWide != nil {
                     ForEach(floorPlan.walls) { wall in
                         wallMeasureLabel(wall, in: rect)
                     }
+                    .allowsHitTesting(!backgroundAdjustActive)
                 }
                 // Selecting any wall reveals every corner point for editing.
                 if wallSelectedID != nil {
                     ForEach(floorPlan.vertices) { vertex in
                         vertexHandle(vertex, in: rect)
                     }
+                    .allowsHitTesting(!backgroundAdjustActive)
                 }
             }
             // Furniture, below the people/cameras so they read as "on" it.
@@ -938,6 +943,7 @@ struct SceneMapEditorView: View {
                 ForEach(doc.arrows) { arrow in
                     arrowHitView(arrow, in: rect)
                 }
+                .allowsHitTesting(!backgroundAdjustActive)
             }
             ForEach(doc.elements) { element in
                 MapMarkerView(
