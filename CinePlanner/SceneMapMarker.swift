@@ -508,9 +508,11 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
     let target = CGFloat(realMeters / metersWide) * mapWidthPoints
     // Floor low enough that a person/camera can render at its true (tiny)
     // footprint on a wide satellite capture — a 0.5 floor there drew them several
-    // times too big. Room-scale maps sit well above this, so they're unaffected;
-    // the "viewable size" toggle is there when the true size is too small to see.
-    return min(max(target / baseDiameter, 0.12), 3.5)
+    // times too big. The ceiling is generous so it never binds at normal window
+    // sizes: a low cap (was 3.5) clamped the mannequin — which has a higher scale
+    // factor than the camera — first, so on a scaled room map it stopped growing
+    // with the window while the camera kept scaling.
+    return min(max(target / baseDiameter, 0.12), 20)
 }
 
 /// Wraps a row of borderless controls in one bordered, tinted capsule so a group
