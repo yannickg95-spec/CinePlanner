@@ -72,6 +72,7 @@ private func drawFurnitureCushions(_ rect: CGRect, count: Int, into ctx: inout G
 private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
                                 reflectorFrontHalf: CGFloat = 0.28,
                                 reflectorBaseHalf: CGFloat = 0.14,
+                                bodyHalfWidth: CGFloat = 0.365,
                                 into ctx: inout GraphicsContext,
                                 fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
                                 stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
@@ -107,17 +108,21 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     ctx.fill(hood, with: deepFill)
     ctx.stroke(hood, with: stroke, lineWidth: lw)
 
-    // Yoke arms — thin bars down each side, just outside the housing.
+    // Yoke arms — thin bars just outside each side of the housing.
+    let bodyHalf = bodyHalfWidth
+    let armW: CGFloat = 0.065
     let armY0 = bodyY0 + bodyH * 0.12
     let armY1 = bodyY1 - bodyH * 0.12
-    for xs in [(CGFloat(0.06), CGFloat(0.135)), (CGFloat(0.865), CGFloat(0.94))] {
-        let arm = furnitureRoundedPath(box(xs.0, armY0, xs.1, armY1), unit * 0.02)
+    for side in [CGFloat(-1), CGFloat(1)] {
+        let inner = mid + side * bodyHalf
+        let outer = inner + side * armW
+        let arm = furnitureRoundedPath(box(min(inner, outer), armY0, max(inner, outer), armY1), unit * 0.02)
         ctx.fill(arm, with: fill)
         ctx.stroke(arm, with: stroke, lineWidth: lw)
     }
 
     // Body — the housing, inset so the yoke arms show at the sides.
-    let bodyPath = furnitureRoundedPath(box(0.135, bodyY0, 0.865, bodyY1), unit * 0.075)
+    let bodyPath = furnitureRoundedPath(box(mid - bodyHalf, bodyY0, mid + bodyHalf, bodyY1), unit * 0.075)
     ctx.fill(bodyPath, with: fill)
     ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
 
@@ -129,7 +134,8 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     // Round tilt knobs at the outer ends of the yoke arms.
     let knobR = unit * 0.05
     let knobY = (bodyY0 + bodyY1) / 2
-    for cx in [X(0.04), X(0.96)] {
+    let knobCx = bodyHalf + armW
+    for cx in [X(mid - knobCx), X(mid + knobCx)] {
         let knob = CGRect(x: cx - knobR, y: Y(knobY) - knobR, width: knobR * 2, height: knobR * 2)
         ctx.fill(Path(ellipseIn: knob), with: fill)
         ctx.stroke(Path(ellipseIn: knob), with: stroke, lineWidth: lw)
@@ -328,6 +334,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         // ≈20 cm of it (20/42), flaring wide at the mouth to a narrower collar.
         drawStormMonolight(rect, reflectorDepth: 20.0 / 42.0,
                            reflectorFrontHalf: 0.30, reflectorBaseHalf: 0.206,
+                           bodyHalfWidth: 0.33,
                            into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
