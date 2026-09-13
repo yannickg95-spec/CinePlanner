@@ -62,105 +62,91 @@ private func drawFurnitureCushions(_ rect: CGRect, count: Int, into ctx: inout G
     }
 }
 
-/// Four-leaf barn doors from above: two side leaves splaying out from the front rim
-/// plus the top leaf as a bar, with gaps between them so the mouth reads as open in
-/// the direction the fixture throws.
-private func drawBarnDoors(_ ctx: inout GraphicsContext, centerX: CGFloat, hingeY: CGFloat,
-                           hingeHalf: CGFloat, tipY: CGFloat, tipHalf: CGFloat,
-                           stroke: GraphicsContext.Shading, lineWidth lw: CGFloat) {
-    var doors = Path()
-    doors.move(to: CGPoint(x: centerX - hingeHalf, y: hingeY))
-    doors.addLine(to: CGPoint(x: centerX - tipHalf, y: tipY))
-    doors.move(to: CGPoint(x: centerX + hingeHalf, y: hingeY))
-    doors.addLine(to: CGPoint(x: centerX + tipHalf, y: tipY))
-    doors.move(to: CGPoint(x: centerX - tipHalf * 0.55, y: tipY))
-    doors.addLine(to: CGPoint(x: centerX + tipHalf * 0.55, y: tipY))
-    ctx.stroke(doors, with: stroke, lineWidth: lw * 1.05)
-}
+/// Aputure STORM-style point-source monolight from directly above (used for both the
+/// 700x and the 80C): a rounded-square body carried between two short yoke arms with
+/// round tilt knobs, a ProLock collar on the front edge, and a reflector that tapers
+/// from the wide collar to a narrower front. A three-line control strip sits high on
+/// the body and a connector at the centre-back. Front = up at 0°, so rotating the
+/// piece aims the light. `reflectorDepth` is the fraction of the piece's length taken
+/// by the reflector, so each fixture's real housing/reflector proportions can be set.
+private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
+                                reflectorFrontHalf: CGFloat = 0.28,
+                                reflectorBaseHalf: CGFloat = 0.14,
+                                into ctx: inout GraphicsContext,
+                                fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
+                                stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
+                                lineWidth lw: CGFloat) {
+    // Geometry is expressed as fractions of the piece's bounding box.
+    func X(_ f: CGFloat) -> CGFloat { rect.minX + f * rect.width }
+    func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * rect.height }
+    func box(_ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat) -> CGRect {
+        CGRect(x: X(x0), y: Y(y0), width: (x1 - x0) * rect.width, height: (y1 - y0) * rect.height)
+    }
+    let unit = min(rect.width, rect.height)
+    let mid: CGFloat = 0.5
 
-/// Yoke arms: a bar down each side of the head where it pivots on the stand.
-private func drawYokeArms(_ ctx: inout GraphicsContext, centerX: CGFloat, halfWidth: CGFloat,
-                          topY: CGFloat, bottomY: CGFloat,
-                          detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
-    var yoke = Path()
-    yoke.move(to: CGPoint(x: centerX - halfWidth, y: topY))
-    yoke.addLine(to: CGPoint(x: centerX - halfWidth, y: bottomY))
-    yoke.move(to: CGPoint(x: centerX + halfWidth, y: topY))
-    yoke.addLine(to: CGPoint(x: centerX + halfWidth, y: bottomY))
-    ctx.stroke(yoke, with: detail, lineWidth: lw)
-}
+    // Reflector flares from the collar (base, at the body) out to the front mouth,
+    // each as a half-width fraction of the piece.
+    let baseHalf = reflectorBaseHalf       // at the collar
+    let frontHalf = reflectorFrontHalf     // at the front mouth
+    let reflDepth = min(max(reflectorDepth, 0.1), 0.7)
+    // The reflector sits in front of the housing, with a collar band between them; the
+    // housing occupies the rest, the connector poking out the back.
+    let collarGap: CGFloat = 0.025
+    let bodyY0 = reflDepth + collarGap
+    let bodyY1: CGFloat = 0.95
+    let bodyH = bodyY1 - bodyY0
 
-/// Small ARRI-style tungsten fresnel from directly above: a compact boxy housing with
-/// the fresnel lens at its front, slim yoke arms and prominent four-leaf barn doors.
-/// Front = up at 0°, so rotating the piece aims the light.
-private func drawSmallFresnel(_ rect: CGRect, into ctx: inout GraphicsContext,
-                              fill: GraphicsContext.Shading, stroke: GraphicsContext.Shading,
-                              detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
-    let d = min(rect.width, rect.height)
-    let c = CGPoint(x: rect.midX, y: rect.midY)
+    // Reflector.
+    var hood = Path()
+    hood.move(to: CGPoint(x: X(mid - frontHalf), y: Y(0)))
+    hood.addLine(to: CGPoint(x: X(mid + frontHalf), y: Y(0)))
+    hood.addLine(to: CGPoint(x: X(mid + baseHalf), y: Y(reflDepth)))
+    hood.addLine(to: CGPoint(x: X(mid - baseHalf), y: Y(reflDepth)))
+    hood.closeSubpath()
+    ctx.fill(hood, with: deepFill)
+    ctx.stroke(hood, with: stroke, lineWidth: lw)
 
-    // Housing.
-    let bodyW = d * 0.50, bodyH = d * 0.42
-    let bodyTop = c.y - d * 0.04
-    let body = CGRect(x: c.x - bodyW / 2, y: bodyTop, width: bodyW, height: bodyH)
-    let bodyPath = furnitureRoundedPath(body, d * 0.07)
+    // Yoke arms — thin bars down each side, just outside the housing.
+    let armY0 = bodyY0 + bodyH * 0.12
+    let armY1 = bodyY1 - bodyH * 0.12
+    for xs in [(CGFloat(0.06), CGFloat(0.135)), (CGFloat(0.865), CGFloat(0.94))] {
+        let arm = furnitureRoundedPath(box(xs.0, armY0, xs.1, armY1), unit * 0.02)
+        ctx.fill(arm, with: fill)
+        ctx.stroke(arm, with: stroke, lineWidth: lw)
+    }
+
+    // Body — the housing, inset so the yoke arms show at the sides.
+    let bodyPath = furnitureRoundedPath(box(0.135, bodyY0, 0.865, bodyY1), unit * 0.075)
     ctx.fill(bodyPath, with: fill)
     ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
 
-    // Fresnel lens at the front of the housing, with its stepped rings.
-    let lensR = bodyW * 0.33
-    let lensC = CGPoint(x: c.x, y: bodyTop + lensR * 1.02)
-    let lens = CGRect(x: lensC.x - lensR, y: lensC.y - lensR, width: lensR * 2, height: lensR * 2)
-    ctx.stroke(Path(ellipseIn: lens), with: detail, lineWidth: lw * 0.8)
-    ctx.stroke(Path(ellipseIn: lens.insetBy(dx: lensR * 0.46, dy: lensR * 0.46)), with: detail, lineWidth: lw * 0.6)
+    // ProLock collar — the band between the reflector base and the housing.
+    let collarRect = box(mid - baseHalf, reflDepth - 0.004, mid + baseHalf, bodyY0 + 0.012)
+    ctx.fill(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: fill)
+    ctx.stroke(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: stroke, lineWidth: lw)
 
-    drawYokeArms(&ctx, centerX: c.x, halfWidth: bodyW / 2 + d * 0.06,
-                 topY: body.minY + bodyH * 0.22, bottomY: body.maxY - bodyH * 0.06,
-                 detail: detail, lineWidth: lw * 0.9)
+    // Round tilt knobs at the outer ends of the yoke arms.
+    let knobR = unit * 0.05
+    let knobY = (bodyY0 + bodyY1) / 2
+    for cx in [X(0.04), X(0.96)] {
+        let knob = CGRect(x: cx - knobR, y: Y(knobY) - knobR, width: knobR * 2, height: knobR * 2)
+        ctx.fill(Path(ellipseIn: knob), with: fill)
+        ctx.stroke(Path(ellipseIn: knob), with: stroke, lineWidth: lw)
+    }
 
-    drawBarnDoors(&ctx, centerX: c.x, hingeY: bodyTop, hingeHalf: bodyW * 0.46,
-                  tipY: c.y - d * 0.44, tipHalf: d * 0.44, stroke: stroke, lineWidth: lw)
-}
+    // Three-line control strip, on the upper half of the housing.
+    var strip = Path()
+    for k in 0..<3 {
+        let fy = bodyY0 + bodyH * (0.28 + CGFloat(k) * 0.13)
+        strip.move(to: CGPoint(x: X(0.27), y: Y(fy)))
+        strip.addLine(to: CGPoint(x: X(0.73), y: Y(fy)))
+    }
+    ctx.stroke(strip, with: detail, lineWidth: lw * 0.6)
 
-/// ARRI M18-style HMI from directly above: a MAX-reflector head that tapers from the
-/// lamp at the back out to a wide, bowed reflector mouth, with yoke arms and barn
-/// doors. Front = up at 0°.
-private func drawM18HMI(_ rect: CGRect, into ctx: inout GraphicsContext,
-                        fill: GraphicsContext.Shading, stroke: GraphicsContext.Shading,
-                        detail: GraphicsContext.Shading, lineWidth lw: CGFloat) {
-    let d = min(rect.width, rect.height)
-    let c = CGPoint(x: rect.midX, y: rect.midY)
-
-    // Tapered head: narrow at the lamp end, flaring to the reflector mouth.
-    let frontHalf = d * 0.33, backHalf = d * 0.17
-    let frontY = c.y - d * 0.12, backY = c.y + d * 0.38
-    var head = Path()
-    head.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
-    head.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
-    head.addLine(to: CGPoint(x: c.x + backHalf, y: backY))
-    head.addLine(to: CGPoint(x: c.x - backHalf, y: backY))
-    head.closeSubpath()
-    ctx.fill(head, with: fill)
-    ctx.stroke(head, with: stroke, lineWidth: lw)
-
-    // The reflector mouth bows forward out of the head.
-    var mouth = Path()
-    mouth.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
-    mouth.addQuadCurve(to: CGPoint(x: c.x + frontHalf, y: frontY),
-                       control: CGPoint(x: c.x, y: frontY - d * 0.13))
-    ctx.stroke(mouth, with: detail, lineWidth: lw * 1.1)
-
-    // Lamp at the back of the reflector.
-    let lampR = d * 0.05
-    ctx.fill(Path(ellipseIn: CGRect(x: c.x - lampR, y: backY - lampR * 2.6,
-                                    width: lampR * 2, height: lampR * 2)), with: detail)
-
-    drawYokeArms(&ctx, centerX: c.x, halfWidth: d * 0.40,
-                 topY: c.y - d * 0.06, bottomY: c.y + d * 0.32,
-                 detail: detail, lineWidth: lw * 0.9)
-
-    drawBarnDoors(&ctx, centerX: c.x, hingeY: frontY - d * 0.02, hingeHalf: frontHalf * 0.94,
-                  tipY: c.y - d * 0.45, tipHalf: d * 0.46, stroke: stroke, lineWidth: lw)
+    // Connector poking out the centre-back.
+    let plugRect = box(0.44, bodyY1 - 0.01, 0.56, 1.0)
+    ctx.fill(furnitureRoundedPath(plugRect, plugRect.height * 0.25), with: stroke)
 }
 
 /// Aputure STORM CS32-style fixture from directly above, following the shared design:
@@ -338,10 +324,17 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.stroke(Path(ellipseIn: pot), with: detailC, lineWidth: lw * 0.7)
 
     case .smallLight:
-        drawSmallFresnel(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC, lineWidth: lw)
+        // Aputure STORM 80C, matching the reference top view: 42 cm total, reflector
+        // ≈20 cm of it (20/42), flaring wide at the mouth to a narrower collar.
+        drawStormMonolight(rect, reflectorDepth: 20.0 / 42.0,
+                           reflectorFrontHalf: 0.30, reflectorBaseHalf: 0.206,
+                           into: &ctx, fill: fillC, deepFill: deepFillC,
+                           stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .mediumLight:
-        drawM18HMI(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC, lineWidth: lw)
+        // Aputure STORM 700x.
+        drawStormMonolight(rect, reflectorDepth: 0.44, into: &ctx, fill: fillC, deepFill: deepFillC,
+                           stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .bigLight:
         drawStormCS32(rect, into: &ctx, fill: fillC, deepFill: deepFillC,

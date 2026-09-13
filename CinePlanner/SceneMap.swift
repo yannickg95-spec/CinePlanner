@@ -176,8 +176,9 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .bed:         return CGSize(width: 0.16, height: 0.20)
             case .rug:         return CGSize(width: 0.26, height: 0.18)
             case .plant:       return CGSize(width: 0.05, height: 0.05)
-            case .smallLight:  return CGSize(width: 0.035, height: 0.035)
-            case .mediumLight: return CGSize(width: 0.055, height: 0.055)
+            // Deeper than wide, matching the STORM 80C / 700x top-view proportions.
+            case .smallLight:  return CGSize(width: 0.053, height: 0.101)
+            case .mediumLight: return CGSize(width: 0.055, height: 0.101)
             // Deeper than wide, matching the STORM CS32 top-view proportions.
             case .bigLight:    return CGSize(width: 0.08, height: 0.109)
             case .tube:        return CGSize(width: 0.22, height: 0.013)
@@ -201,6 +202,12 @@ struct Furniture: Identifiable, Codable, Equatable {
             // Aputure STORM CS32 footprint from above: 52.9 cm wide with the yoke,
             // and 35.8 cm head + 36.5 cm 30° reflector ("snoet") deep.
             case .bigLight:  return CGSize(width: 0.53, height: 0.72)
+            // Aputure STORM 700x from above: 27.4 cm wide with the yoke × 50.3 cm
+            // long including the 35° reflector.
+            case .mediumLight: return CGSize(width: 0.274, height: 0.503)
+            // Aputure STORM 80C from above: 42 cm combined length, width following the
+            // reference top view's proportions (≈0.52 → ~22 cm).
+            case .smallLight:  return CGSize(width: 0.22, height: 0.42)
             default:         return nil
             }
         }
