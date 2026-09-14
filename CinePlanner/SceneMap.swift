@@ -245,6 +245,10 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// scale uniformly and never be stretched.
         var lockAspectRatio: Bool { isCOB }
 
+        /// LED tubes (long/short): only their length resizes; the cross-section
+        /// (physical width) stays fixed, and can be swapped via the "modifier".
+        var isTube: Bool { self == .tube || self == .shortTube }
+
         /// The original Small/Medium/Big Light kinds are now superseded by the COBs;
         /// kept for decoding old maps, but no longer shown in the menu.
         var isLegacyLight: Bool {
@@ -277,8 +281,10 @@ struct Furniture: Identifiable, Codable, Equatable {
     var colorHex: String = "#8E8E93"
     var label: String = ""
     var labelOffset: CGSize = .zero   // canvas-point nudge from the label's default spot
+    /// Tube only: a diffusion modifier is fitted, widening its cross-section to 20 cm.
+    var hasModifier: Bool = false
 
-    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset }
+    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset, hasModifier }
 
     init(kind: Kind, x: Double, y: Double, width: Double, height: Double) {
         self.kind = kind; self.x = x; self.y = y; self.width = width; self.height = height
@@ -296,6 +302,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#8E8E93"
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
         labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
+        hasModifier = try c.decodeIfPresent(Bool.self, forKey: .hasModifier) ?? false
     }
 }
 

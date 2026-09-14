@@ -25,6 +25,8 @@ private struct FurnitureGlyph: View {
     let fill: Color
     let stroke: Color
     let lineWidth: CGFloat
+    /// Tube only: draw the diffusion modifier fitted over the tube.
+    var hasModifier: Bool = false
     /// Live magnification this glyph will undergo (map placement scale × canvas
     /// zoom). The Canvas is drawn that many times larger and scaled back down, so it
     /// rasterizes at the final on-screen resolution instead of a blurry, magnified
@@ -36,7 +38,8 @@ private struct FurnitureGlyph: View {
         Canvas { context, canvasSize in
             var ctx = context
             drawFurniture(kind, in: CGRect(origin: .zero, size: canvasSize),
-                          into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
+                          into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
+                          hasModifier: hasModifier)
         }
         // Render k× larger, then scale back: the layout stays `size`, but the raster
         // is drawn at k× so the parent group's scaleEffect has real pixels to show.
@@ -222,7 +225,8 @@ private func drawStormXT52(_ rect: CGRect, into ctx: inout GraphicsContext,
 
 /// Top-down silhouette per furniture kind, drawn into `rect`.
 private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: inout GraphicsContext,
-                           fill: Color, stroke: Color, lineWidth lw: CGFloat) {
+                           fill: Color, stroke: Color, lineWidth lw: CGFloat,
+                           hasModifier: Bool = false) {
     // Opaque light tint so furniture occludes the map/background behind it, with
     // the darker outline and detail lines still reading on top.
     let solidFill = fill.mixedWithWhite(0.72)
@@ -385,15 +389,33 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.62, dy: R * 0.62)), with: detailC)
 
     case .tube, .shortTube:
-        // LED tube from above: a long capsule with end caps and a centre line.
-        let body = rr(rect, min(w, h) * 0.5)
-        ctx.fill(body, with: fillC)
-        ctx.stroke(body, with: strokeC, lineWidth: lw)
-        var caps = Path()
-        caps.move(to: CGPoint(x: rect.minX + w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.minX + w * 0.06, y: rect.maxY))
-        caps.move(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.maxY))
-        caps.move(to: CGPoint(x: rect.minX + w * 0.08, y: rect.midY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.08, y: rect.midY))
-        ctx.stroke(caps, with: detailC, lineWidth: lw * 0.7)
+        if hasModifier {
+            // Tube with a diffusion modifier: the same strip, now the full (20 cm)
+            // cross-section, with soft diffusion hatching along its length.
+            let body = rr(rect, min(w, h) * 0.22)
+            ctx.fill(body, with: fillC)
+            ctx.stroke(body, with: strokeC, lineWidth: lw)
+            var diff = Path()
+            let n = 4
+            for i in 1..<n {
+                let gx = rect.minX + w * CGFloat(i) / CGFloat(n)
+                diff.move(to: CGPoint(x: gx, y: rect.minY + h * 0.14))
+                diff.addLine(to: CGPoint(x: gx, y: rect.maxY - h * 0.14))
+            }
+            diff.move(to: CGPoint(x: rect.minX + w * 0.05, y: rect.midY))
+            diff.addLine(to: CGPoint(x: rect.maxX - w * 0.05, y: rect.midY))
+            ctx.stroke(diff, with: detailC, lineWidth: lw * 0.6)
+        } else {
+            // LED tube from above: a long capsule with end caps and a centre line.
+            let body = rr(rect, min(w, h) * 0.5)
+            ctx.fill(body, with: fillC)
+            ctx.stroke(body, with: strokeC, lineWidth: lw)
+            var caps = Path()
+            caps.move(to: CGPoint(x: rect.minX + w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.minX + w * 0.06, y: rect.maxY))
+            caps.move(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.minY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.06, y: rect.maxY))
+            caps.move(to: CGPoint(x: rect.minX + w * 0.08, y: rect.midY)); caps.addLine(to: CGPoint(x: rect.maxX - w * 0.08, y: rect.midY))
+            ctx.stroke(caps, with: detailC, lineWidth: lw * 0.7)
+        }
 
     case .bounce:
         // Reflector board from above: the piece IS a thin board, so fill the whole
@@ -472,6 +494,10 @@ struct FurnitureView: View {
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
     let onResize: (Double, Double) -> Void
+    /// Restores the piece to its default size (shown for light markers).
+    var onResetSize: () -> Void = {}
+    /// Tube only: toggles the diffusion modifier (20 cm cross-section).
+    var onToggleModifier: () -> Void = {}
     let onSetColor: (String) -> Void
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
@@ -511,6 +537,7 @@ struct FurnitureView: View {
             FurnitureGlyph(kind: furniture.kind, size: CGSize(width: w, height: h),
                            fill: color, stroke: isSelected ? Color.accentColor : color,
                            lineWidth: isSelected ? 2.5 : 2,
+                           hasModifier: furniture.hasModifier,
                            renderScale: zoom * placeScale)
                 .contentShape(Rectangle())
                 .rotationEffect(.degrees(displayRotation))
@@ -709,6 +736,10 @@ struct FurnitureView: View {
                     let curH = max(furniture.height * contentRect.height, 1)
                     let s = max(abs(localX) * 2 / curW, abs(localY) * 2 / curH)
                     liveSize = CGSize(width: max(curW * s, 14), height: max(curH * s, 14))
+                } else if furniture.kind.isTube {
+                    // Only the length (long axis) resizes; the cross-section is fixed.
+                    let curH = max(furniture.height * contentRect.height, 1)
+                    liveSize = CGSize(width: max(abs(localX) * 2, 14), height: curH)
                 } else {
                     liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
                 }
@@ -716,8 +747,14 @@ struct FurnitureView: View {
             .onEnded { _ in
                 if let s = liveSize {
                     liveSize = nil
-                    onResize(min(max(Double(s.width / contentRect.width), 0.02), 1),
-                             min(max(Double(s.height / contentRect.height), 0.02), 1))
+                    let newW = min(max(Double(s.width / contentRect.width), 0.02), 1)
+                    if furniture.kind.isTube {
+                        // Keep the fixed cross-section exactly — no min-clamp, which on
+                        // a wide map would inflate the 7 cm width.
+                        onResize(newW, furniture.height)
+                    } else {
+                        onResize(newW, min(max(Double(s.height / contentRect.height), 0.02), 1))
+                    }
                 }
             }
     }
@@ -743,6 +780,17 @@ struct FurnitureView: View {
             Button { onReorder(.toBack) } label: { Label("Send to Back", systemImage: "square.3.layers.3d.bottom.filled") }
         } label: {
             Label("Arrange", systemImage: "square.3.layers.3d")
+        }
+        if furniture.kind.isTube {
+            Button { onToggleModifier() } label: {
+                Label(furniture.hasModifier ? "Remove Modifier" : "Add Modifier",
+                      systemImage: furniture.hasModifier ? "rectangle.slash" : "rectangle.on.rectangle")
+            }
+        }
+        if furniture.kind.isLight {
+            Button { onResetSize() } label: {
+                Label("Reset Size", systemImage: "arrow.counterclockwise")
+            }
         }
         Divider()
         Button { onDuplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }

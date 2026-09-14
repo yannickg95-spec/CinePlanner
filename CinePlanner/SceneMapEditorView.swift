@@ -937,6 +937,8 @@ struct SceneMapEditorView: View {
                         onMove: { normalized in moveFurniture(item.id, to: normalized) },
                         onRotate: { r in rotateFurniture(item.id, to: r) },
                         onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
+                        onResetSize: { resetFurnitureSize(item.id) },
+                        onToggleModifier: { toggleTubeModifier(item.id) },
                         onSetColor: { hex in setFurnitureColor(item.id, hex) },
                         onReorder: { move in reorderFurniture(item.id, move) },
                         onDuplicate: { duplicateFurniture(item.id) },
@@ -2119,6 +2121,46 @@ struct SceneMapEditorView: View {
     private func resizeFurniture(_ id: UUID, width: Double, height: Double) {
         guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
         doc.furniture[i].width = width; doc.furniture[i].height = height
+        persist()
+    }
+
+    /// Restores a piece to its default size — real-world size on a scaled map,
+    /// else the normalized default (mirrors `addFurniture`).
+    private func resetFurnitureSize(_ id: UUID) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
+        let kind = doc.furniture[i].kind
+        let size: CGSize
+        if let real = kind.defaultRealSize, let m = mapMetersWide, m > 0 {
+            size = CGSize(width: real.width / m, height: real.height / m)
+        } else {
+            size = kind.defaultSize
+        }
+        doc.furniture[i].width = Double(size.width)
+        doc.furniture[i].height = Double(size.height)
+        // A tube keeps its modifier's wide cross-section after a size reset.
+        if kind.isTube {
+            doc.furniture[i].height = tubeCrossHeight(hasModifier: doc.furniture[i].hasModifier)
+        }
+        persist()
+    }
+
+    /// Normalized height for a tube's fixed cross-section: 20 cm with the diffusion
+    /// modifier, otherwise 7 cm. On a scaled map this is metres ÷ map width; on an
+    /// unscaled map it's scaled from the tube's 7 cm default.
+    private func tubeCrossHeight(hasModifier: Bool) -> Double {
+        let crossM = hasModifier ? 0.20 : 0.07
+        if let m = mapMetersWide, m > 0 { return crossM / m }
+        return Double(Furniture.Kind.tube.defaultSize.height) * (crossM / 0.07)
+    }
+
+    /// Tube only: fits/removes the diffusion modifier, widening the cross-section
+    /// to 20 cm (or back to 7 cm). The length is untouched.
+    private func toggleTubeModifier(_ id: UUID) {
+        guard let i = doc.furniture.firstIndex(where: { $0.id == id }),
+              doc.furniture[i].kind.isTube else { return }
+        let on = !doc.furniture[i].hasModifier
+        doc.furniture[i].hasModifier = on
+        doc.furniture[i].height = tubeCrossHeight(hasModifier: on)
         persist()
     }
 
