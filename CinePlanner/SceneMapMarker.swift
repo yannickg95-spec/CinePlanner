@@ -470,7 +470,7 @@ struct Triangle: Shape {
 /// Shared marker/furniture color choices.
 /// Scale factor for a scene-map marker so it reads at its real-world size against
 /// a measured background. 1 (default) when the background has no measurement.
-/// A mannequin spans 0.45 m; cameras use `cameraMeters` (0.45 m default).
+/// A mannequin spans 0.45 m; cameras use `cameraMeters` (0.35 m default).
 /// Clamped so markers stay visible/usable at extremes.
 /// Extra hit-area padding around the scene map's small drag/rotate/resize handles,
 /// so they're comfortably tappable with a finger on iPad. Zero on macOS, where a
@@ -497,9 +497,9 @@ func realisticMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMete
                           mapWidthPoints: CGFloat) -> CGFloat {
     guard let metersWide, metersWide > 0, mapWidthPoints > 0 else { return 1 }
     // Cameras use their measured width (from a CineStager map) when available;
-    // otherwise (e.g. a satellite background) fall back to 0.45 m, matching the
-    // mannequin's 0.45 m footprint.
-    let realMeters = kind == .camera ? (cameraMeters ?? 0.45) : 0.45
+    // otherwise (e.g. a satellite background) fall back to 0.35 m. The mannequin is
+    // 0.45 m.
+    let realMeters = kind == .camera ? (cameraMeters ?? 0.35) : 0.45
     // The icons' *drawn* widths at scale 1. The mannequin's ellipse fills its 30-pt
     // box; the camera's `video.fill` is drawn scaledToFit inside a 26-pt box (see the
     // marker view), so its width at scale 1 is 26. These must match the real drawn

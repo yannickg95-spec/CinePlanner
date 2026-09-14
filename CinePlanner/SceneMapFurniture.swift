@@ -339,8 +339,12 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .mediumLight:
-        // Aputure STORM 700x.
-        drawStormMonolight(rect, reflectorDepth: 0.44, into: &ctx, fill: fillC, deepFill: deepFillC,
+        // Aputure STORM 1200x: body 33×33 cm total (incl. yoke knobs), reflector 15 cm
+        // long with an 18 cm mouth / 10 cm collar. Footprint 33 × 51.9 cm.
+        drawStormMonolight(rect, reflectorDepth: 15.0 / 51.9,
+                           reflectorFrontHalf: 9.0 / 33.0, reflectorBaseHalf: 5.0 / 33.0,
+                           bodyHalfWidth: 0.385,
+                           into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .bigLight:
