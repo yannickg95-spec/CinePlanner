@@ -180,7 +180,7 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallLight:  return CGSize(width: 0.056, height: 0.101)
             case .mediumLight: return CGSize(width: 0.064, height: 0.101)
             // Deeper than wide, matching the STORM CS32 top-view proportions.
-            case .bigLight:    return CGSize(width: 0.08, height: 0.109)
+            case .bigLight:    return CGSize(width: 0.073, height: 0.109)
             case .tube:        return CGSize(width: 0.22, height: 0.013)
             case .bounce:      return CGSize(width: 0.20, height: 0.014)
             case .softbox:     return CGSize(width: 0.10, height: 0.10)
@@ -199,9 +199,9 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .lightBall: return CGSize(width: 0.70, height: 0.70)   // 70 cm across
             case .tube:      return CGSize(width: 1.20, height: 0.07)   // 120 × 7 cm
             case .bounce:    return CGSize(width: 1.00, height: 0.07)   // 100 × 7 cm
-            // Aputure STORM CS32 footprint from above: 52.9 cm wide with the yoke,
-            // and 35.8 cm head + 36.5 cm 30° reflector ("snoet") deep.
-            case .bigLight:  return CGSize(width: 0.53, height: 0.72)
+            // Aputure STORM XT52 from above: 53 cm wide, 55 cm body + 20 cm reflector
+            // ≈ 79 cm long.
+            case .bigLight:  return CGSize(width: 0.53, height: 0.794)
             // Aputure STORM 1200x from above: 33×33 cm body (incl. yoke) + 15 cm
             // reflector → 33 cm wide × 51.9 cm long.
             case .mediumLight: return CGSize(width: 0.33, height: 0.519)

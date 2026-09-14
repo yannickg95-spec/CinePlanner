@@ -155,11 +155,11 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     ctx.fill(furnitureRoundedPath(plugRect, plugRect.height * 0.25), with: stroke)
 }
 
-/// Aputure STORM CS32-style fixture from directly above, following the shared design:
+/// Aputure STORM XT52-style fixture from directly above, following the shared design:
 /// a big rounded body carried between two yoke arms with tilt knobs, a reflector hood
 /// flaring out the front, a control strip across the back of the body and a connector
 /// at its back corner. Front = up at 0°, so rotating the piece aims the light.
-private func drawStormCS32(_ rect: CGRect, into ctx: inout GraphicsContext,
+private func drawStormXT52(_ rect: CGRect, into ctx: inout GraphicsContext,
                            fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
                            stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
                            lineWidth lw: CGFloat) {
@@ -171,30 +171,30 @@ private func drawStormCS32(_ rect: CGRect, into ctx: inout GraphicsContext,
     }
     let unit = min(rect.width, rect.height)
 
-    // Reflector hood, flaring toward the front.
+    // Reflector hood (30 cm mouth, 20 cm collar, 20 cm long on a 79.4 cm piece).
     var hood = Path()
-    hood.move(to: CGPoint(x: X(0.178), y: Y(0.000)))
-    hood.addLine(to: CGPoint(x: X(0.786), y: Y(0.000)))
-    hood.addLine(to: CGPoint(x: X(0.710), y: Y(0.472)))
-    hood.addLine(to: CGPoint(x: X(0.298), y: Y(0.472)))
+    hood.move(to: CGPoint(x: X(0.217), y: Y(0.000)))
+    hood.addLine(to: CGPoint(x: X(0.783), y: Y(0.000)))
+    hood.addLine(to: CGPoint(x: X(0.689), y: Y(0.252)))
+    hood.addLine(to: CGPoint(x: X(0.311), y: Y(0.252)))
     hood.closeSubpath()
     ctx.fill(hood, with: deepFill)
     ctx.stroke(hood, with: stroke, lineWidth: lw)
 
     // Yoke arms down each side, behind the body.
     for xs in [(CGFloat(0.081), CGFloat(0.155)), (CGFloat(0.852), CGFloat(0.929))] {
-        let arm = furnitureRoundedPath(box(xs.0, 0.528, xs.1, 0.950), unit * 0.03)
+        let arm = furnitureRoundedPath(box(xs.0, 0.33, xs.1, 0.95), unit * 0.03)
         ctx.fill(arm, with: fill)
         ctx.stroke(arm, with: stroke, lineWidth: lw)
     }
 
-    // Body.
-    let bodyPath = furnitureRoundedPath(box(0.155, 0.495, 0.852, 0.968), unit * 0.07)
+    // Body — 55 cm long.
+    let bodyPath = furnitureRoundedPath(box(0.155, 0.275, 0.852, 0.968), unit * 0.07)
     ctx.fill(bodyPath, with: fill)
     ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
 
-    // Mount lip where the hood meets the body.
-    let lipRect = box(0.282, 0.472, 0.715, 0.499)
+    // Mount lip where the hood meets the body (matches the 20 cm collar).
+    let lipRect = box(0.311, 0.252, 0.689, 0.282)
     let lip = furnitureRoundedPath(lipRect, lipRect.height * 0.4)
     ctx.fill(lip, with: fill)
     ctx.stroke(lip, with: stroke, lineWidth: lw)
@@ -202,21 +202,21 @@ private func drawStormCS32(_ rect: CGRect, into ctx: inout GraphicsContext,
     // Tilt knobs on the yoke.
     let knobR = unit * 0.053
     for cx in [X(0.053), X(0.947)] {
-        let knob = CGRect(x: cx - knobR, y: Y(0.706) - knobR, width: knobR * 2, height: knobR * 2)
+        let knob = CGRect(x: cx - knobR, y: Y(0.60) - knobR, width: knobR * 2, height: knobR * 2)
         ctx.fill(Path(ellipseIn: knob), with: fill)
         ctx.stroke(Path(ellipseIn: knob), with: stroke, lineWidth: lw)
     }
 
     // Control strip across the back of the body.
     var strip = Path()
-    for fy in [CGFloat(0.856), CGFloat(0.887), CGFloat(0.917)] {
+    for fy in [CGFloat(0.80), CGFloat(0.835), CGFloat(0.87)] {
         strip.move(to: CGPoint(x: X(0.239), y: Y(fy)))
         strip.addLine(to: CGPoint(x: X(0.761), y: Y(fy)))
     }
     ctx.stroke(strip, with: detail, lineWidth: lw * 0.6)
 
     // Connector at the back corner.
-    let plugRect = box(0.234, 0.957, 0.354, 1.000)
+    let plugRect = box(0.234, 0.958, 0.354, 1.000)
     ctx.fill(furnitureRoundedPath(plugRect, plugRect.height * 0.25), with: stroke)
 }
 
@@ -348,7 +348,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .bigLight:
-        drawStormCS32(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
+        drawStormXT52(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
                       stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .lightBall:
