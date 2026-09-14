@@ -330,9 +330,9 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.stroke(Path(ellipseIn: pot), with: detailC, lineWidth: lw * 0.7)
 
     case .smallLight:
-        // Aputure STORM 80C, matching the reference top view: 42 cm total, reflector
-        // ≈20 cm of it (20/42), flaring wide at the mouth to a narrower collar.
-        drawStormMonolight(rect, reflectorDepth: 20.0 / 42.0,
+        // Aputure STORM 80C, matching the reference top view: reflector 18 cm long
+        // (was 20), flaring wide at the mouth to a narrower collar; 40 cm total.
+        drawStormMonolight(rect, reflectorDepth: 18.0 / 40.0,
                            reflectorFrontHalf: 0.30, reflectorBaseHalf: 0.206,
                            bodyHalfWidth: 0.33,
                            into: &ctx, fill: fillC, deepFill: deepFillC,
