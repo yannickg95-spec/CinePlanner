@@ -85,10 +85,13 @@ struct FloorPlan: Codable, Equatable {
     var vertices: [FloorVertex] = []
     var walls: [Wall] = []
     var openings: [Opening] = []
+    /// When true, the walls' measurement (distance) labels are hidden. Toggled from
+    /// the right-click menu on a wall or on a distance label. Defaults to showing.
+    var hideMeasurements: Bool = false
 
     var isEmpty: Bool { vertices.isEmpty && walls.isEmpty && openings.isEmpty }
 
-    enum CodingKeys: String, CodingKey { case vertices, walls, openings }
+    enum CodingKeys: String, CodingKey { case vertices, walls, openings, hideMeasurements }
 
     init() {}
 
@@ -97,6 +100,7 @@ struct FloorPlan: Codable, Equatable {
         vertices = try c.decodeIfPresent([FloorVertex].self, forKey: .vertices) ?? []
         walls = try c.decodeIfPresent([Wall].self, forKey: .walls) ?? []
         openings = try c.decodeIfPresent([Opening].self, forKey: .openings) ?? []
+        hideMeasurements = try c.decodeIfPresent(Bool.self, forKey: .hideMeasurements) ?? false
     }
 
     func vertex(_ id: UUID) -> FloorVertex? { vertices.first { $0.id == id } }

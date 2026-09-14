@@ -329,7 +329,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.fill(Path(ellipseIn: pot), with: fillC)
         ctx.stroke(Path(ellipseIn: pot), with: detailC, lineWidth: lw * 0.7)
 
-    case .smallLight:
+    case .smallLight, .smallCOB:
         // Aputure STORM 80C, matching the reference top view: reflector 18 cm long
         // (was 20), flaring wide at the mouth to a narrower collar; 40 cm total.
         drawStormMonolight(rect, reflectorDepth: 18.0 / 40.0,
@@ -338,7 +338,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
                            into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
-    case .mediumLight:
+    case .mediumLight, .mediumCOB:
         // Aputure STORM 1200x: body 33×33 cm total (incl. yoke knobs), reflector 15 cm
         // long with an 18 cm mouth / 10 cm collar. Footprint 33 × 51.9 cm.
         drawStormMonolight(rect, reflectorDepth: 15.0 / 51.9,
@@ -347,7 +347,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
                            into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
-    case .bigLight:
+    case .bigLight, .bigCOB:
         drawStormXT52(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
                       stroke: strokeC, detail: detailC, lineWidth: lw)
 
@@ -384,7 +384,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.stroke(Path(ellipseIn: shade.insetBy(dx: R * 0.30, dy: R * 0.30)), with: detailC, lineWidth: lw * 0.7)
         ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.62, dy: R * 0.62)), with: detailC)
 
-    case .tube:
+    case .tube, .shortTube:
         // LED tube from above: a long capsule with end caps and a centre line.
         let body = rr(rect, min(w, h) * 0.5)
         ctx.fill(body, with: fillC)
@@ -702,7 +702,16 @@ struct FurnitureView: View {
                 // half-extent is its distance from centre, so the size is doubled.
                 let localX = dx * cos(r) + dy * sin(r)
                 let localY = -dx * sin(r) + dy * cos(r)
-                liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
+                if furniture.kind.lockAspectRatio {
+                    // Scale uniformly from whichever axis is pulled furthest, so the
+                    // width:height ratio never changes.
+                    let curW = max(furniture.width * contentRect.width, 1)
+                    let curH = max(furniture.height * contentRect.height, 1)
+                    let s = max(abs(localX) * 2 / curW, abs(localY) * 2 / curH)
+                    liveSize = CGSize(width: max(curW * s, 14), height: max(curH * s, 14))
+                } else {
+                    liveSize = CGSize(width: max(abs(localX) * 2, 14), height: max(abs(localY) * 2, 14))
+                }
             }
             .onEnded { _ in
                 if let s = liveSize {

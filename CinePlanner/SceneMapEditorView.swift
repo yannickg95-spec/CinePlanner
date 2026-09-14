@@ -527,7 +527,18 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
-                    ForEach(Furniture.Kind.allCases.filter { $0.isLight }, id: \.self) { kind in
+                    Menu("LED COB") {
+                        ForEach(Furniture.Kind.allCases.filter { $0.isCOB }, id: \.self) { kind in
+                            Button(kind.rawValue) { addFurniture(kind) }
+                        }
+                    }
+                    Menu("Tube") {
+                        Button("Long Tube") { addFurniture(.tube) }
+                        Button("Short Tube") { addFurniture(.shortTube) }
+                    }
+                    ForEach(Furniture.Kind.allCases.filter {
+                        $0.isLight && !$0.isCOB && !$0.isLegacyLight && $0 != .tube && $0 != .shortTube
+                    }, id: \.self) { kind in
                         Button(kind.rawValue) { addFurniture(kind) }
                     }
                 } label: { addMenuLabel("lightbulb.fill") }
@@ -898,7 +909,7 @@ struct SceneMapEditorView: View {
                 .allowsHitTesting(!backgroundAdjustActive)
                 // Draggable measurement labels, once the map is scaled. Kept visible
                 // while adjusting, just not draggable.
-                if mapMetersWide != nil {
+                if mapMetersWide != nil && !floorPlan.hideMeasurements {
                     ForEach(floorPlan.walls) { wall in
                         wallMeasureLabel(wall, in: rect)
                     }
@@ -2362,6 +2373,10 @@ struct SceneMapEditorView: View {
                         Label(realLength(of: wall) == nil ? "Set Length…" : "Change Length…",
                               systemImage: "ruler")
                     }
+                    Button { toggleMeasurementLabels() } label: {
+                        Label(floorPlan.hideMeasurements ? "Show Distance Labels" : "Hide Distance Labels",
+                              systemImage: floorPlan.hideMeasurements ? "eye" : "eye.slash")
+                    }
                     Divider()
                     Button(role: .destructive) { deleteWall(wall.id) } label: {
                         Label("Delete Wall", systemImage: "trash")
@@ -2839,7 +2854,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapBackgroundData = data
         scene.recordSatelliteCapture(framing)
         scene.sceneMapLocation = label
-        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.45 m
+        scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
         scene.sceneMapBackgroundTransform = .init() // satellite: never manually placed
         backgroundImage = PlatformImage(data: data)
         try? scene.modelContext?.save()
@@ -3135,6 +3150,15 @@ struct SceneMapEditorView: View {
                 .padding(.horizontal, 5).padding(.vertical, 2)
                 .background(Color(white: 0.1).opacity(0.78), in: Capsule())
                 .fixedSize()
+                .contentShape(Capsule())
+                .contextMenu {
+                    Button { beginWallScale(wall.id) } label: {
+                        Label("Change Length…", systemImage: "ruler")
+                    }
+                    Button { toggleMeasurementLabels() } label: {
+                        Label("Hide Distance Labels", systemImage: "eye.slash")
+                    }
+                }
                 .scaleEffect(labelCounterScale)
                 .rotationEffect(.degrees(labelUprightRotation))
                 .position(p)
@@ -3232,6 +3256,11 @@ struct SceneMapEditorView: View {
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
         try? scene.modelContext?.save()
+    }
+
+    private func toggleMeasurementLabels() {
+        floorPlan.hideMeasurements.toggle()
+        persistFloorPlan()
     }
 
     private func persistFloorPlan() {

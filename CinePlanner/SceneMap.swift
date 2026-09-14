@@ -158,13 +158,18 @@ struct Furniture: Identifiable, Codable, Equatable {
         case smallLight = "Small Light"
         case mediumLight = "Medium Light"
         case bigLight = "Big Light"
-        case tube = "Tube"
+        case tube = "Tube"           // long tube, 120 cm (kept rawValue for old maps)
+        case shortTube = "Short Tube" // 60 cm
         case bounce = "Bounce"
         case softbox = "Softbox"
         case par = "PAR"
         case lightBall = "Light Ball"
         case practical = "Practical"
         case lightPanel = "Light Panel"
+        // LED COB heads — grouped under an "LED COB" submenu in the light tab.
+        case smallCOB = "Small COB"
+        case mediumCOB = "Medium COB"
+        case bigCOB = "Big COB"
 
         /// Default size (normalized to the map's content rect) for a new piece.
         var defaultSize: CGSize {
@@ -182,12 +187,17 @@ struct Furniture: Identifiable, Codable, Equatable {
             // Deeper than wide, matching the STORM CS32 top-view proportions.
             case .bigLight:    return CGSize(width: 0.073, height: 0.109)
             case .tube:        return CGSize(width: 0.22, height: 0.013)
+            case .shortTube:   return CGSize(width: 0.11, height: 0.013)
             case .bounce:      return CGSize(width: 0.20, height: 0.014)
             case .softbox:     return CGSize(width: 0.10, height: 0.10)
             case .par:         return CGSize(width: 0.06, height: 0.06)
             case .lightBall:   return CGSize(width: 0.12, height: 0.12)
             case .practical:   return CGSize(width: 0.04, height: 0.04)
             case .lightPanel:  return CGSize(width: 0.13, height: 0.08)
+            // COBs are the STORM 80C / 1200x / XT52 designs, so they match the lights.
+            case .smallCOB:    return CGSize(width: 0.056, height: 0.101)
+            case .mediumCOB:   return CGSize(width: 0.064, height: 0.101)
+            case .bigCOB:      return CGSize(width: 0.073, height: 0.109)
             }
         }
 
@@ -198,6 +208,7 @@ struct Furniture: Identifiable, Codable, Equatable {
             switch self {
             case .lightBall: return CGSize(width: 0.70, height: 0.70)   // 70 cm across
             case .tube:      return CGSize(width: 1.20, height: 0.07)   // 120 × 7 cm
+            case .shortTube: return CGSize(width: 0.60, height: 0.07)   // 60 × 7 cm
             case .bounce:    return CGSize(width: 1.00, height: 0.07)   // 100 × 7 cm
             // Aputure STORM XT52 from above: 53 cm wide, 55 cm body + 20 cm reflector
             // ≈ 79 cm long.
@@ -207,25 +218,45 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .mediumLight: return CGSize(width: 0.33, height: 0.519)
             // Aputure STORM 80C from above: ~22 cm wide, 40 cm long (18 cm reflector).
             case .smallLight:  return CGSize(width: 0.22, height: 0.40)
+            // COBs are the STORM 80C / 1200x / XT52 designs, so they match the lights.
+            case .smallCOB:    return CGSize(width: 0.22, height: 0.40)
+            case .mediumCOB:   return CGSize(width: 0.33, height: 0.519)
+            case .bigCOB:      return CGSize(width: 0.53, height: 0.794)
             default:         return nil
             }
         }
 
         var isRound: Bool {
             switch self {
-            case .roundTable, .plant, .smallLight, .mediumLight, .bigLight,
-                 .par, .lightBall, .practical:
+            case .roundTable, .plant, .par, .lightBall, .practical:
                 return true
             default:
                 return false
             }
         }
 
+        /// LED COB heads (the STORM 80C / 1200x / XT52), grouped under an "LED COB"
+        /// submenu at the top of the light tab.
+        var isCOB: Bool {
+            self == .smallCOB || self == .mediumCOB || self == .bigCOB
+        }
+
+        /// Pieces whose width:height ratio is locked while resizing, so they can only
+        /// scale uniformly and never be stretched.
+        var lockAspectRatio: Bool { isCOB }
+
+        /// The original Small/Medium/Big Light kinds are now superseded by the COBs;
+        /// kept for decoding old maps, but no longer shown in the menu.
+        var isLegacyLight: Bool {
+            self == .smallLight || self == .mediumLight || self == .bigLight
+        }
+
         /// Lights live on their own toolbar tab, not in the furniture menu.
         var isLight: Bool {
             switch self {
-            case .smallLight, .mediumLight, .bigLight, .tube, .bounce, .softbox,
-                 .par, .lightBall, .practical, .lightPanel:
+            case .smallLight, .mediumLight, .bigLight, .tube, .shortTube, .bounce, .softbox,
+                 .par, .lightBall, .practical, .lightPanel,
+                 .smallCOB, .mediumCOB, .bigCOB:
                 return true
             default:
                 return false
