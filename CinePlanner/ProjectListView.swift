@@ -45,6 +45,9 @@ struct ProjectListView: View {
     @State private var showingManageRepos = false
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
+    @EnvironmentObject private var access: AppAccess
+    @State private var restoringPurchase = false
+    @State private var restoreMessage: String?
     @StateObject private var syncMonitor = CloudSyncMonitor()
     /// Drives On-Set Mode as a full-window, top-level viewing mode.
     @State private var onSet = OnSetController()
@@ -158,6 +161,14 @@ struct ProjectListView: View {
             } message: {
                 Text(recoveryMessage ?? "")
             }
+            .alert("Restore Purchase", isPresented: Binding(
+                get: { restoreMessage != nil },
+                set: { if !$0 { restoreMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(restoreMessage ?? "")
+            }
             .onAppear {
                 // Surface a recovery notice from the launch's store-open, once.
                 if let message = UserDefaults.standard.string(forKey: CinePlannerApp.recoveryMessageKey) {
@@ -195,6 +206,22 @@ struct ProjectListView: View {
     /// Presents the system file picker to choose a .cineplan file to import.
     private func importProject() {
         showingProjectImporter = true
+    }
+
+    /// Restores a previous "CinePlanner — Full Version" purchase on this device.
+    private func restorePurchase() {
+        restoringPurchase = true
+        Task {
+            access.store.lastError = nil
+            await access.store.restore()
+            restoringPurchase = false
+            if access.store.isPurchased {
+                access.unlockedAfterPurchase()
+                restoreMessage = "Your purchase has been restored. Thanks!"
+            } else {
+                restoreMessage = access.store.lastError ?? "No previous purchase found on this account."
+            }
+        }
     }
 
     /// Reads a chosen .cineplan file and adds its project (with fresh ids).
@@ -289,7 +316,7 @@ struct ProjectListView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "clock.arrow.circlepath")
-                        if !isCompact { Text("Restore") }
+                        if !isCompact { Text("Backup") }
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -301,6 +328,29 @@ struct ProjectListView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Restore from Backup — roll your data back to an earlier snapshot")
+
+                if access.state != .full {
+                    Button(action: restorePurchase) {
+                        HStack(spacing: 6) {
+                            if restoringPurchase {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            if !isCompact { Text("Restore Purchase") }
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.secondary.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(restoringPurchase)
+                    .help("Restore Purchase — unlock on this device if you already bought CinePlanner")
+                }
 
                 Button {
                     showingWalkthrough = true
@@ -1023,4 +1073,5 @@ struct RestoreBackupSheet: View {
 #Preview {
     ProjectListView()
         .modelContainer(for: Project.self, inMemory: true)
+        .environmentObject(AppAccess())
 }

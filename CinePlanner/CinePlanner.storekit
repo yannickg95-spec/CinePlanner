@@ -1,0 +1,33 @@
+{
+  "identifier" : "B40EEA2F-E6F5-4781-9311-75479747F08C",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "14.99",
+      "familyShareable" : false,
+      "internalID" : "473B9243-600B-4DB8-BB75-A1F81C4E8E37",
+      "localizations" : [
+        {
+          "description" : "Ontgrendel de volledige versie van CinePlanner.",
+          "displayName" : "CinePlanner — volledige versie",
+          "locale" : "nl_NL"
+        }
+      ],
+      "productID" : "com.YannickGiraud.CinePlanner.pro",
+      "referenceName" : "CinePlanner Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6800298885"
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -17,6 +17,9 @@ import AppKit
 struct CinePlannerApp: App {
     static let recoveryMessageKey = "storeRecoveryMessage"
 
+    /// Purchase + trial state gating the app (free with a one-time unlock IAP).
+    @StateObject private var access = AppAccess()
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(versionedSchema: SchemaV1.self)
         // Sync the store across the user's Macs via CloudKit. An explicit private
@@ -165,12 +168,15 @@ struct CinePlannerApp: App {
 
     var body: some SwiftUI.Scene {
         WindowGroup {
-            ProjectListView()
-                #if os(macOS)
-                .frame(minWidth: 1100, minHeight: 700)
-                #endif
-                .task { registerForCloudKitPush() }
-                .task { CreditDefaultsSync.shared.start() }
+            RootGateView {
+                ProjectListView()
+                    #if os(macOS)
+                    .frame(minWidth: 1100, minHeight: 700)
+                    #endif
+                    .task { registerForCloudKitPush() }
+                    .task { CreditDefaultsSync.shared.start() }
+            }
+            .environmentObject(access)
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
