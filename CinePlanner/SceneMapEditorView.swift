@@ -1708,12 +1708,12 @@ struct SceneMapEditorView: View {
 
         let zoomRow = HStack(spacing: compact ? 7 : 9) {
             Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
-            Slider(value: zoomBinding, in: 0...1).frame(width: compact ? 150 : 140)
+            Slider(value: zoomBinding, in: 0...1).frame(width: compact ? 210 : 140)
             Image(systemName: "plus.magnifyingglass").foregroundStyle(.secondary)
         }
         let turnRow = HStack(spacing: compact ? 7 : 9) {
             Image(systemName: "rotate.right").foregroundStyle(.secondary)
-            Slider(value: rotationBinding, in: -180...180).frame(width: compact ? 150 : 140)
+            Slider(value: rotationBinding, in: -180...180).frame(width: compact ? 210 : 140)
             Text("\(Int(bgTransform.rotation.rounded()))°").monospacedDigit()
                 .frame(width: 46, alignment: .trailing)
         }
@@ -1754,8 +1754,7 @@ struct SceneMapEditorView: View {
     private func backgroundAdjustChrome(in rect: CGRect, canvas: CGSize) -> some View {
         if backgroundAdjustActive, !isDrawing, pendingMove == nil {
             backgroundAdjustPanel(canvas: canvas)
-                .frame(width: rect.width, height: rect.height, alignment: .top)
-                .position(x: rect.midX, y: rect.midY)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
