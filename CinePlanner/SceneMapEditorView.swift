@@ -180,6 +180,10 @@ struct SceneMapEditorView: View {
     /// The furniture currently in resize mode (armed via the context menu). Lights are
     /// move-only until armed; cleared when the selection changes.
     @State private var furnitureResizeID: UUID?
+    /// Touch (iPhone/iPad): once a single marker/furniture is selected, a drag
+    /// anywhere on the map moves it. These hold the drag target and its start spot.
+    @State private var anywhereMoveTarget: MoveTarget?
+    @State private var anywhereMoveBase: CGPoint?
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -2107,6 +2111,33 @@ struct SceneMapEditorView: View {
     private func canvasPanOrMarquee(in rect: CGRect, size: CGSize, canvasOrigin: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .global)
             .onChanged { value in
+                #if os(iOS)
+                // Touch: with one marker/furniture selected, a drag anywhere moves it
+                // (so it needn't be grabbed precisely). Takes priority over panning.
+                if let target = anywhereMoveTarget ?? singleSelectedMovable,
+                   !isDrawing, pendingMove == nil, !backgroundAdjustActive, !reframeActive {
+                    if anywhereMoveTarget == nil {
+                        anywhereMoveTarget = target
+                        anywhereMoveBase = normalizedPosition(of: target)
+                        cameraInfoElementID = nil
+                    }
+                    if let base = anywhereMoveBase {
+                        // Screen delta → normalized content delta: undo the map's
+                        // rotation, then divide by the on-screen size of the content
+                        // rect (rect × canvas zoom × placement scale).
+                        let sx = rect.width * zoom * CGFloat(mapPlacement.scale)
+                        let sy = rect.height * zoom * CGFloat(mapPlacement.scale)
+                        let t = mapPlacement.rotation * .pi / 180
+                        let tx = value.translation.width, ty = value.translation.height
+                        let rx = tx * cos(t) + ty * sin(t)
+                        let ry = -tx * sin(t) + ty * cos(t)
+                        let nx = min(max(base.x + Double(rx / max(sx, 1)), 0), 1)
+                        let ny = min(max(base.y + Double(ry / max(sy, 1)), 0), 1)
+                        setMovableLive(target, to: CGPoint(x: nx, y: ny))
+                    }
+                    return
+                }
+                #endif
                 if dragPansCanvas {
                     let limits = panLimits(size, zoom: zoom)
                     let moved = panDelta(fromScreen: value.translation)
@@ -2127,6 +2158,14 @@ struct SceneMapEditorView: View {
                 #endif
             }
             .onEnded { value in
+                #if os(iOS)
+                if anywhereMoveTarget != nil {
+                    anywhereMoveTarget = nil
+                    anywhereMoveBase = nil
+                    persist()
+                    return
+                }
+                #endif
                 if dragPansCanvas { lastPan = pan; return }
                 #if os(macOS)
                 defer { marqueeStart = nil; marqueeCurrent = nil }
@@ -2909,6 +2948,41 @@ struct SceneMapEditorView: View {
         doc.elements[index].x = position.x
         doc.elements[index].y = position.y
         persist()
+    }
+
+    // MARK: - Drag-anywhere move (touch)
+
+    /// A single movable item that a drag-anywhere gesture can nudge.
+    enum MoveTarget: Equatable { case element(UUID), furniture(UUID) }
+
+    /// The one selected marker/furniture, if exactly one movable item is selected.
+    private var singleSelectedMovable: MoveTarget? {
+        if let fid = furnitureSelectedID { return .furniture(fid) }
+        if selectedIDs.count == 1, let id = selectedIDs.first { return .element(id) }
+        return nil
+    }
+
+    private func normalizedPosition(of target: MoveTarget) -> CGPoint? {
+        switch target {
+        case .element(let id):
+            return doc.elements.first { $0.id == id }.map { CGPoint(x: $0.x, y: $0.y) }
+        case .furniture(let id):
+            return doc.furniture.first { $0.id == id }.map { CGPoint(x: $0.x, y: $0.y) }
+        }
+    }
+
+    /// Live position update without persisting (persist once, on drag end).
+    private func setMovableLive(_ target: MoveTarget, to p: CGPoint) {
+        switch target {
+        case .element(let id):
+            if let i = doc.elements.firstIndex(where: { $0.id == id }) {
+                doc.elements[i].x = p.x; doc.elements[i].y = p.y
+            }
+        case .furniture(let id):
+            if let i = doc.furniture.firstIndex(where: { $0.id == id }) {
+                doc.furniture[i].x = p.x; doc.furniture[i].y = p.y
+            }
+        }
     }
 
     private func rotateElement(_ id: UUID, to rotation: Double) {
