@@ -177,6 +177,9 @@ struct SceneMapEditorView: View {
     @State private var arrowSelectedID: UUID?
     /// Furniture selected for editing (reveals rotate/resize handles).
     @State private var furnitureSelectedID: UUID?
+    /// The furniture currently in resize mode (armed via the context menu). Lights are
+    /// move-only until armed; cleared when the selection changes.
+    @State private var furnitureResizeID: UUID?
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -947,6 +950,7 @@ struct SceneMapEditorView: View {
                     FurnitureView(
                         furniture: item,
                         isSelected: furnitureSelectedID == item.id,
+                        resizeArmed: furnitureResizeID == item.id,
                         contentRect: rect,
                         zoom: zoom,
                         placeScale: CGFloat(mapPlacement.scale),
@@ -957,6 +961,7 @@ struct SceneMapEditorView: View {
                         onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
                         onResetSize: { resetFurnitureSize(item.id) },
                         onToggleModifier: { toggleTubeModifier(item.id) },
+                        onArmResize: { selectFurniture(item.id); furnitureResizeID = item.id },
                         onSetColor: { hex in setFurnitureColor(item.id, hex) },
                         onReorder: { move in reorderFurniture(item.id, move) },
                         onDuplicate: { duplicateFurniture(item.id) },
@@ -1135,7 +1140,7 @@ struct SceneMapEditorView: View {
         // gesture takes over the canvas and ignores the (hit-test-disabled) markers.
         .gesture(backgroundAdjustGesture(in: rect),
                  including: backgroundAdjustActive ? .gesture : .subviews)
-        .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; cameraInfoElementID = nil } }
+        .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; furnitureResizeID = nil; cameraInfoElementID = nil } }
         #if os(macOS)
         .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
         #endif
@@ -2120,6 +2125,9 @@ struct SceneMapEditorView: View {
     }
 
     private func selectFurniture(_ id: UUID) {
+        // A plain (re)selection disarms resize: a light stays move-only until the user
+        // explicitly picks "Resize" again.
+        if furnitureSelectedID != id { furnitureResizeID = nil }
         furnitureSelectedID = id
         selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
     }

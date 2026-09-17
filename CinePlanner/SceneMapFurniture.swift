@@ -592,6 +592,10 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
 struct FurnitureView: View {
     let furniture: Furniture
     let isSelected: Bool
+    /// Whether resize handles are shown / resizing is allowed. Lights only expose them
+    /// after the user picks "Resize" from the context menu, so a normal drag just moves
+    /// them; non-lights are always resizable.
+    var resizeArmed: Bool = true
     let contentRect: CGRect
     /// Counter-scales the label by 1/zoom so it stays a constant on-screen size.
     var zoom: CGFloat = 1
@@ -608,6 +612,8 @@ struct FurnitureView: View {
     var onResetSize: () -> Void = {}
     /// Tube only: toggles the diffusion modifier (20 cm cross-section).
     var onToggleModifier: () -> Void = {}
+    /// Arms resize mode (shown for lights, which are move-only until armed).
+    var onArmResize: () -> Void = {}
     let onSetColor: (String) -> Void
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
@@ -669,10 +675,14 @@ struct FurnitureView: View {
             }
             if isSelected {
                 selectionBox(w: w, h: h)
-                cornerHandle(-1, -1, w: w, h: h)
-                cornerHandle( 1, -1, w: w, h: h)
-                cornerHandle(-1,  1, w: w, h: h)
-                cornerHandle( 1,  1, w: w, h: h)
+                // Lights are move-only until "Resize" is picked; other pieces always
+                // show the corner handles.
+                if !furniture.kind.isLight || resizeArmed {
+                    cornerHandle(-1, -1, w: w, h: h)
+                    cornerHandle( 1, -1, w: w, h: h)
+                    cornerHandle(-1,  1, w: w, h: h)
+                    cornerHandle( 1,  1, w: w, h: h)
+                }
                 rotationHandle
                     .scaleEffect(1 / (zoom * placeScale), anchor: .center)
                     .offset(rotationHandleOffset(h: h))
@@ -898,6 +908,9 @@ struct FurnitureView: View {
             }
         }
         if furniture.kind.isLight {
+            Button { onArmResize() } label: {
+                Label("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
             Button { onResetSize() } label: {
                 Label("Reset Size", systemImage: "arrow.counterclockwise")
             }

@@ -275,9 +275,19 @@ struct Furniture: Identifiable, Codable, Equatable {
             self == .smallCOB || self == .mediumCOB || self == .bigCOB
         }
 
+        /// HMI heads (Small/Medium/Big), grouped under an "HMI" submenu.
+        var isHMI: Bool {
+            self == .smallHMI || self == .mediumHMI || self == .bigHMI
+        }
+
+        /// Tungsten heads (Small/Medium/Big), grouped under a "Tungsten" submenu.
+        var isTungsten: Bool {
+            self == .smallTungsten || self == .mediumTungsten || self == .bigTungsten
+        }
+
         /// Pieces whose width:height ratio is locked while resizing, so they can only
         /// scale uniformly and never be stretched.
-        var lockAspectRatio: Bool { isCOB }
+        var lockAspectRatio: Bool { isCOB || isHMI || isTungsten }
 
         /// LED tubes (long/short): only their length resizes; the cross-section
         /// (physical width) stays fixed, and can be swapped via the "modifier".
