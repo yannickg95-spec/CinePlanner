@@ -139,7 +139,8 @@ struct SceneMapEditorView: View {
     @State private var showingClearAllConfirm = false
     @State private var floorPlan: FloorPlan
     @State private var isDrawing = false
-    @State private var drawTool: DrawTool = .wall
+    /// nil = no tool chosen yet (after EDIT the user must pick Wall/Door/Window first).
+    @State private var drawTool: DrawTool?
     /// The last vertex of the wall chain being drawn (the next click extends
     /// from here). nil = the next click starts a fresh chain.
     @State private var chainLastVertex: UUID?
@@ -743,13 +744,16 @@ struct SceneMapEditorView: View {
     }
 
     private var scaleHint: String {
-        if drawToScale && scene.sceneMapMetersWide == nil && drawTool == .wall {
+        guard let tool = drawTool else {
+            return "Choose Wall, Door or Window to start editing."
+        }
+        if drawToScale && scene.sceneMapMetersWide == nil && tool == .wall {
             return "Draw the first wall, then enter its real length to set the scale."
         }
-        if drawTool == .wall {
+        if tool == .wall {
             return "Click to drop points; click a point again to close the room."
         }
-        return "Click a wall to place a \(drawTool.rawValue.lowercased())."
+        return "Click a wall to place a \(tool.rawValue.lowercased())."
     }
 
     private var drawToolbar: some View {
@@ -791,7 +795,7 @@ struct SceneMapEditorView: View {
 
     private var drawToolPicker: some View {
         Picker("Tool", selection: $drawTool) {
-            ForEach(DrawTool.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            ForEach(DrawTool.allCases, id: \.self) { Text($0.rawValue).tag($0 as DrawTool?) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -974,29 +978,9 @@ struct SceneMapEditorView: View {
         ZStack {
             // The drawn floor plan itself is rendered crisply in a screen-space layer
             // below this group (see `canvas`); only its edit handles live here.
-            // Wall edit handles (below markers/openings), when not drawing.
-            if !isDrawing {
-                ForEach(floorPlan.walls) { wall in
-                    wallHandle(wall, in: rect)
-                }
-                // While adjusting, disable editing so panning/zooming can't grab a wall.
-                .allowsHitTesting(!backgroundAdjustActive)
-                // Draggable measurement labels, once the map is scaled. Kept visible
-                // while adjusting, just not draggable.
-                if mapMetersWide != nil && !floorPlan.hideMeasurements {
-                    ForEach(floorPlan.walls) { wall in
-                        wallMeasureLabel(wall, in: rect)
-                    }
-                    .allowsHitTesting(!backgroundAdjustActive)
-                }
-                // Selecting any wall reveals every corner point for editing.
-                if wallSelectedID != nil {
-                    ForEach(floorPlan.vertices) { vertex in
-                        vertexHandle(vertex, in: rect)
-                    }
-                    .allowsHitTesting(!backgroundAdjustActive)
-                }
-            }
+            // Walls, corners and openings are only draggable in EDIT mode (their
+            // handles live in the `isDrawing` layer further down), so the plan can't
+            // be nudged by accident while moving markers or panning.
             // Furniture, below the people/cameras so they read as "on" it.
             if !isDrawing {
                 ForEach(doc.furniture) { item in
@@ -1094,12 +1078,6 @@ struct SceneMapEditorView: View {
                 )
                 .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive)
             }
-            // Door/window edit handles (tap to select, right-click to edit).
-            if !isDrawing {
-                ForEach(floorPlan.openings) { opening in
-                    openingHandle(opening, in: rect)
-                }
-            }
             // Arrow pivot handles, only for the selected arrow.
             if !isDrawing && pendingMove == nil, let selectedArrow = arrowSelectedID {
                 if let arrow = doc.arrows.first(where: { $0.id == selectedArrow }) {
@@ -1121,11 +1099,29 @@ struct SceneMapEditorView: View {
                         case .ended: drawHover = nil
                         }
                     }
-                // Draggable corner handles ABOVE the catcher: drag a blue point to
-                // move it, or tap one to start/finish a wall on it.
+                // ABOVE the catcher, so they can be grabbed: whole-wall drag strips
+                // and door/window handles. A tap on a wall still places a point/opening
+                // (routed through the same draw-click handler); a drag moves it.
+                ForEach(floorPlan.walls) { wall in
+                    wallHandle(wall, in: rect)
+                }
+                ForEach(floorPlan.openings) { opening in
+                    openingHandle(opening, in: rect)
+                }
+                // Corner handles on top: drag a blue point to move it, or tap one to
+                // start/finish a wall on it.
                 ForEach(floorPlan.vertices) { vertex in
                     drawingVertexHandle(vertex, in: rect)
                 }
+            }
+            // Wall measurement labels: always visible (with their context menu), but
+            // only draggable while editing. After the draw catcher, so an in-EDIT drag
+            // reaches the label.
+            if mapMetersWide != nil && !floorPlan.hideMeasurements {
+                ForEach(floorPlan.walls) { wall in
+                    wallMeasureLabel(wall, in: rect, draggable: isDrawing)
+                }
+                .allowsHitTesting(!backgroundAdjustActive)
             }
             // Placing the second (moved) marker: the next click drops it and
             // draws the connecting arrow.
@@ -2598,7 +2594,10 @@ struct SceneMapEditorView: View {
             Rectangle().fill(Color.clear)
                 .frame(width: max(length, 1), height: 18)
                 .contentShape(Rectangle())
-                .onTapGesture { selectWall(wall.id) }
+                // Tap routes to the draw handler (place a point, or drop a door/window
+                // on this wall); drag moves the whole wall.
+                .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                    .onEnded { value in handleDrawClick(value.location, in: rect) })
                 .gesture(wallMoveGesture(wall.id, in: rect))
                 .contextMenu {
                     Button { beginWallScale(wall.id) } label: {
@@ -2617,20 +2616,6 @@ struct SceneMapEditorView: View {
                 .rotationEffect(angle)
                 .position(mid)
         }
-    }
-
-    /// A draggable corner point; moving it moves every wall attached to it.
-    private func vertexHandle(_ vertex: FloorVertex, in rect: CGRect) -> some View {
-        Circle().fill(Color.accentColor)
-            .overlay(Circle().stroke(.white, lineWidth: 1.5))
-            .frame(width: 14, height: 14)
-            .contentShape(Circle().inset(by: -(7 + sceneMapHandleSlop)))
-            .gesture(
-                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                    .onChanged { value in moveVertex(vertex.id, to: value.location, in: rect) }
-                    .onEnded { _ in persistFloorPlan() }
-            )
-            .position(canvasPoint(vertex.x, vertex.y, in: rect))
     }
 
     /// A corner handle shown while drawing (over the click catcher, so it wins the
@@ -3407,9 +3392,10 @@ struct SceneMapEditorView: View {
         -(mapPlacement.rotation - reframeTurn)
     }
 
-    /// A draggable pill showing a wall's real length. Drag moves it per wall.
+    /// A pill showing a wall's real length. Always shows its context menu; only
+    /// draggable (to nudge it clear of markers) while editing the plan.
     @ViewBuilder
-    private func wallMeasureLabel(_ wall: Wall, in rect: CGRect) -> some View {
+    private func wallMeasureLabel(_ wall: Wall, in rect: CGRect, draggable: Bool) -> some View {
         if let metres = realLength(of: wall), let p = wallLabelPoint(wall, in: rect) {
             Text(lengthLabel(metres))
                 .font(.system(size: 10, weight: .semibold))
@@ -3445,8 +3431,10 @@ struct SceneMapEditorView: View {
                             setWallLabelOffset(wall.id, CGSize(width: base.width + dx,
                                                                height: base.height + dy))
                         }
-                        .onEnded { _ in wallLabelDrag = nil; persistFloorPlan() }
-                )
+                        .onEnded { _ in wallLabelDrag = nil; persistFloorPlan() },
+                    // Only draggable while editing; otherwise the label is inert
+                    // (its context menu still works).
+                    including: draggable ? .all : .none)
         }
     }
 
@@ -3480,7 +3468,7 @@ struct SceneMapEditorView: View {
         drawToScale = false        // scale is already set; no calibration prompt
         scaleWallID = nil
         scaleInput = ""
-        drawTool = .wall
+        drawTool = nil        // start unselected: pick Wall/Door/Window first
         chainLastVertex = nil
         wallSelectedID = nil
         openingSelectedID = nil
@@ -3556,6 +3544,7 @@ struct SceneMapEditorView: View {
     /// A click while drawing: wall tool adds/extends a chain of points; door and
     /// window tools drop an opening on the nearest wall.
     private func handleDrawClick(_ loc: CGPoint, in rect: CGRect) {
+        guard let drawTool else { return }   // no tool chosen yet → placing is disabled
         switch drawTool {
         case .wall:
             addChainPoint(loc, in: rect)
