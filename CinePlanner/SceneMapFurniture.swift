@@ -634,6 +634,8 @@ struct FurnitureView: View {
     var onToggleModifier: () -> Void = {}
     /// Arms resize mode (shown for lights, which are move-only until armed).
     var onArmResize: () -> Void = {}
+    /// Mounts a softbox on the light's front (shown for HMI/Tungsten/COB/panels).
+    var onAddSoftbox: () -> Void = {}
     let onSetColor: (String) -> Void
     let onReorder: (FurnitureLayerMove) -> Void
     let onDuplicate: () -> Void
@@ -925,6 +927,11 @@ struct FurnitureView: View {
             Button { onToggleModifier() } label: {
                 Label(furniture.hasModifier ? "Remove Modifier" : "Add Modifier",
                       systemImage: furniture.hasModifier ? "rectangle.slash" : "rectangle.on.rectangle")
+            }
+        }
+        if furniture.kind.canMountSoftbox {
+            Button { onAddSoftbox() } label: {
+                Label("Add Softbox", systemImage: "rectangle.portrait.on.rectangle.portrait")
             }
         }
         if furniture.kind.isLight {

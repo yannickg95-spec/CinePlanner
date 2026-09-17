@@ -297,6 +297,12 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// LED panels (2x1 / 1x1).
         var isPanel: Bool { self == .lightPanel || self == .panel1x1 }
 
+        /// Softbox heads (Small/Medium/Big).
+        var isSoftbox: Bool { self == .softbox || self == .mediumSoftbox || self == .bigSoftbox }
+
+        /// Fixtures a softbox can be mounted on (its base snaps to their front).
+        var canMountSoftbox: Bool { isHMI || isTungsten || isCOB || isPanel }
+
         /// Pieces whose width:height ratio is locked while resizing, so they can only
         /// scale uniformly and never be stretched.
         var lockAspectRatio: Bool { isCOB || isHMI || isTungsten || isPanel }
