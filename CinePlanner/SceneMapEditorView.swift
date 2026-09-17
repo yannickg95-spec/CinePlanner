@@ -753,27 +753,59 @@ struct SceneMapEditorView: View {
     }
 
     private var drawToolbar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "pencil.tip.crop.circle").foregroundStyle(.secondary)
-            Picker("Tool", selection: $drawTool) {
-                ForEach(DrawTool.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        Group {
+            if isPhonePortrait {
+                // Portrait iPhone has no room for the hint beside the controls, so it
+                // gets its own full-width line below them instead of being squeezed.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) { drawToolControls }
+                    Text(scaleHint)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "pencil.tip.crop.circle").foregroundStyle(.secondary)
+                    drawToolPicker
+                    Text(scaleHint)
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    drawToolActions
+                }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .onChange(of: drawTool) { _, _ in endChain() }
-            Text(scaleHint)
-                .font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            if drawTool == .wall && chainLastVertex != nil {
-                Button("Finish Line") { endChain() }
-            }
-            Button("Done") { endChain(); isDrawing = false; drawToScale = false; scaleWallID = nil }
-                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(Color.accentColor.opacity(0.06))
+    }
+
+    /// The icon, tool picker, spacer and action buttons on one row (portrait iPhone).
+    @ViewBuilder
+    private var drawToolControls: some View {
+        Image(systemName: "pencil.tip.crop.circle").foregroundStyle(.secondary)
+        drawToolPicker
+        Spacer()
+        drawToolActions
+    }
+
+    private var drawToolPicker: some View {
+        Picker("Tool", selection: $drawTool) {
+            ForEach(DrawTool.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .onChange(of: drawTool) { _, _ in endChain() }
+    }
+
+    @ViewBuilder
+    private var drawToolActions: some View {
+        if drawTool == .wall && chainLastVertex != nil {
+            Button("Finish Line") { endChain() }
+        }
+        Button("Done") { endChain(); isDrawing = false; drawToScale = false; scaleWallID = nil }
+            .keyboardShortcut(.cancelAction)
     }
 
     // MARK: - Canvas
