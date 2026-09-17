@@ -492,13 +492,25 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         ctx.fill(Path(ellipseIn: can.insetBy(dx: R * 0.66, dy: R * 0.66)), with: detailC)
 
     case .practical:
-        // A real in-scene lamp from above: a shade ring with a lit bulb centre.
-        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.42
+        // An in-scene lamp from above, read as a glowing point source: a round shade
+        // with short light rays and a lit bulb at the centre.
+        let d = min(w, h), c = CGPoint(x: rect.midX, y: rect.midY), R = d * 0.47
         let shade = CGRect(x: c.x - R, y: c.y - R, width: R * 2, height: R * 2)
         ctx.fill(Path(ellipseIn: shade), with: fillC)
         ctx.stroke(Path(ellipseIn: shade), with: strokeC, lineWidth: lw)
-        ctx.stroke(Path(ellipseIn: shade.insetBy(dx: R * 0.30, dy: R * 0.30)), with: detailC, lineWidth: lw * 0.7)
-        ctx.fill(Path(ellipseIn: shade.insetBy(dx: R * 0.62, dy: R * 0.62)), with: detailC)
+        // Radiating rays around the bulb.
+        var rays = Path()
+        let rayCount = 8
+        for i in 0..<rayCount {
+            let a = Double(i) / Double(rayCount) * 2 * .pi
+            let dx = CGFloat(cos(a)), dy = CGFloat(sin(a))
+            rays.move(to: CGPoint(x: c.x + dx * R * 0.46, y: c.y + dy * R * 0.46))
+            rays.addLine(to: CGPoint(x: c.x + dx * R * 0.82, y: c.y + dy * R * 0.82))
+        }
+        ctx.stroke(rays, with: detailC, style: StrokeStyle(lineWidth: lw * 0.7, lineCap: .round))
+        // Lit bulb at the centre.
+        let br = R * 0.32
+        ctx.fill(Path(ellipseIn: CGRect(x: c.x - br, y: c.y - br, width: br * 2, height: br * 2)), with: detailC)
 
     case .tube, .shortTube:
         if hasModifier {
@@ -547,25 +559,31 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         clipped.clip(to: boardPath)
         clipped.stroke(hatch, with: detailC, lineWidth: lw * 0.6)
 
-    case .softbox:
-        // Softbox from above: a trapezoid tapering from the lamp (back) to the wide
-        // diffusion face (front, up), with the lamp shown at the back.
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let frontHalf = w * 0.46, backHalf = w * 0.18
-        let frontY = rect.minY + h * 0.12, backY = rect.maxY - h * 0.16
-        var box = Path()
-        box.move(to: CGPoint(x: c.x - frontHalf, y: frontY))
-        box.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
-        box.addLine(to: CGPoint(x: c.x + backHalf, y: backY))
-        box.addLine(to: CGPoint(x: c.x - backHalf, y: backY))
-        box.closeSubpath()
-        ctx.fill(box, with: fillC)
-        ctx.stroke(box, with: strokeC, lineWidth: lw)
+    case .softbox, .mediumSoftbox, .bigSoftbox:
+        // Softbox from above: a parabolic (conical) reflector — a wide rounded
+        // diffusion face at the front (up) with curved sides tapering to a rounded
+        // point at the back, plus a diffusion line at the front.
+        func X(_ off: CGFloat) -> CGFloat { rect.midX + off * w }
+        func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * h }
+        var body = Path()
+        body.move(to: CGPoint(x: X(-0.49), y: Y(0.10)))
+        body.addQuadCurve(to: CGPoint(x: X(-0.41), y: Y(0.01)), control: CGPoint(x: X(-0.49), y: Y(0.02)))
+        body.addLine(to: CGPoint(x: X(0.41), y: Y(0.01)))
+        body.addQuadCurve(to: CGPoint(x: X(0.49), y: Y(0.10)), control: CGPoint(x: X(0.49), y: Y(0.02)))
+        // Right side down to a short flat base at the back.
+        body.addQuadCurve(to: CGPoint(x: X(0.10), y: Y(0.96)), control: CGPoint(x: X(0.47), y: Y(0.61)))
+        body.addQuadCurve(to: CGPoint(x: X(0.06), y: Y(0.99)), control: CGPoint(x: X(0.10), y: Y(0.99)))
+        body.addLine(to: CGPoint(x: X(-0.06), y: Y(0.99)))
+        body.addQuadCurve(to: CGPoint(x: X(-0.10), y: Y(0.96)), control: CGPoint(x: X(-0.10), y: Y(0.99)))
+        body.addQuadCurve(to: CGPoint(x: X(-0.49), y: Y(0.10)), control: CGPoint(x: X(-0.47), y: Y(0.61)))
+        body.closeSubpath()
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        // Diffusion line just inside the front face.
         var face = Path()
-        face.move(to: CGPoint(x: c.x - frontHalf, y: frontY)); face.addLine(to: CGPoint(x: c.x + frontHalf, y: frontY))
-        ctx.stroke(face, with: detailC, lineWidth: lw * 1.3)
-        let lampR = w * 0.055
-        ctx.fill(Path(ellipseIn: CGRect(x: c.x - lampR, y: backY - lampR * 1.6, width: lampR * 2, height: lampR * 2)), with: detailC)
+        face.move(to: CGPoint(x: X(-0.42), y: Y(0.08)))
+        face.addLine(to: CGPoint(x: X(0.42), y: Y(0.08)))
+        ctx.stroke(face, with: detailC, style: StrokeStyle(lineWidth: lw, lineCap: .round))
 
     case .lightPanel, .panel1x1:
         // Flat LED panel (2x1 / 1x1) from above: a wide, shallow rounded rectangle filling
@@ -596,6 +614,8 @@ struct FurnitureView: View {
     /// after the user picks "Resize" from the context menu, so a normal drag just moves
     /// them; non-lights are always resizable.
     var resizeArmed: Bool = true
+    /// Whether the piece's size differs from its default, so "Reset Size" is offered.
+    var canResetSize: Bool = false
     let contentRect: CGRect
     /// Counter-scales the label by 1/zoom so it stays a constant on-screen size.
     var zoom: CGFloat = 1
@@ -856,7 +876,7 @@ struct FurnitureView: View {
                     let curH = max(furniture.height * contentRect.height, 1)
                     let s = max(abs(localX) * 2 / curW, abs(localY) * 2 / curH)
                     liveSize = CGSize(width: max(curW * s, 14), height: max(curH * s, 14))
-                } else if furniture.kind.isTube {
+                } else if furniture.kind.resizeWidthOnly {
                     // Only the length (long axis) resizes; the cross-section is fixed.
                     let curH = max(furniture.height * contentRect.height, 1)
                     liveSize = CGSize(width: max(abs(localX) * 2, 14), height: curH)
@@ -868,9 +888,9 @@ struct FurnitureView: View {
                 if let s = liveSize {
                     liveSize = nil
                     let newW = min(max(Double(s.width / contentRect.width), 0.02), 1)
-                    if furniture.kind.isTube {
+                    if furniture.kind.resizeWidthOnly {
                         // Keep the fixed cross-section exactly — no min-clamp, which on
-                        // a wide map would inflate the 7 cm width.
+                        // a wide map would inflate the thin dimension.
                         onResize(newW, furniture.height)
                     } else {
                         onResize(newW, min(max(Double(s.height / contentRect.height), 0.02), 1))
@@ -911,8 +931,10 @@ struct FurnitureView: View {
             Button { onArmResize() } label: {
                 Label("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
             }
-            Button { onResetSize() } label: {
-                Label("Reset Size", systemImage: "arrow.counterclockwise")
+            if canResetSize {
+                Button { onResetSize() } label: {
+                    Label("Reset Size", systemImage: "arrow.counterclockwise")
+                }
             }
         }
         Divider()

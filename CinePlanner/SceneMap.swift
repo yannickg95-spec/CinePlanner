@@ -161,7 +161,9 @@ struct Furniture: Identifiable, Codable, Equatable {
         case tube = "Tube"           // long tube, 120 cm (kept rawValue for old maps)
         case shortTube = "Short Tube" // 60 cm
         case bounce = "Bounce"
-        case softbox = "Softbox"
+        case softbox = "Softbox"   // shown as "Small Softbox"
+        case mediumSoftbox = "Medium Softbox"
+        case bigSoftbox = "Big Softbox"
         case par = "PAR"
         case lightBall = "Light Ball"
         case practical = "Practical"
@@ -183,6 +185,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         var displayName: String {
             switch self {
             case .lightPanel: return "2x1 Panel"
+            case .softbox:    return "Small Softbox"
             default:          return rawValue
             }
         }
@@ -205,7 +208,9 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .tube:        return CGSize(width: 0.22, height: 0.013)
             case .shortTube:   return CGSize(width: 0.11, height: 0.013)
             case .bounce:      return CGSize(width: 0.20, height: 0.014)
-            case .softbox:     return CGSize(width: 0.10, height: 0.10)
+            case .softbox:       return CGSize(width: 0.10, height: 0.10)
+            case .mediumSoftbox: return CGSize(width: 0.13, height: 0.13)
+            case .bigSoftbox:    return CGSize(width: 0.19, height: 0.127)
             case .par:         return CGSize(width: 0.06, height: 0.06)
             case .lightBall:   return CGSize(width: 0.12, height: 0.12)
             case .practical:   return CGSize(width: 0.04, height: 0.04)
@@ -229,7 +234,11 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// otherwise `defaultSize` (normalized) is used.
         var defaultRealSize: CGSize? {
             switch self {
-            case .lightBall: return CGSize(width: 0.70, height: 0.70)   // 70 cm across
+            case .lightBall: return CGSize(width: 0.60, height: 0.60)   // 60 cm across
+            case .practical: return CGSize(width: 0.20, height: 0.20)   // 20 cm across
+            case .softbox:       return CGSize(width: 0.50, height: 0.50)   // small, 50 × 50 cm
+            case .mediumSoftbox: return CGSize(width: 0.90, height: 0.90)   // medium, 90 × 90 cm
+            case .bigSoftbox:    return CGSize(width: 1.50, height: 1.00)   // big, 150 × 100 cm
             case .tube:      return CGSize(width: 1.20, height: 0.07)   // 120 × 7 cm
             case .shortTube: return CGSize(width: 0.60, height: 0.07)   // 60 × 7 cm
             case .bounce:    return CGSize(width: 1.00, height: 0.07)   // 100 × 7 cm
@@ -285,13 +294,20 @@ struct Furniture: Identifiable, Codable, Equatable {
             self == .smallTungsten || self == .mediumTungsten || self == .bigTungsten
         }
 
+        /// LED panels (2x1 / 1x1).
+        var isPanel: Bool { self == .lightPanel || self == .panel1x1 }
+
         /// Pieces whose width:height ratio is locked while resizing, so they can only
         /// scale uniformly and never be stretched.
-        var lockAspectRatio: Bool { isCOB || isHMI || isTungsten }
+        var lockAspectRatio: Bool { isCOB || isHMI || isTungsten || isPanel }
 
         /// LED tubes (long/short): only their length resizes; the cross-section
         /// (physical width) stays fixed, and can be swapped via the "modifier".
         var isTube: Bool { self == .tube || self == .shortTube }
+
+        /// Pieces that resize along their long axis only, keeping a fixed cross-section
+        /// (tubes and the bounce board).
+        var resizeWidthOnly: Bool { isTube || self == .bounce }
 
         /// The original Small/Medium/Big Light kinds are now superseded by the COBs;
         /// kept for decoding old maps, but no longer shown in the menu.
@@ -302,7 +318,8 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// Lights live on their own toolbar tab, not in the furniture menu.
         var isLight: Bool {
             switch self {
-            case .smallLight, .mediumLight, .bigLight, .tube, .shortTube, .bounce, .softbox,
+            case .smallLight, .mediumLight, .bigLight, .tube, .shortTube, .bounce,
+                 .softbox, .mediumSoftbox, .bigSoftbox,
                  .par, .lightBall, .practical, .lightPanel, .panel1x1,
                  .smallHMI, .mediumHMI, .bigHMI,
                  .smallTungsten, .mediumTungsten, .bigTungsten,

@@ -553,12 +553,19 @@ struct SceneMapEditorView: View {
                         Button(Furniture.Kind.lightPanel.displayName) { addFurniture(.lightPanel) }
                         Button(Furniture.Kind.panel1x1.displayName) { addFurniture(.panel1x1) }
                     }
+                    Menu("Softbox") {
+                        Button(Furniture.Kind.softbox.displayName) { addFurniture(.softbox) }
+                        Button("Medium Softbox") { addFurniture(.mediumSoftbox) }
+                        Button("Big Softbox") { addFurniture(.bigSoftbox) }
+                    }
                     ForEach(Furniture.Kind.allCases.filter {
                         $0.isLight && !$0.isCOB && !$0.isLegacyLight
                             && $0 != .tube && $0 != .shortTube
                             && $0 != .lightPanel && $0 != .panel1x1
                             && $0 != .smallHMI && $0 != .mediumHMI && $0 != .bigHMI
                             && $0 != .smallTungsten && $0 != .mediumTungsten && $0 != .bigTungsten
+                            && $0 != .softbox && $0 != .mediumSoftbox && $0 != .bigSoftbox
+                            && $0 != .par
                     }, id: \.self) { kind in
                         Button(kind.displayName) { addFurniture(kind) }
                     }
@@ -951,6 +958,7 @@ struct SceneMapEditorView: View {
                         furniture: item,
                         isSelected: furnitureSelectedID == item.id,
                         resizeArmed: furnitureResizeID == item.id,
+                        canResetSize: furnitureSizeChanged(item),
                         contentRect: rect,
                         zoom: zoom,
                         placeScale: CGFloat(mapPlacement.scale),
@@ -2148,6 +2156,26 @@ struct SceneMapEditorView: View {
         guard let i = doc.furniture.firstIndex(where: { $0.id == id }) else { return }
         doc.furniture[i].width = width; doc.furniture[i].height = height
         persist()
+    }
+
+    /// The size a piece would be reset to (real-world on a scaled map, else the
+    /// normalized default; tubes keep their modifier's cross-section).
+    private func defaultFurnitureSize(_ item: Furniture) -> CGSize {
+        let kind = item.kind
+        var size: CGSize
+        if let real = kind.defaultRealSize, let m = mapMetersWide, m > 0 {
+            size = CGSize(width: real.width / m, height: real.height / m)
+        } else {
+            size = kind.defaultSize
+        }
+        if kind.isTube { size.height = CGFloat(tubeCrossHeight(hasModifier: item.hasModifier)) }
+        return size
+    }
+
+    /// Whether a piece's current size differs from its default (so "Reset Size" is worth showing).
+    private func furnitureSizeChanged(_ item: Furniture) -> Bool {
+        let d = defaultFurnitureSize(item)
+        return abs(item.width - Double(d.width)) > 1e-4 || abs(item.height - Double(d.height)) > 1e-4
     }
 
     /// Restores a piece to its default size — real-world size on a scaled map,
