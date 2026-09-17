@@ -223,6 +223,78 @@ private func drawStormXT52(_ rect: CGRect, into ctx: inout GraphicsContext,
     ctx.fill(furnitureRoundedPath(plugRect, plugRect.height * 0.25), with: stroke)
 }
 
+/// Top-down HMI head: a wide flared reflector (bowl) opening toward the front (up),
+/// over a housing with vertical cooling fins. `domeTop` gives the big 18K a rounded
+/// dome; a flat top with a rim line reads as the medium head.
+private func drawHMILight(_ rect: CGRect, into ctx: inout GraphicsContext,
+                          fill: GraphicsContext.Shading, stroke: GraphicsContext.Shading,
+                          detail: GraphicsContext.Shading, lineWidth lw: CGFloat,
+                          topHalf: CGFloat, topY: CGFloat, shoulderY: CGFloat,
+                          neckHalf: CGFloat, neckY: CGFloat, bottomY: CGFloat,
+                          domeTop: Bool) {
+    let w = rect.width, h = rect.height, cx = rect.midX
+    func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * h }
+    func Xc(_ off: CGFloat) -> CGFloat { cx + off * w }   // off = fraction from centre
+    let unit = min(w, h)
+    let tCorner = unit * 0.03
+    let bCorner = unit * 0.06
+
+    var outline = Path()
+    outline.move(to: CGPoint(x: Xc(-neckHalf), y: Y(neckY)))          // neck, left
+    if domeTop {
+        // Thin angled flange out to the widest point, a broad shallow dome across the
+        // top (a cubic so it reads as a wide arc, not a bulbous mushroom cap), flange in.
+        outline.addLine(to: CGPoint(x: Xc(-topHalf), y: Y(shoulderY)))
+        outline.addCurve(to: CGPoint(x: Xc(topHalf), y: Y(shoulderY)),
+                         control1: CGPoint(x: Xc(-0.24), y: Y(topY)),
+                         control2: CGPoint(x: Xc(0.24), y: Y(topY)))
+        outline.addLine(to: CGPoint(x: Xc(neckHalf), y: Y(neckY)))
+    } else {
+        // Left wall, rounded top-left, flat top, rounded top-right, right wall.
+        outline.addQuadCurve(to: CGPoint(x: Xc(-topHalf), y: Y(topY) + tCorner),
+                             control: CGPoint(x: Xc(-topHalf), y: Y(neckY)))
+        outline.addQuadCurve(to: CGPoint(x: Xc(-topHalf) + tCorner, y: Y(topY)),
+                             control: CGPoint(x: Xc(-topHalf), y: Y(topY)))
+        outline.addLine(to: CGPoint(x: Xc(topHalf) - tCorner, y: Y(topY)))
+        outline.addQuadCurve(to: CGPoint(x: Xc(topHalf), y: Y(topY) + tCorner),
+                             control: CGPoint(x: Xc(topHalf), y: Y(topY)))
+        outline.addQuadCurve(to: CGPoint(x: Xc(neckHalf), y: Y(neckY)),
+                             control: CGPoint(x: Xc(topHalf), y: Y(neckY)))
+    }
+    // Housing: straight sides down to a rounded bottom.
+    outline.addLine(to: CGPoint(x: Xc(neckHalf), y: Y(bottomY) - bCorner))
+    outline.addQuadCurve(to: CGPoint(x: Xc(neckHalf) - bCorner, y: Y(bottomY)),
+                         control: CGPoint(x: Xc(neckHalf), y: Y(bottomY)))
+    outline.addLine(to: CGPoint(x: Xc(-neckHalf) + bCorner, y: Y(bottomY)))
+    outline.addQuadCurve(to: CGPoint(x: Xc(-neckHalf), y: Y(bottomY) - bCorner),
+                         control: CGPoint(x: Xc(-neckHalf), y: Y(bottomY)))
+    outline.closeSubpath()
+    ctx.fill(outline, with: fill)
+    ctx.stroke(outline, with: stroke, lineWidth: lw)
+
+    // Rim line just inside the flat top (medium head only).
+    if !domeTop {
+        let lipY = topY + (neckY - topY) * 0.16
+        var lip = Path()
+        lip.move(to: CGPoint(x: Xc(-topHalf) + tCorner, y: Y(lipY)))
+        lip.addLine(to: CGPoint(x: Xc(topHalf) - tCorner, y: Y(lipY)))
+        ctx.stroke(lip, with: stroke, lineWidth: lw)
+    }
+
+    // Four vertical cooling fins in the housing.
+    let barTop = neckY + (bottomY - neckY) * 0.16
+    let barBottom = bottomY - (bottomY - neckY) * 0.14
+    let barSpan = neckHalf * 0.70
+    var bars = Path()
+    let barOffsets: [CGFloat] = [-1, -1.0 / 3, 1.0 / 3, 1]
+    for t in barOffsets {
+        let bx = Xc(t * barSpan)
+        bars.move(to: CGPoint(x: bx, y: Y(barTop)))
+        bars.addLine(to: CGPoint(x: bx, y: Y(barBottom)))
+    }
+    ctx.stroke(bars, with: stroke, style: StrokeStyle(lineWidth: unit * 0.03, lineCap: .round))
+}
+
 /// Top-down silhouette per furniture kind, drawn into `rect`.
 private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: inout GraphicsContext,
                            fill: Color, stroke: Color, lineWidth lw: CGFloat,
@@ -355,6 +427,46 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         drawStormXT52(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
                       stroke: strokeC, detail: detailC, lineWidth: lw)
 
+    case .mediumHMI, .smallHMI:
+        // Same bucket reflector as the big head, but with a larger reflector (front)
+        // relative to the housing — the neck sits lower so the flared part is taller.
+        drawHMILight(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC,
+                     lineWidth: lw, topHalf: 0.48, topY: 0.02, shoulderY: 0.02,
+                     neckHalf: 0.33, neckY: 0.36, bottomY: 0.98, domeTop: false)
+
+    case .bigHMI:
+        // Flat top with rounded corners and a rim line (bucket reflector).
+        drawHMILight(rect, into: &ctx, fill: fillC, stroke: strokeC, detail: detailC,
+                     lineWidth: lw, topHalf: 0.48, topY: 0.02, shoulderY: 0.02,
+                     neckHalf: 0.394, neckY: 0.349, bottomY: 0.98, domeTop: false)
+
+    case .bigTungsten, .mediumTungsten, .smallTungsten:
+        // The Big HMI housing without the flared reflector: a finned tungsten box.
+        let bodyRect = rect.insetBy(dx: w * 0.10, dy: h * 0.03)
+        let body = furnitureRoundedPath(bodyRect, min(bodyRect.width, bodyRect.height) * 0.06)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        // Line near the front (lens) edge, spanning the full housing width, so a
+        // strip reads at that end. Clipped to the body so it stops at the sides.
+        var lensStrip = Path()
+        let stripY = bodyRect.minY + bodyRect.height * 0.09
+        lensStrip.move(to: CGPoint(x: bodyRect.minX, y: stripY))
+        lensStrip.addLine(to: CGPoint(x: bodyRect.maxX, y: stripY))
+        var stripCtx = ctx
+        stripCtx.clip(to: body)
+        stripCtx.stroke(lensStrip, with: strokeC, lineWidth: lw)
+        let finTop = bodyRect.minY + bodyRect.height * 0.22
+        let finBottom = bodyRect.maxY - bodyRect.height * 0.08
+        let finSpan = bodyRect.width * 0.62
+        var fins = Path()
+        let finOffsets: [CGFloat] = [-1, -1.0 / 3, 1.0 / 3, 1]
+        for t in finOffsets {
+            let fx = bodyRect.midX + t * finSpan / 2
+            fins.move(to: CGPoint(x: fx, y: finTop))
+            fins.addLine(to: CGPoint(x: fx, y: finBottom))
+        }
+        ctx.stroke(fins, with: strokeC, style: StrokeStyle(lineWidth: min(w, h) * 0.03, lineCap: .round))
+
     case .lightBall:
         // China ball / space light from above: a sphere with a concentric ring
         // and a faint frame cross. Non-directional.
@@ -455,27 +567,25 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         let lampR = w * 0.055
         ctx.fill(Path(ellipseIn: CGRect(x: c.x - lampR, y: backY - lampR * 1.6, width: lampR * 2, height: lampR * 2)), with: detailC)
 
-    case .lightPanel:
-        // Flat LED panel from above: a thin wide panel (emitting from the front, up)
-        // with an LED grid, on a small stand behind it.
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let panel = CGRect(x: rect.minX + w * 0.06, y: rect.minY + h * 0.16, width: w * 0.88, height: h * 0.40)
-        let panelPath = rr(panel, min(panel.width, panel.height) * 0.14)
+    case .lightPanel, .panel1x1:
+        // Flat LED panel (2x1 / 1x1) from above: a wide, shallow rounded rectangle filling
+        // the piece's full footprint (so its drawn width reads true), with an LED
+        // cell grid. Inset only by the stroke so the outline isn't clipped. No stand.
+        let panel = rect.insetBy(dx: lw / 2, dy: lw / 2)
+        let panelPath = rr(panel, min(panel.width, panel.height) * 0.16)
         ctx.fill(panelPath, with: fillC)
         ctx.stroke(panelPath, with: strokeC, lineWidth: lw)
         var grid = Path()
-        let cols = 4
+        // Column count follows the aspect so cells stay square-ish on either panel
+        // (≈6 on the 2x1, ≈3 on the 1x1).
+        let cols = max(2, Int((panel.width / max(panel.height, 1)).rounded()))
         for i in 1..<cols {
             let gx = panel.minX + panel.width * CGFloat(i) / CGFloat(cols)
             grid.move(to: CGPoint(x: gx, y: panel.minY)); grid.addLine(to: CGPoint(x: gx, y: panel.maxY))
         }
-        grid.move(to: CGPoint(x: panel.minX, y: panel.midY)); grid.addLine(to: CGPoint(x: panel.maxX, y: panel.midY))
         var clip = ctx
         clip.clip(to: panelPath)
         clip.stroke(grid, with: detailC, lineWidth: lw * 0.6)
-        var stand = Path()
-        stand.move(to: CGPoint(x: c.x, y: panel.maxY)); stand.addLine(to: CGPoint(x: c.x, y: rect.maxY - h * 0.08))
-        ctx.stroke(stand, with: detailC, lineWidth: lw)
     }
 }
 

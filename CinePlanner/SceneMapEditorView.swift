@@ -527,6 +527,16 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
+                    Menu("HMI") {
+                        Button("Small HMI") { addFurniture(.smallHMI) }
+                        Button("Medium HMI") { addFurniture(.mediumHMI) }
+                        Button("Big HMI") { addFurniture(.bigHMI) }
+                    }
+                    Menu("Tungsten") {
+                        Button("Small Tungsten") { addFurniture(.smallTungsten) }
+                        Button("Medium Tungsten") { addFurniture(.mediumTungsten) }
+                        Button("Big Tungsten") { addFurniture(.bigTungsten) }
+                    }
                     Menu("LED COB") {
                         ForEach(Furniture.Kind.allCases.filter { $0.isCOB }, id: \.self) { kind in
                             Button(kind.rawValue) { addFurniture(kind) }
@@ -536,10 +546,18 @@ struct SceneMapEditorView: View {
                         Button("Long Tube") { addFurniture(.tube) }
                         Button("Short Tube") { addFurniture(.shortTube) }
                     }
+                    Menu("Light Panel") {
+                        Button(Furniture.Kind.lightPanel.displayName) { addFurniture(.lightPanel) }
+                        Button(Furniture.Kind.panel1x1.displayName) { addFurniture(.panel1x1) }
+                    }
                     ForEach(Furniture.Kind.allCases.filter {
-                        $0.isLight && !$0.isCOB && !$0.isLegacyLight && $0 != .tube && $0 != .shortTube
+                        $0.isLight && !$0.isCOB && !$0.isLegacyLight
+                            && $0 != .tube && $0 != .shortTube
+                            && $0 != .lightPanel && $0 != .panel1x1
+                            && $0 != .smallHMI && $0 != .mediumHMI && $0 != .bigHMI
+                            && $0 != .smallTungsten && $0 != .mediumTungsten && $0 != .bigTungsten
                     }, id: \.self) { kind in
-                        Button(kind.rawValue) { addFurniture(kind) }
+                        Button(kind.displayName) { addFurniture(kind) }
                     }
                 } label: { addMenuLabel("lightbulb.fill") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: toolbarCellWidth)

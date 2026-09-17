@@ -165,11 +165,27 @@ struct Furniture: Identifiable, Codable, Equatable {
         case par = "PAR"
         case lightBall = "Light Ball"
         case practical = "Practical"
-        case lightPanel = "Light Panel"
+        case lightPanel = "Light Panel"   // shown as "2x1 Panel"
+        case panel1x1 = "1x1 Panel"
+        case smallHMI = "Small HMI"
+        case mediumHMI = "Medium HMI"
+        case bigHMI = "Big HMI"
+        case smallTungsten = "Small Tungsten"
+        case mediumTungsten = "Medium Tungsten"
+        case bigTungsten = "Big Tungsten"
         // LED COB heads — grouped under an "LED COB" submenu in the light tab.
         case smallCOB = "Small COB"
         case mediumCOB = "Medium COB"
         case bigCOB = "Big COB"
+
+        /// Name shown in menus. Kept separate from `rawValue` (which is the stable
+        /// storage key) so a piece can be renamed without breaking old saved maps.
+        var displayName: String {
+            switch self {
+            case .lightPanel: return "2x1 Panel"
+            default:          return rawValue
+            }
+        }
 
         /// Default size (normalized to the map's content rect) for a new piece.
         var defaultSize: CGSize {
@@ -193,7 +209,14 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .par:         return CGSize(width: 0.06, height: 0.06)
             case .lightBall:   return CGSize(width: 0.12, height: 0.12)
             case .practical:   return CGSize(width: 0.04, height: 0.04)
-            case .lightPanel:  return CGSize(width: 0.13, height: 0.08)
+            case .lightPanel:  return CGSize(width: 0.13, height: 0.023)
+            case .panel1x1:    return CGSize(width: 0.066, height: 0.023)
+            case .smallHMI:    return CGSize(width: 0.063, height: 0.061)
+            case .mediumHMI:   return CGSize(width: 0.09, height: 0.101)
+            case .smallTungsten: return CGSize(width: 0.043, height: 0.05)
+            case .mediumTungsten: return CGSize(width: 0.10, height: 0.113)
+            case .bigTungsten: return CGSize(width: 0.13, height: 0.163)
+            case .bigHMI:      return CGSize(width: 0.12, height: 0.137)
             // COBs are the STORM 80C / 1200x / XT52 designs, so they match the lights.
             case .smallCOB:    return CGSize(width: 0.056, height: 0.101)
             case .mediumCOB:   return CGSize(width: 0.064, height: 0.101)
@@ -222,6 +245,17 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallCOB:    return CGSize(width: 0.22, height: 0.40)
             case .mediumCOB:   return CGSize(width: 0.33, height: 0.519)
             case .bigCOB:      return CGSize(width: 0.53, height: 0.794)
+            // 2x1 LED panel from above: 69 cm wide × 12 cm deep.
+            case .lightPanel:  return CGSize(width: 0.69, height: 0.12)
+            // 1x1 LED panel from above: 35 cm wide × 12 cm deep.
+            case .panel1x1:    return CGSize(width: 0.35, height: 0.12)
+            // HMI heads from above (reflector + finned housing): length given by user.
+            case .smallHMI:    return CGSize(width: 0.28, height: 0.27)   // 28 × 27 cm
+            case .mediumHMI:   return CGSize(width: 0.40, height: 0.45)   // 40 × 45 cm
+            case .bigHMI:      return CGSize(width: 0.70, height: 0.80)   // 18K: 70 × 80 cm
+            case .smallTungsten: return CGSize(width: 0.19, height: 0.22)  // 19 × 22 cm
+            case .mediumTungsten: return CGSize(width: 0.46, height: 0.52) // 46 × 52 cm
+            case .bigTungsten: return CGSize(width: 0.80, height: 1.00)   // 80 × 100 cm
             default:         return nil
             }
         }
@@ -259,7 +293,9 @@ struct Furniture: Identifiable, Codable, Equatable {
         var isLight: Bool {
             switch self {
             case .smallLight, .mediumLight, .bigLight, .tube, .shortTube, .bounce, .softbox,
-                 .par, .lightBall, .practical, .lightPanel,
+                 .par, .lightBall, .practical, .lightPanel, .panel1x1,
+                 .smallHMI, .mediumHMI, .bigHMI,
+                 .smallTungsten, .mediumTungsten, .bigTungsten,
                  .smallCOB, .mediumCOB, .bigCOB:
                 return true
             default:
