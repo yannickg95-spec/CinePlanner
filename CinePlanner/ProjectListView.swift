@@ -111,6 +111,7 @@ struct ProjectListView: View {
                     projectGrid
                 }
             }
+            .overlay(alignment: .top) { TrialBanner() }
             .navigationTitle("CinePlanner")
             .navigationDestination(for: Project.self) { project in
                 ProjectEditorView(project: project)

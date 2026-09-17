@@ -409,9 +409,11 @@ struct SceneMapEditorView: View {
     /// the row is pulled tight to the top so the map gets the most height.
     private var compactToolbar: some View {
         Group {
+            // On iPhone the clear-map button moves to the map's top-left corner
+            // (opposite ADJUST), so it never crowds this row — see
+            // `clearMapCornerButton`.
             if isPhoneLandscape {
                 HStack(spacing: 10) {
-                    trashButton
                     addSegmentedGroup
                     sizeSunGroup
                 }
@@ -419,15 +421,22 @@ struct SceneMapEditorView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 1)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        trashButton
-                        addSegmentedGroup
-                        sizeSunGroup
+                // Centre the row when it fits; only scroll when it genuinely overflows.
+                // A GeometryReader gives the available width, and `minWidth` on the
+                // content makes it at least that wide (so it centres) while still able
+                // to grow and scroll past it.
+                GeometryReader { geo in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            addSegmentedGroup
+                            sizeSunGroup
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .frame(minWidth: geo.size.width, alignment: .center)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
                 }
+                .frame(height: toolbarPillHeight + 20)
             }
         }
     }
@@ -860,8 +869,9 @@ struct SceneMapEditorView: View {
                     AppleMapsAttribution(rect: rect)
                 }
             }
-            .overlay { reframeButton(in: rect) }
-            .overlay { backgroundAdjustButton(in: rect) }
+            .overlay { reframeButton() }
+            .overlay { backgroundAdjustButton() }
+            .overlay { clearMapCornerButton() }
             .overlay { reframeChrome(in: rect, canvas: geo.size) }
             .overlay { backgroundAdjustChrome(in: rect, canvas: geo.size) }
             // Camera shot-info card — fixed chrome outside the map group's transform,
@@ -1256,7 +1266,7 @@ struct SceneMapEditorView: View {
     /// toolbar row is long enough already. Hidden once the tool is running — the
     /// reframe bar carries its own way out.
     @ViewBuilder
-    private func reframeButton(in rect: CGRect) -> some View {
+    private func reframeButton() -> some View {
         if canReframe, !isReframeMode, !isDrawing, pendingMove == nil {
             Button {
                 reframeHeading = Compass.normalized(satelliteAnchor?.heading ?? 0)
@@ -1280,15 +1290,10 @@ struct SceneMapEditorView: View {
             }
             .buttonStyle(.plain)
             .help("Adjust the satellite map")
-            // Pinned to the map's own top-right corner, not the canvas's — on a wide
-            // window the square map leaves empty canvas beside it, and a button
-            // floating out there reads as belonging to nothing. Cornered by
-            // alignment rather than a computed centre, since the label's width
-            // depends on the text. Outside the zoom transform, so it stays put while
-            // the map moves under it.
+            // Pinned to the map area's top-right corner (just under the toolbar),
+            // overlaid on the map, matching the drawn-plan ADJUST/EDIT chrome.
             .padding(10)
-            .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
-            .position(x: rect.midX, y: rect.midY)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
 
@@ -1297,28 +1302,62 @@ struct SceneMapEditorView: View {
     /// reframes and only a plain image aligns. Hidden while the tool is running; the
     /// align panel carries its own way out.
     @ViewBuilder
-    private func backgroundAdjustButton(in rect: CGRect) -> some View {
-        // Top-trailing chrome for a placed map: edit a drawn plan's walls/doors/
-        // windows, and adjust the whole map's zoom, rotation and position. Hidden
-        // while a mode is already running or the map is being drawn.
-        Group {
-            if !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
-                HStack(spacing: 8) {
-                    if !floorPlan.isEmpty {
-                        mapChromePill("EDIT", systemImage: "pencil.and.ruler") { resumeDrawing() }
-                            .help("Add walls, doors and windows")
-                    }
-                    if hasAlignableBackground {
-                        mapChromePill("ADJUST", systemImage: "arrow.up.left.and.arrow.down.right") {
-                            startBackgroundAdjust()
-                        }
-                        .help("Move, zoom and rotate the map")
-                    }
-                }
-                .padding(10)
-                .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
-                .position(x: rect.midX, y: rect.midY)
+    /// Whether the EDIT/ADJUST chrome should currently be offered.
+    private var hasMapChromeButtons: Bool {
+        guard !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil else { return false }
+        return !floorPlan.isEmpty || hasAlignableBackground
+    }
+
+    /// EDIT (walls/doors/windows) and ADJUST (zoom/rotate/move) pills. Placed in the
+    /// map's top-right corner on iPhone and in a strip under the toolbar on iPad/Mac.
+    @ViewBuilder
+    private var mapChromeButtons: some View {
+        HStack(spacing: 8) {
+            if !floorPlan.isEmpty {
+                mapChromePill("EDIT", systemImage: "pencil.and.ruler") { resumeDrawing() }
+                    .help("Add walls, doors and windows")
             }
+            if hasAlignableBackground {
+                mapChromePill("ADJUST", systemImage: "arrow.up.left.and.arrow.down.right") {
+                    startBackgroundAdjust()
+                }
+                .help("Move, zoom and rotate the map")
+            }
+        }
+    }
+
+    /// EDIT/ADJUST pinned to the map area's top-right corner (just under the toolbar),
+    /// overlaid on the plan on every platform.
+    @ViewBuilder
+    private func backgroundAdjustButton() -> some View {
+        if hasMapChromeButtons {
+            mapChromeButtons
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+    }
+
+    /// iPhone only: the clear-map button in the map's top-LEFT corner (opposite
+    /// ADJUST), so it doesn't have to fit in the compact toolbar row. Shown only
+    /// when there's something to clear and no mode is running.
+    @ViewBuilder
+    private func clearMapCornerButton() -> some View {
+        if isPhone, !mapIsEmpty, !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
+            Button(role: .destructive) { showingClearAllConfirm = true } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+            }
+            .buttonStyle(.plain)
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .help("Clear Map — remove everything from the scene map")
+            .accessibilityLabel("Clear map")
         }
     }
 

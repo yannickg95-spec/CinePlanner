@@ -15,40 +15,47 @@ import SwiftUI
 /// blocking paywall once access has expired.
 struct RootGateView<Content: View>: View {
     @EnvironmentObject private var access: AppAccess
-    @State private var showTrialPaywall = false
     let content: Content
 
     init(@ViewBuilder content: () -> Content) { self.content = content() }
 
     var body: some View {
         content
-            .overlay(alignment: .top) { trialBanner }
             .overlay { if access.isLocked { PaywallView(dismissable: false) } }
             .allowsHitTesting(!access.isLocked)   // block the app behind the paywall
             .task { await access.start() }
-            .sheet(isPresented: $showTrialPaywall) { PaywallView(dismissable: true) }
             .animation(.easeInOut, value: access.state)
     }
+}
 
-    @ViewBuilder private var trialBanner: some View {
-        if case .trial(let days) = access.state {
-            Button { showTrialPaywall = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                    Text(days == 1 ? "Last day of your free trial" : "\(days) days left in your free trial")
-                        .fontWeight(.medium)
-                    Text("· Unlock")
-                        .fontWeight(.semibold)
+/// A tappable capsule shown on the projects page while the trial runs.
+struct TrialBanner: View {
+    @EnvironmentObject private var access: AppAccess
+    @State private var showPaywall = false
+
+    var body: some View {
+        Group {
+            if case .trial(let days) = access.state {
+                Button { showPaywall = true } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                        Text(days == 1 ? "Last day of your free trial" : "\(days) days left in your free trial")
+                            .fontWeight(.medium)
+                        Text("· Unlock")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.footnote)
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.tint.opacity(0.5)))
                 }
-                .font(.footnote)
-                .padding(.horizontal, 14).padding(.vertical, 7)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(.tint.opacity(0.5)))
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .sheet(isPresented: $showPaywall) { PaywallView(dismissable: true) }
             }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
         }
+        .animation(.easeInOut, value: access.state)
     }
 }
 
@@ -112,6 +119,12 @@ struct PaywallView: View {
                     Text(error)
                         .font(.footnote)
                         .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 360)
+                } else if store.product == nil && !store.isLoadingProduct {
+                    Text("The store is currently unavailable. Please check your connection and try again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 360)
                 }
