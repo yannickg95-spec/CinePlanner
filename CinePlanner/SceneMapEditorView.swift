@@ -1094,9 +1094,14 @@ struct SceneMapEditorView: View {
                         },
                         onMoveLabel: { offset in moveFurnitureLabel(item.id, to: offset) },
                         metersWide: mapMetersWide,
+                        viewable: scene.sceneMapViewableMarkerSize,
                         onDelete: { deleteFurniture(item.id) }
                     )
                     .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive)
+                    // Furniture normally sits below the people/cameras, but the selected
+                    // piece floats above them — so a just-added (auto-selected) light
+                    // can't hide under a marker and stays easy to grab.
+                    .zIndex(furnitureSelectedID == item.id ? 2 : 0)
                 }
             }
             ForEach(doc.elements) { element in
@@ -1148,6 +1153,8 @@ struct SceneMapEditorView: View {
                     placeRotation: mapPlacement.rotation
                 )
                 .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive)
+                // Above unselected furniture, below the *selected* furniture piece.
+                .zIndex(1)
             }
         }
     }

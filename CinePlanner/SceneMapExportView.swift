@@ -236,7 +236,7 @@ struct SceneMapExportView: View {
                                   placeScale: CGFloat(place.scale), placeRotation: place.rotation,
                                   onSelect: {}, onMove: { _ in }, onRotate: { _ in },
                                   onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
-                                  onDuplicate: {}, onDelete: {})
+                                  onDuplicate: {}, viewable: viewableMarkers, onDelete: {})
                 }
                 ForEach(doc.elements) { element in
                     MapMarkerView(element: element, label: labels[element.id] ?? element.label,

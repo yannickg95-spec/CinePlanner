@@ -705,6 +705,10 @@ struct FurnitureView: View {
     /// Real-world metres spanning the (square) measured background; nil = unmeasured
     /// (no dimensions shown while resizing).
     var metersWide: Double? = nil
+    /// "Enlarge markers" mode: floors a light's drawn size at its default so a lamp
+    /// that renders tiny on a large measured map stays easy to see (mirrors the
+    /// camera/mannequin markers' viewable-size floor). Off = true real-world size.
+    var viewable: Bool = false
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -728,8 +732,17 @@ struct FurnitureView: View {
                 y: contentRect.minY + furniture.y * contentRect.height)
     }
     private var sizePts: CGSize {
-        liveSize ?? CGSize(width: CGFloat(furniture.width) * contentRect.width,
-                           height: CGFloat(furniture.height) * contentRect.height)
+        if let liveSize { return liveSize }
+        var w = CGFloat(furniture.width), h = CGFloat(furniture.height)
+        // Enlarge-markers mode: never let a light draw smaller than its default size,
+        // so a lamp sized to a big measured map (tiny in real-world terms) stays
+        // visible. A truss is length-to-scale, so it keeps its true size (enlarging it
+        // would change how long it reads).
+        if viewable, furniture.kind.isLight, !furniture.kind.isTruss {
+            let def = furniture.kind.defaultSize
+            w = max(w, def.width); h = max(h, def.height)
+        }
+        return CGSize(width: w * contentRect.width, height: h * contentRect.height)
     }
     var body: some View {
         let w = max(sizePts.width, 8), h = max(sizePts.height, 8)
