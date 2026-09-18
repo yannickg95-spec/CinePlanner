@@ -2246,12 +2246,23 @@ struct SceneMapEditorView: View {
 
     // MARK: - Furniture
 
+    /// An implied metres-wide for UNSCALED maps, derived from the marker base size
+    /// (a 0.45 m person drawn ~30 pt), so a light placed on a map without dimensions
+    /// still comes out realistically sized relative to the people/camera markers
+    /// instead of using its (much larger) normalized default.
+    private var impliedMetersWide: Double? {
+        mapContentWidth > 0 ? Double(mapContentWidth) * (0.45 / 30) : nil
+    }
+
     private func addFurniture(_ kind: Furniture.Kind) {
         let point = newElementPoint
         // Use the real-world default size on a scaled map (so it lands at true size),
         // else the normalized default. Either way it stays freely resizable.
         let size: CGSize
         if let real = kind.defaultRealSize, let m = mapMetersWide, m > 0 {
+            size = CGSize(width: real.width / m, height: real.height / m)
+        } else if kind.isLight, let real = kind.defaultRealSize, let m = impliedMetersWide {
+            // Unscaled map: size lights by the implied scale so they match the markers.
             size = CGSize(width: real.width / m, height: real.height / m)
         } else {
             size = kind.defaultSize
@@ -2309,9 +2320,13 @@ struct SceneMapEditorView: View {
 
     private func addTruss(lengthMeters: Double?) {
         let point = newElementPoint
+        let thickness = Furniture.Kind.trussThicknessMeters
         let size: CGSize
         if let m = mapMetersWide, m > 0, let len = lengthMeters, len > 0 {
-            size = CGSize(width: len / m, height: Furniture.Kind.trussThicknessMeters / m)
+            size = CGSize(width: len / m, height: thickness / m)
+        } else if let m = impliedMetersWide {
+            // Unscaled map: a default 3 m truss at the implied scale (matches markers).
+            size = CGSize(width: 3.0 / m, height: thickness / m)
         } else {
             size = Furniture.Kind.truss.defaultSize
         }
@@ -2355,6 +2370,8 @@ struct SceneMapEditorView: View {
         let kind = item.kind
         var size: CGSize
         if let real = kind.defaultRealSize, let m = mapMetersWide, m > 0 {
+            size = CGSize(width: real.width / m, height: real.height / m)
+        } else if kind.isLight, let real = kind.defaultRealSize, let m = impliedMetersWide {
             size = CGSize(width: real.width / m, height: real.height / m)
         } else {
             size = kind.defaultSize
