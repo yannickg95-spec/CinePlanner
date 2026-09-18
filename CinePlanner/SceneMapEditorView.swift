@@ -185,6 +185,9 @@ struct SceneMapEditorView: View {
     /// anywhere on the map moves it. These hold the drag target and its start spot.
     @State private var anywhereMoveTarget: MoveTarget?
     @State private var anywhereMoveBase: CGPoint?
+    /// Truss add: prompts for a length in metres on a measured map.
+    @State private var trussPrompt = false
+    @State private var trussInput = ""
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -302,6 +305,16 @@ struct SceneMapEditorView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes every marker, arrow, furniture piece, floor plan and background from this scene's map. It can't be undone.")
+        }
+        .alert("Truss Length", isPresented: $trussPrompt) {
+            TextField("Length in metres", text: $trussInput)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+            Button("Add") { addTrussFromPrompt() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("How many metres long is the truss?")
         }
         .sheet(isPresented: $showManageCharacters) {
             if let project = scene.project {
@@ -578,6 +591,7 @@ struct SceneMapEditorView: View {
                         Button(Furniture.Kind.frame12.displayName) { addFurniture(.frame12) }
                         Button(Furniture.Kind.frame20.displayName) { addFurniture(.frame20) }
                     }
+                    Button("Truss") { beginAddTruss() }
                     ForEach(Furniture.Kind.allCases.filter {
                         $0.isLight && !$0.isCOB && !$0.isLegacyLight
                             && $0 != .tube && $0 != .shortTube
@@ -586,6 +600,7 @@ struct SceneMapEditorView: View {
                             && $0 != .smallTungsten && $0 != .mediumTungsten && $0 != .bigTungsten
                             && $0 != .softbox && $0 != .mediumSoftbox && $0 != .bigSoftbox
                             && !$0.isFrame
+                            && $0 != .truss
                             && $0 != .bounce
                             && $0 != .par
                     }, id: \.self) { kind in
@@ -997,6 +1012,9 @@ struct SceneMapEditorView: View {
                         isSelected: furnitureSelectedID == item.id,
                         resizeArmed: furnitureResizeID == item.id,
                         canResetSize: furnitureSizeChanged(item),
+                        widthOnlyResize: item.kind.resizeWidthOnly
+                            || (item.kind.isTruss && mapMetersWide != nil),
+                        showsLengthHandles: item.kind.isTruss && mapMetersWide == nil,
                         contentRect: rect,
                         zoom: zoom,
                         placeScale: CGFloat(mapPlacement.scale),
@@ -2269,6 +2287,39 @@ struct SceneMapEditorView: View {
         sb.colorHex = Furniture.Kind.softbox.defaultColorHex
         doc.furniture.append(sb)
         selectFurniture(sb.id)
+        persist()
+    }
+
+    /// Truss: prompt for a length on a measured map; on an unscaled map add a
+    /// default-length truss the user can stretch/lengthen with its handles.
+    private func beginAddTruss() {
+        if mapMetersWide != nil {
+            trussInput = ""
+            trussPrompt = true
+        } else {
+            addTruss(lengthMeters: nil)
+        }
+    }
+
+    private func addTrussFromPrompt() {
+        let normalized = trussInput.replacingOccurrences(of: ",", with: ".")
+        guard let meters = Double(normalized), meters > 0 else { return }
+        addTruss(lengthMeters: meters)
+    }
+
+    private func addTruss(lengthMeters: Double?) {
+        let point = newElementPoint
+        let size: CGSize
+        if let m = mapMetersWide, m > 0, let len = lengthMeters, len > 0 {
+            size = CGSize(width: len / m, height: Furniture.Kind.trussThicknessMeters / m)
+        } else {
+            size = Furniture.Kind.truss.defaultSize
+        }
+        var item = Furniture(kind: .truss, x: point.x, y: point.y,
+                             width: Double(size.width), height: Double(size.height))
+        item.colorHex = Furniture.Kind.truss.defaultColorHex
+        doc.furniture.append(item)
+        selectFurniture(item.id)
         persist()
     }
 

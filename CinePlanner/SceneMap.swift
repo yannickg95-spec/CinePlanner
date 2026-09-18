@@ -180,6 +180,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         case frame8 = "8x8 Frame"
         case frame12 = "12x12 Frame"
         case frame20 = "20x20 Frame"
+        case truss = "Truss"
         // LED COB heads — grouped under an "LED COB" submenu in the light tab.
         case smallCOB = "Small COB"
         case mediumCOB = "Medium COB"
@@ -235,6 +236,7 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .frame8:      return CGSize(width: 0.30, height: 0.017)
             case .frame12:     return CGSize(width: 0.40, height: 0.017)
             case .frame20:     return CGSize(width: 0.55, height: 0.017)
+            case .truss:       return CGSize(width: 0.40, height: 0.030)
             case .bigHMI:      return CGSize(width: 0.12, height: 0.137)
             // COBs are the STORM 80C / 1200x / XT52 designs, so they match the lights.
             case .smallCOB:    return CGSize(width: 0.056, height: 0.101)
@@ -323,6 +325,11 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// Diffusion / silk frames (4'/8'/12'/20').
         var isFrame: Bool { self == .frame4 || self == .frame8 || self == .frame12 || self == .frame20 }
 
+        /// Lighting truss (a straight span; length is set by the user).
+        var isTruss: Bool { self == .truss }
+        /// Real-world truss depth (cross-section) in metres — a ~30 cm box truss.
+        static let trussThicknessMeters = 0.30
+
         /// Fixtures a softbox can be mounted on (its base snaps to their front).
         var canMountSoftbox: Bool { isHMI || isTungsten || isCOB || isPanel }
 
@@ -352,7 +359,7 @@ struct Furniture: Identifiable, Codable, Equatable {
                  .par, .lightBall, .practical, .lightPanel, .panel1x1,
                  .smallHMI, .mediumHMI, .bigHMI,
                  .smallTungsten, .mediumTungsten, .bigTungsten,
-                 .frame4, .frame8, .frame12, .frame20,
+                 .frame4, .frame8, .frame12, .frame20, .truss,
                  .smallCOB, .mediumCOB, .bigCOB:
                 return true
             default:

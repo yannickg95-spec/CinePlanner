@@ -631,6 +631,29 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         rails.move(to: CGPoint(x: rx0, y: bar.minY)); rails.addLine(to: CGPoint(x: rx0, y: bar.maxY))
         rails.move(to: CGPoint(x: rx1, y: bar.minY)); rails.addLine(to: CGPoint(x: rx1, y: bar.maxY))
         ctx.stroke(rails, with: strokeC, lineWidth: lw)
+
+    case .truss:
+        // Lighting truss from above: just the tubes — the two chords, end caps and
+        // zig-zag web bracing — with the space between them left open (no fill).
+        let bar = rect.insetBy(dx: lw / 2, dy: lw / 2)
+        var chords = Path()
+        chords.move(to: CGPoint(x: bar.minX, y: bar.minY)); chords.addLine(to: CGPoint(x: bar.maxX, y: bar.minY))
+        chords.move(to: CGPoint(x: bar.minX, y: bar.maxY)); chords.addLine(to: CGPoint(x: bar.maxX, y: bar.maxY))
+        chords.move(to: CGPoint(x: bar.minX, y: bar.minY)); chords.addLine(to: CGPoint(x: bar.minX, y: bar.maxY))
+        chords.move(to: CGPoint(x: bar.maxX, y: bar.minY)); chords.addLine(to: CGPoint(x: bar.maxX, y: bar.maxY))
+        ctx.stroke(chords, with: strokeC, lineWidth: lw * 1.7)
+        // Zig-zag web bracing between the chords.
+        var web = Path()
+        let seg = max(bar.height, 6)
+        web.move(to: CGPoint(x: bar.minX, y: bar.maxY))
+        var x = bar.minX
+        var up = true
+        while x < bar.maxX - 0.5 {
+            let nx = min(x + seg, bar.maxX)
+            web.addLine(to: CGPoint(x: nx, y: up ? bar.minY : bar.maxY))
+            x = nx; up.toggle()
+        }
+        ctx.stroke(web, with: strokeC, lineWidth: lw * 1.2)
     }
 }
 
@@ -643,6 +666,12 @@ struct FurnitureView: View {
     var resizeArmed: Bool = true
     /// Whether the piece's size differs from its default, so "Reset Size" is offered.
     var canResetSize: Bool = false
+    /// Resize changes the long axis only (fixed cross-section) — tubes, bounce,
+    /// frames, and a truss on a measured map.
+    var widthOnlyResize: Bool = false
+    /// Truss on an unscaled map: show mid-end length handles (drag to lengthen /
+    /// shorten from that end) in addition to the corner stretch handles.
+    var showsLengthHandles: Bool = false
     let contentRect: CGRect
     /// Counter-scales the label by 1/zoom so it stays a constant on-screen size.
     var zoom: CGFloat = 1
@@ -678,6 +707,8 @@ struct FurnitureView: View {
     @State private var grabOffset: CGSize = .zero
     @State private var liveRotation: Double?
     @State private var liveSize: CGSize?
+    /// Width (points) and centre captured when an end length-handle drag starts.
+    @State private var lengthResizeBase: (width: CGFloat, center: CGPoint)?
     /// Live label nudge while the label is being dragged; `nil` otherwise.
     @State private var liveLabelOffset: CGSize?
     /// Pointer-to-label offset captured when the label drag begins.
@@ -731,6 +762,11 @@ struct FurnitureView: View {
                     cornerHandle( 1, -1, w: w, h: h)
                     cornerHandle(-1,  1, w: w, h: h)
                     cornerHandle( 1,  1, w: w, h: h)
+                }
+                // Truss on an unscaled map: mid-end handles to lengthen/shorten.
+                if showsLengthHandles && resizeArmed {
+                    lengthHandle(-1, w: w, h: h)
+                    lengthHandle( 1, w: w, h: h)
                 }
                 rotationHandle
                     .scaleEffect(1 / (zoom * placeScale), anchor: .center)
@@ -888,6 +924,48 @@ struct FurnitureView: View {
             .gesture(resizeDrag)
     }
 
+    /// A length handle at the middle of one short end (`side` −1 = left, +1 = right).
+    /// Dragging it lengthens/shortens the piece from that end, the opposite end fixed.
+    private func lengthHandle(_ side: CGFloat, w: CGFloat, h: CGFloat) -> some View {
+        let r = displayRotation * .pi / 180
+        let lx = side * w / 2
+        let ox = lx * cos(r)
+        let oy = lx * sin(r)
+        return Circle()
+            .fill(.white)
+            .overlay(Circle().stroke(Color.accentColor, lineWidth: 1.4))
+            .frame(width: 11, height: 11)
+            .contentShape(Circle().inset(by: -(7 + sceneMapHandleSlop)))
+            .offset(x: ox, y: oy)
+            .gesture(
+                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                    .onChanged { value in
+                        onSelect()
+                        if lengthResizeBase == nil {
+                            lengthResizeBase = (CGFloat(furniture.width) * contentRect.width, center)
+                        }
+                        guard let base = lengthResizeBase else { return }
+                        // Drag projected onto the piece's long axis.
+                        let localDX = value.translation.width * cos(r) + value.translation.height * sin(r)
+                        let newWidth = max(base.width + side * localDX, 14)
+                        // The far end stays put, so the centre shifts by half the change
+                        // along the long axis.
+                        let shift = side * (newWidth - base.width) / 2
+                        livePosition = CGPoint(x: base.center.x + shift * cos(r),
+                                               y: base.center.y + shift * sin(r))
+                        liveSize = CGSize(width: newWidth, height: h)
+                    }
+                    .onEnded { _ in
+                        if let s = liveSize {
+                            onResize(min(max(Double(s.width / contentRect.width), 0.02), 1),
+                                     Double(furniture.height))
+                        }
+                        if let p = livePosition { onMove(normalized(p)) }
+                        liveSize = nil; livePosition = nil; lengthResizeBase = nil
+                    }
+            )
+    }
+
     private var resizeDrag: some Gesture {
         DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
             .onChanged { value in
@@ -905,7 +983,7 @@ struct FurnitureView: View {
                     let curH = max(furniture.height * contentRect.height, 1)
                     let s = max(abs(localX) * 2 / curW, abs(localY) * 2 / curH)
                     liveSize = CGSize(width: max(curW * s, 14), height: max(curH * s, 14))
-                } else if furniture.kind.resizeWidthOnly {
+                } else if widthOnlyResize {
                     // Only the length (long axis) resizes; the cross-section is fixed.
                     let curH = max(furniture.height * contentRect.height, 1)
                     liveSize = CGSize(width: max(abs(localX) * 2, 14), height: curH)
@@ -917,7 +995,7 @@ struct FurnitureView: View {
                 if let s = liveSize {
                     liveSize = nil
                     let newW = min(max(Double(s.width / contentRect.width), 0.02), 1)
-                    if furniture.kind.resizeWidthOnly {
+                    if widthOnlyResize {
                         // Keep the fixed cross-section exactly — no min-clamp, which on
                         // a wide map would inflate the thin dimension.
                         onResize(newW, furniture.height)
