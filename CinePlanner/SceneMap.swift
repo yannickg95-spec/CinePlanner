@@ -175,6 +175,11 @@ struct Furniture: Identifiable, Codable, Equatable {
         case smallTungsten = "Small Tungsten"
         case mediumTungsten = "Medium Tungsten"
         case bigTungsten = "Big Tungsten"
+        // Diffusion / silk frames (square, sized in feet) — grouped under "Frames".
+        case frame4 = "4x4 Frame"
+        case frame8 = "8x8 Frame"
+        case frame12 = "12x12 Frame"
+        case frame20 = "20x20 Frame"
         // LED COB heads — grouped under an "LED COB" submenu in the light tab.
         case smallCOB = "Small COB"
         case mediumCOB = "Medium COB"
@@ -186,6 +191,10 @@ struct Furniture: Identifiable, Codable, Equatable {
             switch self {
             case .lightPanel: return "2x1 Panel"
             case .softbox:    return "Small Softbox"
+            case .frame4:     return "4'x4' · 1.20m"
+            case .frame8:     return "8'x8' · 2.4m"
+            case .frame12:    return "12'x12' · 3.6m"
+            case .frame20:    return "20'x20' · 6m"
             default:          return rawValue
             }
         }
@@ -221,6 +230,11 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallTungsten: return CGSize(width: 0.043, height: 0.05)
             case .mediumTungsten: return CGSize(width: 0.10, height: 0.113)
             case .bigTungsten: return CGSize(width: 0.13, height: 0.163)
+            // Top-down: a frame stands vertically, so it reads as a thin bar.
+            case .frame4:      return CGSize(width: 0.20, height: 0.017)
+            case .frame8:      return CGSize(width: 0.30, height: 0.017)
+            case .frame12:     return CGSize(width: 0.40, height: 0.017)
+            case .frame20:     return CGSize(width: 0.55, height: 0.017)
             case .bigHMI:      return CGSize(width: 0.12, height: 0.137)
             // COBs are the STORM 80C / 1200x / XT52 designs, so they match the lights.
             case .smallCOB:    return CGSize(width: 0.056, height: 0.101)
@@ -265,6 +279,12 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallTungsten: return CGSize(width: 0.19, height: 0.22)  // 19 × 22 cm
             case .mediumTungsten: return CGSize(width: 0.46, height: 0.52) // 46 × 52 cm
             case .bigTungsten: return CGSize(width: 0.80, height: 1.00)   // 80 × 100 cm
+            // Frames from above: a thin bar as wide as the frame (metric names), with
+            // a small stand/frame depth.
+            case .frame4:      return CGSize(width: 1.20, height: 0.10)
+            case .frame8:      return CGSize(width: 2.40, height: 0.10)
+            case .frame12:     return CGSize(width: 3.60, height: 0.10)
+            case .frame20:     return CGSize(width: 6.00, height: 0.10)
             default:         return nil
             }
         }
@@ -300,6 +320,9 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// Softbox heads (Small/Medium/Big).
         var isSoftbox: Bool { self == .softbox || self == .mediumSoftbox || self == .bigSoftbox }
 
+        /// Diffusion / silk frames (4'/8'/12'/20').
+        var isFrame: Bool { self == .frame4 || self == .frame8 || self == .frame12 || self == .frame20 }
+
         /// Fixtures a softbox can be mounted on (its base snaps to their front).
         var canMountSoftbox: Bool { isHMI || isTungsten || isCOB || isPanel }
 
@@ -313,7 +336,7 @@ struct Furniture: Identifiable, Codable, Equatable {
 
         /// Pieces that resize along their long axis only, keeping a fixed cross-section
         /// (tubes and the bounce board).
-        var resizeWidthOnly: Bool { isTube || self == .bounce }
+        var resizeWidthOnly: Bool { isTube || self == .bounce || isFrame }
 
         /// The original Small/Medium/Big Light kinds are now superseded by the COBs;
         /// kept for decoding old maps, but no longer shown in the menu.
@@ -329,6 +352,7 @@ struct Furniture: Identifiable, Codable, Equatable {
                  .par, .lightBall, .practical, .lightPanel, .panel1x1,
                  .smallHMI, .mediumHMI, .bigHMI,
                  .smallTungsten, .mediumTungsten, .bigTungsten,
+                 .frame4, .frame8, .frame12, .frame20,
                  .smallCOB, .mediumCOB, .bigCOB:
                 return true
             default:

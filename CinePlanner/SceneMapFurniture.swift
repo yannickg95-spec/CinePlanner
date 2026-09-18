@@ -604,6 +604,33 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         var clip = ctx
         clip.clip(to: panelPath)
         clip.stroke(grid, with: detailC, lineWidth: lw * 0.6)
+
+    case .frame4, .frame8, .frame12, .frame20:
+        // Diffusion / silk frame from ABOVE: a frame stands vertically, so top-down it
+        // reads as a thin bar the width of the frame — the fabric span with the two
+        // side rails at the ends and a diagonal silk hatch.
+        let bar = rect.insetBy(dx: lw / 2, dy: lw / 2)
+        let body = rr(bar, min(bar.width, bar.height) * 0.3)
+        ctx.fill(body, with: fillC)
+        ctx.stroke(body, with: strokeC, lineWidth: lw)
+        // Diagonal hatch (the silk), clipped to the bar.
+        var hatch = Path()
+        let step = max(bar.height * 1.1, 6)
+        var x = bar.minX - bar.height
+        while x < bar.maxX {
+            hatch.move(to: CGPoint(x: x, y: bar.maxY))
+            hatch.addLine(to: CGPoint(x: x + bar.height, y: bar.minY))
+            x += step
+        }
+        var hatchClip = ctx
+        hatchClip.clip(to: body)
+        hatchClip.stroke(hatch, with: detailC, lineWidth: lw * 0.5)
+        // Side rails at each end.
+        var rails = Path()
+        let rx0 = bar.minX + bar.width * 0.02, rx1 = bar.maxX - bar.width * 0.02
+        rails.move(to: CGPoint(x: rx0, y: bar.minY)); rails.addLine(to: CGPoint(x: rx0, y: bar.maxY))
+        rails.move(to: CGPoint(x: rx1, y: bar.minY)); rails.addLine(to: CGPoint(x: rx1, y: bar.maxY))
+        ctx.stroke(rails, with: strokeC, lineWidth: lw)
     }
 }
 

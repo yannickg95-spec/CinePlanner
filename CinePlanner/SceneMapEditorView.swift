@@ -572,6 +572,12 @@ struct SceneMapEditorView: View {
                         Button("Medium Softbox") { addFurniture(.mediumSoftbox) }
                         Button("Big Softbox") { addFurniture(.bigSoftbox) }
                     }
+                    Menu("Frame/Cloth") {
+                        Button(Furniture.Kind.frame4.displayName) { addFurniture(.frame4) }
+                        Button(Furniture.Kind.frame8.displayName) { addFurniture(.frame8) }
+                        Button(Furniture.Kind.frame12.displayName) { addFurniture(.frame12) }
+                        Button(Furniture.Kind.frame20.displayName) { addFurniture(.frame20) }
+                    }
                     ForEach(Furniture.Kind.allCases.filter {
                         $0.isLight && !$0.isCOB && !$0.isLegacyLight
                             && $0 != .tube && $0 != .shortTube
@@ -579,6 +585,8 @@ struct SceneMapEditorView: View {
                             && $0 != .smallHMI && $0 != .mediumHMI && $0 != .bigHMI
                             && $0 != .smallTungsten && $0 != .mediumTungsten && $0 != .bigTungsten
                             && $0 != .softbox && $0 != .mediumSoftbox && $0 != .bigSoftbox
+                            && !$0.isFrame
+                            && $0 != .bounce
                             && $0 != .par
                     }, id: \.self) { kind in
                         Button(kind.displayName) { addFurniture(kind) }
