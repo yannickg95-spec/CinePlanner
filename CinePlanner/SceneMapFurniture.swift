@@ -681,6 +681,10 @@ struct FurnitureView: View {
     var placeScale: CGFloat = 1
     var placeRotation: Double = 0
     let onSelect: () -> Void
+    /// Whether a drag keeps the piece inside the map (snapping to the nearest edge).
+    /// CineStager imports pass false, so a light can sit in the white margin like the
+    /// camera/mannequin markers; every other map clamps.
+    var clampToBounds: Bool = true
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
     let onResize: (Double, Double) -> Void
@@ -824,7 +828,7 @@ struct FurnitureView: View {
     /// drag) so the moving label can't shift its own frame. The nudge is stored
     /// relative to the label's default spot (centre + `labelBaseOffsetY`).
     private func labelDragGesture(w: CGFloat, h: CGFloat) -> some Gesture {
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 let c = livePosition ?? center
                 let baseY = c.y + labelBaseOffsetY(w: w, h: h)
@@ -852,7 +856,7 @@ struct FurnitureView: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 onSelect()
                 if livePosition == nil {
@@ -870,6 +874,7 @@ struct FurnitureView: View {
     private func normalized(_ p: CGPoint) -> CGPoint {
         let nx = contentRect.width > 0 ? (p.x - contentRect.minX) / contentRect.width : 0
         let ny = contentRect.height > 0 ? (p.y - contentRect.minY) / contentRect.height : 0
+        guard clampToBounds else { return CGPoint(x: nx, y: ny) }
         return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
     }
 
@@ -885,7 +890,7 @@ struct FurnitureView: View {
             .frame(width: 16, height: 16)
             .contentShape(Circle().inset(by: -sceneMapHandleSlop))
             .gesture(
-                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
                     .onChanged { value in onSelect(); liveRotation = sceneMapAngle(from: center, to: value.location) }
                     .onEnded { value in
                         let final = sceneMapAngle(from: center, to: value.location)
@@ -938,7 +943,7 @@ struct FurnitureView: View {
             .contentShape(Circle().inset(by: -(7 + sceneMapHandleSlop)))
             .offset(x: ox, y: oy)
             .gesture(
-                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
                     .onChanged { value in
                         onSelect()
                         if lengthResizeBase == nil {
@@ -967,7 +972,7 @@ struct FurnitureView: View {
     }
 
     private var resizeDrag: some Gesture {
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 onSelect()
                 let r = displayRotation * .pi / 180

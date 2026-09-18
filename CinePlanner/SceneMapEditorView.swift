@@ -16,6 +16,13 @@ import os
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
+    /// Coordinate space *inside* the map group — before its placement scale/rotation/
+    /// offset. Marker and furniture drags read this so a gesture's location matches the
+    /// piece's (pre-placement) `center`, which keeps grabbing/dragging correct on a
+    /// map the placement has scaled down (e.g. a CineStager import fitted to markers
+    /// that sit outside the room). `canvasSpace`, being outside the group, includes the
+    /// placement scale and would mismatch `center` on such a map.
+    static let canvasContentSpace = "sceneMapContent"
 
     let scene: Scene
     /// When embedded in a pane (vs. presented as a sheet), drop the title bar,
@@ -888,19 +895,34 @@ struct SceneMapEditorView: View {
                     canvasContent(in: rect, geo: geo)
                 }
                 // The placement turns, scales and shifts the whole group — image and
-                // markers together — so the markers stay pinned to the spots on the
-                // image they annotate. Applied outside `canvasSpace` (like the canvas
-                // zoom), so marker-edit gestures keep reading logical coordinates.
-                // Offset is last, in screen space, so a drag tracks the finger 1:1.
+                // its overlays — so everything stays pinned to the spots on the image it
+                // annotates. Applied outside `canvasSpace` (like the canvas zoom), so
+                // edit gestures keep reading logical coordinates. Offset is last, in
+                // screen space, so a drag tracks the finger 1:1.
                 .rotationEffect(.degrees(place.rotation - reframeTurn))
                 .scaleEffect(place.scale)
                 .offset(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
                 .clipped()
-                // Like the canvas zoom, the placement scale also enlarges the hit
-                // region; without this reset a scaled-up map spilled its touch area
-                // over the toolbar above and swallowed its taps. Bound it back to the
-                // map's own frame so the toolbar stays clickable.
-                .contentShape(Rectangle())
+                // Markers and furniture ride the SAME placement, but in their own layer
+                // that overflows the pane and is never clipped or masked — so a piece the
+                // placement pushes into the white margin (a CineStager import fitted to an
+                // out-of-room camera) stays tappable however far out it sits. A canvas-
+                // sized layer drops hit-testing beyond its edges; masking an oversized one
+                // builds a huge offscreen buffer (it froze the app). This layer holds only
+                // lightweight positioned views — no Canvas — so the big frame is cheap.
+                markerFurnitureLayer(in: markerContentRect(rect, geo: geo), geo: geo)
+                    .frame(width: geo.size.width * 5, height: geo.size.height * 5)
+                    .coordinateSpace(name: SceneMapEditorView.canvasContentSpace)
+                    .rotationEffect(.degrees(place.rotation - reframeTurn))
+                    .scaleEffect(place.scale)
+                    .offset(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    // Clip the *rendering* to the pane so a piece dragged past the edge
+                    // doesn't paint over the app's UI. This is a cheap rectangular clip
+                    // (no offscreen buffer, unlike `.mask`), and because the layer's own
+                    // frame is oversized, a marker out in the white — rendered inside the
+                    // pane by the fit — still receives taps.
+                    .clipped()
             }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
@@ -1015,14 +1037,31 @@ struct SceneMapEditorView: View {
         }
     }
 
-    private func canvasContent(in rect: CGRect, geo: GeometryProxy) -> some View {
+    /// How far the marker layer overflows the pane on each side — two pane widths /
+    /// heights, matching the ×5 frame in `canvas`. A marker in the white margin sits
+    /// within this, so it stays hit-testable however far the placement scaled the map.
+    private func markerOverscan(_ geo: GeometryProxy) -> CGSize {
+        CGSize(width: geo.size.width * 2, height: geo.size.height * 2)
+    }
+
+    /// The content rect in the oversized marker layer's coordinates: the pieces render
+    /// on the same spots (the layer is centred over the pane, so the overscan shift
+    /// cancels), but inside a layer big enough to keep them tappable out in the margin.
+    private func markerContentRect(_ rect: CGRect, geo: GeometryProxy) -> CGRect {
+        let m = markerOverscan(geo)
+        return CGRect(x: rect.minX + m.width, y: rect.minY + m.height,
+                      width: rect.width, height: rect.height)
+    }
+
+    /// Furniture and camera/mannequin markers, in their own oversized, never-clipped
+    /// layer (see `canvas`) so a piece pushed into the white margin by the placement
+    /// stays selectable and draggable. Gestures read `canvasContentSpace` — the
+    /// pre-placement space, like `rect` here — so grabs land true at any scale. Holds
+    /// only positioned views (no Canvas), so the large frame stays cheap.
+    private func markerFurnitureLayer(in rect: CGRect, geo: GeometryProxy) -> some View {
         ZStack {
-            // The drawn floor plan itself is rendered crisply in a screen-space layer
-            // below this group (see `canvas`); only its edit handles live here.
-            // Walls, corners and openings are only draggable in EDIT mode (their
-            // handles live in the `isDrawing` layer further down), so the plan can't
-            // be nudged by accident while moving markers or panning.
-            // Furniture, below the people/cameras so they read as "on" it.
+            // Furniture, below the people/cameras so they read as "on" it. Hidden
+            // while drawing the floor plan.
             if !isDrawing {
                 ForEach(doc.furniture) { item in
                     FurnitureView(
@@ -1038,6 +1077,7 @@ struct SceneMapEditorView: View {
                         placeScale: CGFloat(mapPlacement.scale),
                         placeRotation: mapPlacement.rotation,
                         onSelect: { selectFurniture(item.id) },
+                        clampToBounds: !isCineStagerImport,
                         onMove: { normalized in moveFurniture(item.id, to: normalized) },
                         onRotate: { r in rotateFurniture(item.id, to: r) },
                         onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
@@ -1059,20 +1099,6 @@ struct SceneMapEditorView: View {
                     .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive)
                 }
             }
-            // Camera field-of-view wedges, under the arrows and markers.
-            // Reads the scene flag directly so toggling it re-renders here.
-            if scene.sceneMapShowCameraFOV {
-                Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
-                    .allowsHitTesting(false)
-            }
-            // Movement arrows are drawn crisply in a screen-space overlay outside
-            // the zoom (see below); only their right-click hit areas live here.
-            if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
-                ForEach(doc.arrows) { arrow in
-                    arrowHitView(arrow, in: rect)
-                }
-                .allowsHitTesting(!backgroundAdjustActive)
-            }
             ForEach(doc.elements) { element in
                 MapMarkerView(
                     element: element,
@@ -1081,6 +1107,7 @@ struct SceneMapEditorView: View {
                     isSelected: selectedIDs.contains(element.id),
                     contentRect: rect,
                     onSelect: { selectMarker(element.id) },
+                    clampToBounds: !isCineStagerImport,
                     onMove: { normalized in moveElement(element.id, to: normalized) },
                     onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                     onSetColor: { hex in setColor(element.id, hex) },
@@ -1121,6 +1148,32 @@ struct SceneMapEditorView: View {
                     placeRotation: mapPlacement.rotation
                 )
                 .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive)
+            }
+        }
+    }
+
+    private func canvasContent(in rect: CGRect, geo: GeometryProxy) -> some View {
+        ZStack {
+            // The drawn floor plan itself is rendered crisply in a screen-space layer
+            // below this group (see `canvas`); only its edit handles live here.
+            // Walls, corners and openings are only draggable in EDIT mode (their
+            // handles live in the `isDrawing` layer further down), so the plan can't
+            // be nudged by accident while moving markers or panning.
+            // (Furniture and markers live in `markerFurnitureLayer`, an oversized
+            // sibling layer, so they stay tappable out in the white margin.)
+            // Camera field-of-view wedges, under the arrows and markers.
+            // Reads the scene flag directly so toggling it re-renders here.
+            if scene.sceneMapShowCameraFOV {
+                Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
+                    .allowsHitTesting(false)
+            }
+            // Movement arrows are drawn crisply in a screen-space overlay outside
+            // the zoom (see below); only their right-click hit areas live here.
+            if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
+                ForEach(doc.arrows) { arrow in
+                    arrowHitView(arrow, in: rect)
+                }
+                .allowsHitTesting(!backgroundAdjustActive)
             }
             // Arrow pivot handles, only for the selected arrow.
             if !isDrawing && pendingMove == nil, let selectedArrow = arrowSelectedID {
@@ -1736,11 +1789,18 @@ struct SceneMapEditorView: View {
     private var mapPlacement: SceneMapBackgroundTransform {
         if scene.sceneMapBackgroundIsSatellite { return .init() }
         if isBackgroundAdjustMode { return bgTransform }   // live while aligning
-        // The map is shown at its own placement (identity unless the user aligned it
-        // by hand). Markers are clamped to the map's bounds, so there's nothing
-        // outside the frame to auto-fit to — the view no longer zooms out to chase a
-        // marker dropped near the edge.
+        // Just the stored placement (identity unless the user aligned the map by hand,
+        // or a CineStager import zoomed it out once to fit out-of-room markers). The
+        // view never refits live: on every other map markers clamp to the map's bounds
+        // as they're dragged, so nothing lands in the margin to chase.
         return scene.sceneMapBackgroundTransform
+    }
+
+    /// A map that arrived from a CineStager capture — it carries its own real-world
+    /// scale, and its markers may sit outside the framed room (in the margin the
+    /// import's fit opens up), so they aren't clamped to the map's bounds.
+    private var isCineStagerImport: Bool {
+        scene.sceneMapImportedMetersWide != nil
     }
 
     /// Widest / tightest the image may be scaled, and the geometric zoom slider.
@@ -2185,15 +2245,19 @@ struct SceneMapEditorView: View {
     }
 
     /// Commits a group drag: shifts every selected marker by the drag translation
-    /// (canvas points), clamped so no marker leaves the map into the grey area.
+    /// (canvas points). Clamped so no marker leaves the map into the grey area, except
+    /// on a CineStager import where markers may sit outside the framed room.
     private func commitGroupDrag(_ translation: CGSize, in rect: CGRect) {
         defer { groupDragTranslation = nil }
         guard rect.width > 0, rect.height > 0 else { return }
+        let clamp = !isCineStagerImport
         for i in doc.elements.indices where selectedIDs.contains(doc.elements[i].id) {
             let cx = rect.minX + doc.elements[i].x * rect.width + translation.width
             let cy = rect.minY + doc.elements[i].y * rect.height + translation.height
-            doc.elements[i].x = min(max((cx - rect.minX) / rect.width, 0), 1)
-            doc.elements[i].y = min(max((cy - rect.minY) / rect.height, 0), 1)
+            let nx = (cx - rect.minX) / rect.width
+            let ny = (cy - rect.minY) / rect.height
+            doc.elements[i].x = clamp ? min(max(nx, 0), 1) : nx
+            doc.elements[i].y = clamp ? min(max(ny, 0), 1) : ny
         }
         persist()
     }
@@ -2254,8 +2318,11 @@ struct SceneMapEditorView: View {
                         let tx = value.translation.width, ty = value.translation.height
                         let rx = tx * cos(t) + ty * sin(t)
                         let ry = -tx * sin(t) + ty * cos(t)
-                        let nx = min(max(base.x + Double(rx / max(sx, 1)), 0), 1)
-                        let ny = min(max(base.y + Double(ry / max(sy, 1)), 0), 1)
+                        var nx = base.x + Double(rx / max(sx, 1))
+                        var ny = base.y + Double(ry / max(sy, 1))
+                        // Markers and furniture stay on the map, unless this is a
+                        // CineStager import, whose pieces may sit in the white margin.
+                        if !isCineStagerImport { nx = min(max(nx, 0), 1); ny = min(max(ny, 0), 1) }
                         setMovableLive(target, to: CGPoint(x: nx, y: ny))
                     }
                     return

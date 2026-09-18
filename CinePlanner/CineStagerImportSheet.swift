@@ -498,25 +498,24 @@ struct CineStagerImportSheet: View {
         let markers = mapData.flatMap { CineStagerMapMetadata.markers(from: $0) }
         let roomRect = markers?.roomRect
 
-        // Re-maps a marker's image-space (u,v) into the cropped room's space, then
-        // clamps to 0…1 so a marker the capture framed *outside* the room snaps to
-        // the map's edge rather than sitting in the grey margin. Identity (still
-        // clamped) without a room rect.
+        // Re-maps a marker's image-space (u,v) into the cropped room's space, so a
+        // marker the capture framed *outside* the room lands outside 0…1 — the editor
+        // then fits the view so it comes into view. Identity without a room rect.
         func toRoom(_ u: Double, _ v: Double) -> (x: Double, y: Double) {
-            guard let r = roomRect, r.width > 0, r.height > 0 else {
-                return (min(max(u, 0), 1), min(max(v, 0), 1))
-            }
-            return (min(max((u - Double(r.minX)) / Double(r.width), 0), 1),
-                    min(max((v - Double(r.minY)) / Double(r.height), 0), 1))
+            guard let r = roomRect, r.width > 0, r.height > 0 else { return (u, v) }
+            return ((u - Double(r.minX)) / Double(r.width),
+                    (v - Double(r.minY)) / Double(r.height))
         }
 
-        // Background: the marker-free location map, cropped to the room when known.
-        // Set it when the scene has none, or when the user chose to replace an
-        // existing one; otherwise leave the scene's current map untouched.
+        // Background: the marker-free location map. CineStager already frames it tight
+        // to the room (the clean map *is* the RoomRect region), so it's used as-is —
+        // markers map onto it via `toRoom`, and one placed outside the room falls into
+        // the margin the fit opens up. (We used to crop it again by the RoomRect, which
+        // double-cropped this already-tight image.) Set it when the scene has none, or
+        // when the user chose to replace an existing one; otherwise leave it untouched.
         ref.mapCleanData = cleanData   // keep the clean map for later re-adds
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
-            let bg = roomRect.flatMap { Self.cropped(clean, toNormalizedRect: $0) } ?? clean
-            scene.sceneMapBackgroundData = bg
+            scene.sceneMapBackgroundData = clean
             scene.sceneMapBackgroundIsSatellite = false
             // Remember which location this map is, so another shot of the same
             // location adds its markers without a replace prompt.
@@ -581,30 +580,22 @@ struct CineStagerImportSheet: View {
         assignSceneCharacters(to: &doc, scene: scene)
         scene.sceneMapJSON = doc.jsonString
 
-        // Let the scene map fit itself to these markers (see SceneMapEditorView's
-        // mapPlacement): reset any placement to identity so the live auto-fit governs
-        // and a camera dropped on or beyond the room's edge comes into view. A manual
-        // alignment made afterwards overrides it; re-importing returns to auto-fit.
+        // The one time we zoom the background out to keep markers in the map: if a
+        // camera/mannequin lands beyond the room's edge, fit the placement to them
+        // now, once, and store it. After the import it's just a stored placement like
+        // a hand-alignment — the editor never refits live, and markers dragged
+        // afterwards snap to the map's bounds instead. Re-importing recomputes it.
         if !scene.sceneMapBackgroundIsSatellite {
-            scene.sceneMapBackgroundTransform = .init()
+            let points = doc.elements.map { CGPoint(x: $0.x, y: $0.y) }
+            // markerHalfExtent 0: zoom out only when a marker's *anchor* genuinely
+            // falls outside the image (0…1), e.g. a camera the capture placed beyond
+            // the room. Markers merely near an edge (the common no-RoomRect capture)
+            // sit inside the image and mustn't trigger a zoom.
+            scene.sceneMapBackgroundTransform =
+                SceneMapBackgroundTransform.fittingMarkers(points, markerHalfExtent: 0)
         }
     }
 
-    /// Crops image `data` to a normalized rect (0…1, origin top-left) and returns
-    /// JPEG bytes — used to trim a CineStager scan to the room's footprint. The rect
-    /// is clamped to the image, and a degenerate result falls back to nil (caller
-    /// keeps the uncropped scan).
-    private static func cropped(_ data: Data, toNormalizedRect rect: CGRect) -> Data? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        let w = CGFloat(cg.width), h = CGFloat(cg.height)
-        let px = CGRect(x: rect.minX * w, y: rect.minY * h, width: rect.width * w, height: rect.height * h)
-            .integral
-            .intersection(CGRect(x: 0, y: 0, width: w, height: h))
-        guard px.width >= 1, px.height >= 1, let out = cg.cropping(to: px) else { return nil }
-        return PlatformImage.fromCGImage(out, size: CGSize(width: out.width, height: out.height))
-            .jpegRepresentation(quality: 0.9)
-    }
 
     /// Best-effort: label the scene map's unlabeled mannequins with the scene's
     /// detected characters (in order), tinting each with that character's project

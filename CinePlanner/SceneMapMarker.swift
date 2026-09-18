@@ -40,6 +40,10 @@ struct MapMarkerView: View {
     /// The rect (canvas points) that normalized element coordinates map onto.
     let contentRect: CGRect
     let onSelect: () -> Void
+    /// Whether a drag keeps the marker inside the map (snapping to the nearest edge).
+    /// CineStager imports pass false, so a camera framed outside the room can be
+    /// selected and moved in the margin; every other map clamps.
+    var clampToBounds: Bool = true
     /// Reports the new position in normalized (0…1) content-rect coordinates.
     let onMove: (CGPoint) -> Void
     let onRotate: (Double) -> Void
@@ -140,12 +144,14 @@ struct MapMarkerView: View {
         return (c.y + d + 14 > contentRect.maxY) ? -d : d
     }
 
-    /// Converts a canvas point back to normalized content-rect coordinates,
-    /// clamped to 0…1 so a marker can't be dragged off the map into the grey
-    /// area — it snaps to the nearest edge instead, just like furniture.
+    /// Converts a canvas point back to normalized content-rect coordinates. When
+    /// `clampToBounds` (every map but a CineStager import) it's clamped to 0…1 so a
+    /// marker can't be dragged off the map into the grey area — it snaps to the
+    /// nearest edge instead, just like furniture.
     private func normalized(_ point: CGPoint) -> CGPoint {
         let nx = contentRect.width > 0 ? (point.x - contentRect.minX) / contentRect.width : 0
         let ny = contentRect.height > 0 ? (point.y - contentRect.minY) / contentRect.height : 0
+        guard clampToBounds else { return CGPoint(x: nx, y: ny) }
         return CGPoint(x: min(max(nx, 0), 1), y: min(max(ny, 0), 1))
     }
 
@@ -305,7 +311,7 @@ struct MapMarkerView: View {
     }
 
     private var rotationGesture: some Gesture {
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 onSelect()
                 liveRotation = Self.angle(from: center, to: value.location)
@@ -330,7 +336,7 @@ struct MapMarkerView: View {
         // Positioned from the pointer's ABSOLUTE location in the fixed canvas
         // space — never from translation/offset — so the moving token can't
         // shift its own reference frame (which is what caused the jumping).
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 // Part of a multi-selection → drag the whole group (the parent
                 // offsets every selected marker), leaving the selection intact.
@@ -365,7 +371,7 @@ struct MapMarkerView: View {
     /// and keeps the grab point. The nudge is measured relative to the label's
     /// default spot (center + labelOffsetY).
     private var labelDragGesture: some Gesture {
-        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+        DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
                 let c = livePosition ?? center
                 let baseY = c.y + labelOffsetY
