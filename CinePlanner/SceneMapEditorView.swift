@@ -1077,7 +1077,7 @@ struct SceneMapEditorView: View {
                         placeScale: CGFloat(mapPlacement.scale),
                         placeRotation: mapPlacement.rotation,
                         onSelect: { selectFurniture(item.id) },
-                        clampToBounds: !isCineStagerImport,
+                        clampToBounds: !allowsPiecesOutsideMap,
                         onMove: { normalized in moveFurniture(item.id, to: normalized) },
                         onRotate: { r in rotateFurniture(item.id, to: r) },
                         onResize: { w, h in resizeFurniture(item.id, width: w, height: h) },
@@ -1107,7 +1107,7 @@ struct SceneMapEditorView: View {
                     isSelected: selectedIDs.contains(element.id),
                     contentRect: rect,
                     onSelect: { selectMarker(element.id) },
-                    clampToBounds: !isCineStagerImport,
+                    clampToBounds: !allowsPiecesOutsideMap,
                     onMove: { normalized in moveElement(element.id, to: normalized) },
                     onRotate: { newRotation in rotateElement(element.id, to: newRotation) },
                     onSetColor: { hex in setColor(element.id, hex) },
@@ -1796,11 +1796,13 @@ struct SceneMapEditorView: View {
         return scene.sceneMapBackgroundTransform
     }
 
-    /// A map that arrived from a CineStager capture — it carries its own real-world
-    /// scale, and its markers may sit outside the framed room (in the margin the
-    /// import's fit opens up), so they aren't clamped to the map's bounds.
-    private var isCineStagerImport: Bool {
-        scene.sceneMapImportedMetersWide != nil
+    /// Markers and furniture may be placed in the margin around the map (not clamped to
+    /// its edge) on every map the user can zoom out to open a white margin around: a
+    /// loose image or 3D model (Adjust), a CineStager import (fitted to out-of-room
+    /// pieces), or a drawn floor plan (canvas zoom). Only satellite maps — north-up and
+    /// reframed rather than zoomed — keep their pieces snapped to the edge.
+    private var allowsPiecesOutsideMap: Bool {
+        !scene.sceneMapBackgroundIsSatellite && (backgroundImage != nil || !floorPlan.isEmpty)
     }
 
     /// Widest / tightest the image may be scaled, and the geometric zoom slider.
@@ -2250,7 +2252,7 @@ struct SceneMapEditorView: View {
     private func commitGroupDrag(_ translation: CGSize, in rect: CGRect) {
         defer { groupDragTranslation = nil }
         guard rect.width > 0, rect.height > 0 else { return }
-        let clamp = !isCineStagerImport
+        let clamp = !allowsPiecesOutsideMap
         for i in doc.elements.indices where selectedIDs.contains(doc.elements[i].id) {
             let cx = rect.minX + doc.elements[i].x * rect.width + translation.width
             let cy = rect.minY + doc.elements[i].y * rect.height + translation.height
@@ -2320,9 +2322,9 @@ struct SceneMapEditorView: View {
                         let ry = -tx * sin(t) + ty * cos(t)
                         var nx = base.x + Double(rx / max(sx, 1))
                         var ny = base.y + Double(ry / max(sy, 1))
-                        // Markers and furniture stay on the map, unless this is a
-                        // CineStager import, whose pieces may sit in the white margin.
-                        if !isCineStagerImport { nx = min(max(nx, 0), 1); ny = min(max(ny, 0), 1) }
+                        // Markers and furniture stay on the map, except where the map
+                        // opens a white margin they may sit in (see allowsPiecesOutsideMap).
+                        if !allowsPiecesOutsideMap { nx = min(max(nx, 0), 1); ny = min(max(ny, 0), 1) }
                         setMovableLive(target, to: CGPoint(x: nx, y: ny))
                     }
                     return
