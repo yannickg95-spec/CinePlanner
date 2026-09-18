@@ -188,6 +188,11 @@ struct SceneMapEditorView: View {
     /// Truss add: prompts for a length in metres on a measured map.
     @State private var trussPrompt = false
     @State private var trussInput = ""
+    /// "Set True Scale" (image maps): tap two points, then enter their real distance.
+    @State private var scaleMeasureActive = false
+    @State private var scaleMeasurePoints: [CGPoint] = []   // normalized
+    @State private var scaleMeasurePrompt = false
+    @State private var scaleMeasureInput = ""
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
@@ -315,6 +320,16 @@ struct SceneMapEditorView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("How many metres long is the truss?")
+        }
+        .alert("True Scale", isPresented: $scaleMeasurePrompt) {
+            TextField("Distance in metres", text: $scaleMeasureInput)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+            Button("Set Scale") { applyTrueScaleFromPrompt() }
+            Button("Cancel", role: .cancel) { cancelScaleMeasure() }
+        } message: {
+            Text("How far apart are the two points, in metres?")
         }
         .sheet(isPresented: $showManageCharacters) {
             if let project = scene.project {
@@ -919,6 +934,9 @@ struct SceneMapEditorView: View {
             .overlay(alignment: .top) {
                 if pendingMove != nil { moveBanner }
             }
+            .overlay(alignment: .top) {
+                if scaleMeasureActive { scaleMeasureBanner }
+            }
             .overlay(alignment: .bottom) {
                 if sun.enabled && sun.hasLocation { sunTimeBar }
             }
@@ -1157,6 +1175,30 @@ struct SceneMapEditorView: View {
                     .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
                         .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
             }
+            // Set-true-scale: the tapped points, a connecting line, and (until two are
+            // placed) a catcher above the markers to record the next tap.
+            if scaleMeasureActive {
+                if scaleMeasurePoints.count == 2 {
+                    Path { pth in
+                        pth.move(to: canvasPoint(scaleMeasurePoints[0].x, scaleMeasurePoints[0].y, in: rect))
+                        pth.addLine(to: canvasPoint(scaleMeasurePoints[1].x, scaleMeasurePoints[1].y, in: rect))
+                    }
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                    .allowsHitTesting(false)
+                }
+                ForEach(Array(scaleMeasurePoints.enumerated()), id: \.offset) { _, p in
+                    Circle().fill(Color.accentColor).overlay(Circle().stroke(.white, lineWidth: 1.5))
+                        .frame(width: 12, height: 12)
+                        .position(canvasPoint(p.x, p.y, in: rect))
+                        .allowsHitTesting(false)
+                }
+                if scaleMeasurePoints.count < 2 {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
+                            .onEnded { value in recordScalePoint(value.location, in: rect) })
+                }
+            }
             // Marquee (rubber-band) selection box, above the markers.
             if let start = marqueeStart, let current = marqueeCurrent {
                 let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
@@ -1362,8 +1404,19 @@ struct SceneMapEditorView: View {
     @ViewBuilder
     /// Whether the EDIT/ADJUST chrome should currently be offered.
     private var hasMapChromeButtons: Bool {
-        guard !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil else { return false }
+        guard !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil, !scaleMeasureActive else { return false }
         return !floorPlan.isEmpty || hasAlignableBackground
+    }
+
+    /// "Adjust Scale" is only for backgrounds that carry no real-world scale of their
+    /// own: a loose image or a rendered 3D model. Not CineStager imports (they arrive
+    /// scaled — detected by `sceneMapImportedMetersWide`), not satellite maps, and not
+    /// drawn floor plans (scaled from a wall length).
+    private var showsAdjustScale: Bool {
+        backgroundImage != nil
+            && !scene.sceneMapBackgroundIsSatellite
+            && floorPlan.isEmpty
+            && scene.sceneMapImportedMetersWide == nil
     }
 
     /// EDIT (walls/doors/windows) and ADJUST (zoom/rotate/move) pills. Placed in the
@@ -1380,6 +1433,10 @@ struct SceneMapEditorView: View {
                     startBackgroundAdjust()
                 }
                 .help("Move, zoom and rotate the map")
+            }
+            if showsAdjustScale {
+                mapChromePill("SCALE", systemImage: "ruler") { startScaleMeasure() }
+                    .help("Set the map's true scale from two points a known distance apart")
             }
         }
     }
@@ -1679,14 +1736,11 @@ struct SceneMapEditorView: View {
     private var mapPlacement: SceneMapBackgroundTransform {
         if scene.sceneMapBackgroundIsSatellite { return .init() }
         if isBackgroundAdjustMode { return bgTransform }   // live while aligning
-        let stored = scene.sceneMapBackgroundTransform
-        // A map the user has aligned by hand keeps that placement. Otherwise (a fresh
-        // import, identity placement) fit the view to the markers live, so cameras a
-        // CineStager import dropped on or beyond the room's edge come fully into view
-        // — computed each render, so it needs no re-import and stays right if a
-        // marker moves.
-        guard stored.isIdentity else { return stored }
-        return SceneMapBackgroundTransform.fittingMarkers(doc.elements.map { CGPoint(x: $0.x, y: $0.y) })
+        // The map is shown at its own placement (identity unless the user aligned it
+        // by hand). Markers are clamped to the map's bounds, so there's nothing
+        // outside the frame to auto-fit to — the view no longer zooms out to chase a
+        // marker dropped near the edge.
+        return scene.sceneMapBackgroundTransform
     }
 
     /// Widest / tightest the image may be scaled, and the geometric zoom slider.
@@ -2020,6 +2074,22 @@ struct SceneMapEditorView: View {
         .padding(.top, 10)
     }
 
+    private var scaleMeasureBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "ruler")
+            Text(scaleMeasurePoints.isEmpty
+                 ? "Tap the first point"
+                 : (scaleMeasurePoints.count < 2 ? "Tap the second point" : "Enter the distance"))
+            Button("Cancel") { cancelScaleMeasure() }
+                .buttonStyle(.borderless)
+        }
+        .font(.callout)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.accentColor.opacity(0.4), lineWidth: 1))
+        .padding(.top, 10)
+    }
+
     /// The rect (in canvas points) the map's normalized coordinates map onto:
     /// the background image's aspect-fit rect; a centered square while a floor
     /// plan is present (so it can't distort); otherwise the whole canvas.
@@ -2115,15 +2185,15 @@ struct SceneMapEditorView: View {
     }
 
     /// Commits a group drag: shifts every selected marker by the drag translation
-    /// (canvas points). Not clamped to the map — markers may sit outside the image.
+    /// (canvas points), clamped so no marker leaves the map into the grey area.
     private func commitGroupDrag(_ translation: CGSize, in rect: CGRect) {
         defer { groupDragTranslation = nil }
         guard rect.width > 0, rect.height > 0 else { return }
         for i in doc.elements.indices where selectedIDs.contains(doc.elements[i].id) {
             let cx = rect.minX + doc.elements[i].x * rect.width + translation.width
             let cy = rect.minY + doc.elements[i].y * rect.height + translation.height
-            doc.elements[i].x = (cx - rect.minX) / rect.width
-            doc.elements[i].y = (cy - rect.minY) / rect.height
+            doc.elements[i].x = min(max((cx - rect.minX) / rect.width, 0), 1)
+            doc.elements[i].y = min(max((cy - rect.minY) / rect.height, 0), 1)
         }
         persist()
     }
@@ -3357,6 +3427,8 @@ struct SceneMapEditorView: View {
         let normLen = floorPlan.length(wall)
         guard normLen > 1e-6 else { return }
         let metersWide = metres / normLen
+        // Keep furniture/lights at their real size across a scale change.
+        rescaleFurniture(from: mapMetersWide ?? impliedMetersWide, to: metersWide)
         scene.sceneMapMetersWide = metersWide
         mapMetersWide = metersWide
         // Now that the map has a real scale, size every door to a real 85 cm.
@@ -3366,6 +3438,58 @@ struct SceneMapEditorView: View {
         }
         persistFloorPlan()
         saveContext()
+    }
+
+    /// Keeps every furniture/light piece at the same REAL size when the map's scale
+    /// changes: their stored size is normalized (realSize ÷ metresWide), so a scale
+    /// change must multiply it by old ÷ new. (People/camera markers derive their size
+    /// from the scale directly, so they update on their own.)
+    private func rescaleFurniture(from oldMeters: Double?, to newMeters: Double) {
+        guard let old = oldMeters, old > 0, newMeters > 0, abs(old - newMeters) > 1e-9 else { return }
+        let ratio = old / newMeters
+        for i in doc.furniture.indices {
+            doc.furniture[i].width *= ratio
+            doc.furniture[i].height *= ratio
+        }
+        persist()
+    }
+
+    // MARK: - Set true scale (two points on an image background)
+
+    private func startScaleMeasure() {
+        cameraInfoElementID = nil
+        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
+        openingSelectedID = nil; wallSelectedID = nil
+        scaleMeasurePoints = []
+        scaleMeasureActive = true
+    }
+
+    private func cancelScaleMeasure() {
+        scaleMeasureActive = false
+        scaleMeasurePoints = []
+    }
+
+    private func recordScalePoint(_ loc: CGPoint, in rect: CGRect) {
+        scaleMeasurePoints.append(normalizedFromCanvas(loc, in: rect))
+        if scaleMeasurePoints.count >= 2 {
+            scaleMeasureInput = ""
+            scaleMeasurePrompt = true
+        }
+    }
+
+    private func applyTrueScaleFromPrompt() {
+        let normalized = scaleMeasureInput.replacingOccurrences(of: ",", with: ".")
+        guard scaleMeasurePoints.count == 2,
+              let metres = Double(normalized), metres > 0 else { cancelScaleMeasure(); return }
+        let p0 = scaleMeasurePoints[0], p1 = scaleMeasurePoints[1]
+        let dNorm = hypot(p1.x - p0.x, p1.y - p0.y)
+        guard dNorm > 1e-6 else { cancelScaleMeasure(); return }
+        let newMeters = metres / Double(dNorm)
+        rescaleFurniture(from: mapMetersWide ?? impliedMetersWide, to: newMeters)
+        scene.sceneMapMetersWide = newMeters
+        mapMetersWide = newMeters
+        saveContext()
+        cancelScaleMeasure()
     }
 
     /// A wall's real length in the scene, or nil until the map is scaled. Reads the

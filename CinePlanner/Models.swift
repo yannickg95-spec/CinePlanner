@@ -374,6 +374,9 @@ final class Scene {
     /// capture size, or CineStager location width). nil for backgrounds with no
     /// measurement → markers keep their default sizes.
     var sceneMapMetersWide: Double?
+    /// The scale CineStager imported the map at (metres wide). Kept so a manual scale
+    /// change can be reset back to CineStager's original. nil = not a CineStager import.
+    var sceneMapImportedMetersWide: Double?
     /// Real camera-marker diameter (metres) from CineStager; nil → default 0.6 m.
     var sceneMapCameraSizeMeters: Double?
 
@@ -595,6 +598,7 @@ extension Scene {
         copy.sceneMapSatelliteHeading = sceneMapSatelliteHeading
         copy.sceneMapSatelliteCalibrated = sceneMapSatelliteCalibrated
         copy.sceneMapMetersWide = sceneMapMetersWide
+        copy.sceneMapImportedMetersWide = sceneMapImportedMetersWide
         copy.sceneMapCameraSizeMeters = sceneMapCameraSizeMeters
         copy.sceneMapShowCameraFOV = sceneMapShowCameraFOV
         copy.sceneMapViewableMarkerSize = sceneMapViewableMarkerSize

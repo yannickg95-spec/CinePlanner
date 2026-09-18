@@ -498,13 +498,16 @@ struct CineStagerImportSheet: View {
         let markers = mapData.flatMap { CineStagerMapMetadata.markers(from: $0) }
         let roomRect = markers?.roomRect
 
-        // Re-maps a marker's image-space (u,v) into the cropped room's space, so a
-        // marker the capture framed *outside* the room lands outside 0…1 — the editor
-        // then shows it in the margin around the map. Identity without a room rect.
+        // Re-maps a marker's image-space (u,v) into the cropped room's space, then
+        // clamps to 0…1 so a marker the capture framed *outside* the room snaps to
+        // the map's edge rather than sitting in the grey margin. Identity (still
+        // clamped) without a room rect.
         func toRoom(_ u: Double, _ v: Double) -> (x: Double, y: Double) {
-            guard let r = roomRect, r.width > 0, r.height > 0 else { return (u, v) }
-            return ((u - Double(r.minX)) / Double(r.width),
-                    (v - Double(r.minY)) / Double(r.height))
+            guard let r = roomRect, r.width > 0, r.height > 0 else {
+                return (min(max(u, 0), 1), min(max(v, 0), 1))
+            }
+            return (min(max((u - Double(r.minX)) / Double(r.width), 0), 1),
+                    min(max((v - Double(r.minY)) / Double(r.height), 0), 1))
         }
 
         // Background: the marker-free location map, cropped to the room when known.
@@ -525,6 +528,9 @@ struct CineStagerImportSheet: View {
             let span = max(ref.mapLocationWidth ?? 0, ref.mapLocationLength ?? 0)
             let metersWide = (roomRect != nil ? ref.mapLocationWidth : nil) ?? span
             scene.sceneMapMetersWide = metersWide > 0 ? metersWide : nil
+            // Remember CineStager's own scale so a later manual scale change can be
+            // reset back to it.
+            scene.sceneMapImportedMetersWide = metersWide > 0 ? metersWide : nil
             scene.sceneMapCameraSizeMeters = (ref.mapCameraPhysicalWidth ?? 0) > 0
                 ? ref.mapCameraPhysicalWidth! / 100 : nil
         }
