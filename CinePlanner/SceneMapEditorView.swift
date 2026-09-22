@@ -23,6 +23,11 @@ struct SceneMapEditorView: View {
     /// that sit outside the room). `canvasSpace`, being outside the group, includes the
     /// placement scale and would mismatch `center` on such a map.
     static let canvasContentSpace = "sceneMapContent"
+    /// The untransformed canvas (pane) space, defined on the canvas root — outside every
+    /// zoom/placement transform. The marquee gesture measures here so a scaled map (the
+    /// gesture sits inside the placement scaleEffect, which skews `.global`) can't throw
+    /// the rubber-band box off; the box is drawn in this same space.
+    static let canvasScreenSpace = "sceneMapScreen"
 
     let scene: Scene
     /// When embedded in a pane (vs. presented as a sheet), drop the title bar,
@@ -915,6 +920,23 @@ struct SceneMapEditorView: View {
                 // scaleEffect). Reset the interactive shape to the (unscaled) pane so
                 // touches outside it pass through to the toolbar again.
                 .contentShape(Rectangle())
+                // Empty-canvas gestures live on `canvasContent` too, but the placement
+                // scales that down to the drawn area, so on a zoomed-out map its reach
+                // doesn't cover the white margin. The group spans the whole pane (its
+                // content shape above), so the same pan/marquee/deselect gestures here
+                // catch drags out in the white; a drag over the drawn area is consumed by
+                // canvasContent (a descendant, higher priority) before it reaches here.
+                .gesture(canvasPanOrMarquee(in: rect, size: geo.size),
+                         including: backgroundAdjustActive ? .none : .all)
+                .gesture(backgroundAdjustGesture(in: rect),
+                         including: backgroundAdjustActive ? .gesture : .subviews)
+                .onTapGesture {
+                    if !isDrawing && !backgroundAdjustActive {
+                        selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil
+                        arrowSelectedID = nil; furnitureSelectedID = nil; furnitureResizeID = nil
+                        cameraInfoElementID = nil
+                    }
+                }
                 // Markers and furniture ride the SAME placement, but in their own layer
                 // that overflows the pane and is never clipped or masked — so a piece the
                 // placement pushes into the white margin (a CineStager import fitted to an
@@ -944,6 +966,25 @@ struct SceneMapEditorView: View {
                     // Hidden while reframing — `reframeMarkerOverlay` shows the live
                     // preview positions instead.
                     .opacity(reframeActive ? 0 : 1)
+            }
+            // The untransformed pane space the marquee is measured and drawn in (see the
+            // gesture). Defined on the canvas root so it sits outside the placement and
+            // zoom transforms the map group and canvas content apply.
+            .coordinateSpace(name: SceneMapEditorView.canvasScreenSpace)
+            // Marquee (rubber-band) selection box: its corners are captured in this pane
+            // space, so it's drawn here — outside the map group's placement — or a
+            // zoomed-out map's scale/offset would drag the box away from the pointer.
+            .overlay {
+                if let start = marqueeStart, let current = marqueeCurrent {
+                    let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
+                                     width: abs(current.x - start.x), height: abs(current.y - start.y))
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
+                        .frame(width: box.width, height: box.height)
+                        .position(x: box.midX, y: box.midY)
+                        .allowsHitTesting(false)
+                }
             }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
@@ -1315,17 +1356,6 @@ struct SceneMapEditorView: View {
                             .onEnded { value in recordScalePoint(value.location, in: rect) })
                 }
             }
-            // Marquee (rubber-band) selection box, above the markers.
-            if let start = marqueeStart, let current = marqueeCurrent {
-                let box = CGRect(x: min(start.x, current.x), y: min(start.y, current.y),
-                                 width: abs(current.x - start.x), height: abs(current.y - start.y))
-                Rectangle()
-                    .fill(Color.accentColor.opacity(0.12))
-                    .overlay(Rectangle().stroke(Color.accentColor.opacity(0.8), lineWidth: 1))
-                    .frame(width: box.width, height: box.height)
-                    .position(x: box.midX, y: box.midY)
-                    .allowsHitTesting(false)
-            }
             // Sun-direction overlay (non-interactive), above the map content.
             sunOverlay(in: rect)
         }
@@ -1367,8 +1397,7 @@ struct SceneMapEditorView: View {
         // marquee. Pinch-to-zoom is intentionally gone: the map is zoomed only via
         // the reframe/align sliders, so a stray pinch can't warp it.
         .gesture(
-            canvasPanOrMarquee(in: rect, size: geo.size,
-                               canvasOrigin: geo.frame(in: .global).origin),
+            canvasPanOrMarquee(in: rect, size: geo.size),
             including: backgroundAdjustActive ? .none : .all
         )
         // While aligning, the same touches move/zoom/turn the image instead; this
@@ -2394,12 +2423,13 @@ struct SceneMapEditorView: View {
     }
 
     /// Selects every camera/mannequin marker whose center falls inside the marquee
-    /// rectangle (canvas points).
-    private func selectMarkersInMarquee(_ box: CGRect, in rect: CGRect) {
+    /// rectangle (canvas screen points). Marker centers are taken through the same
+    /// placement transform the box is measured in, so selection stays correct on a
+    /// scaled or offset (Adjusted) map.
+    private func selectMarkersInMarquee(_ box: CGRect, in rect: CGRect, canvas: CGSize) {
         var hits: Set<UUID> = []
         for element in doc.elements {
-            let c = CGPoint(x: rect.minX + element.x * rect.width,
-                            y: rect.minY + element.y * rect.height)
+            let c = pieceScreenCenter(nx: element.x, ny: element.y, in: rect, canvas: canvas)
             if box.contains(c) { hits.insert(element.id) }
         }
         selectedIDs = hits
@@ -2423,11 +2453,12 @@ struct SceneMapEditorView: View {
     }
 
     /// One empty-canvas drag: pans the zoomed map when zoomed in, else (macOS) draws
-    /// a rubber-band selection box. Measured in the global (screen) space so the pan
-    /// tracks the finger 1:1 and updates live — reading the canvas space here would
-    /// feed the moving `pan` offset back into the measurement.
-    private func canvasPanOrMarquee(in rect: CGRect, size: CGSize, canvasOrigin: CGPoint) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+    /// a rubber-band selection box. Measured in `canvasScreenSpace` — the untransformed
+    /// pane space on the canvas root — so the box tracks the finger even on a scaled map
+    /// (the gesture sits inside the placement scaleEffect, which skews `.global`), yet
+    /// stays outside the `pan` offset so a live pan can't feed back into the measurement.
+    private func canvasPanOrMarquee(in rect: CGRect, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(SceneMapEditorView.canvasScreenSpace))
             .onChanged { value in
                 #if os(iOS)
                 // Touch: with one marker/furniture selected, a drag anywhere moves it
@@ -2470,12 +2501,10 @@ struct SceneMapEditorView: View {
                 #if os(macOS)
                 guard !isDrawing, pendingMove == nil else { return }
                 if marqueeStart == nil {
-                    marqueeStart = CGPoint(x: value.startLocation.x - canvasOrigin.x,
-                                           y: value.startLocation.y - canvasOrigin.y)
+                    marqueeStart = value.startLocation
                     cameraInfoElementID = nil
                 }
-                marqueeCurrent = CGPoint(x: value.location.x - canvasOrigin.x,
-                                         y: value.location.y - canvasOrigin.y)
+                marqueeCurrent = value.location
                 #endif
             }
             .onEnded { value in
@@ -2491,10 +2520,10 @@ struct SceneMapEditorView: View {
                 #if os(macOS)
                 defer { marqueeStart = nil; marqueeCurrent = nil }
                 guard !isDrawing, pendingMove == nil, let start = marqueeStart else { return }
-                let loc = CGPoint(x: value.location.x - canvasOrigin.x, y: value.location.y - canvasOrigin.y)
+                let loc = value.location
                 let box = CGRect(x: min(start.x, loc.x), y: min(start.y, loc.y),
                                  width: abs(loc.x - start.x), height: abs(loc.y - start.y))
-                selectMarkersInMarquee(box, in: rect)
+                selectMarkersInMarquee(box, in: rect, canvas: size)
                 #endif
             }
     }
