@@ -405,6 +405,13 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallCOB:  return (2.64, 1.49)
             case .mediumCOB: return (2.73, 1.45)
             case .bigCOB:    return (2.83, 1.36)
+            // LED panels take DoPchoice SNAPBAGs cut for the panel they stand in for
+            // (ratios vs. the panel width; only the top-down opening width and forward
+            // depth matter). Base = the full panel face, so the bag seats flush:
+            //   • 1x1 = Creamsource Vortex4 → SnapBag (63 cm opening / 35 cm face = 1.80, 26 cm deep)
+            //   • 2x1 = Creamsource Vortex8 → SnapBag (90 / 69 ≈ 1.30, 26 cm deep)
+            case .panel1x1:  return (1.80, 0.74)
+            case .lightPanel: return (1.30, 0.38)
             default:              return canMountSoftbox ? (2.5, 1.3) : nil
             }
         }
