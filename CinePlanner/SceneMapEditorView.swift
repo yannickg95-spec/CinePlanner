@@ -512,6 +512,8 @@ struct SceneMapEditorView: View {
             // as a single control.
             HStack(spacing: 0) {
                 Menu {
+                    layerVisibilityToggle(doc.showCharacters, "Characters") { doc.showCharacters = $0 }
+                    Divider()
                     let characters = (scene.project?.scriptCharacters ?? []).filter { !$0.name.isEmpty }
                     ForEach(characters) { character in
                         Button(character.name) { addCharacterMarker(name: character.name, colorHex: character.colorHex) }
@@ -530,6 +532,8 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
+                    layerVisibilityToggle(doc.showCameras, "Cameras") { doc.showCameras = $0 }
+                    Divider()
                     if sceneShots.isEmpty {
                         Text("No shots in this scene")
                     } else {
@@ -550,6 +554,8 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
+                    layerVisibilityToggle(doc.showBackground, "Background") { doc.showBackground = $0 }
+                    Divider()
                     Button { backgroundImportKind = .image } label: { Label("Image…", systemImage: "photo") }
                     // One item: the picker is for choosing a *place*. Adjusting the
                     // framing of a map that's already set happens on the canvas
@@ -595,6 +601,8 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
+                    layerVisibilityToggle(doc.showFurniture, "Furniture") { doc.showFurniture = $0 }
+                    Divider()
                     ForEach(Furniture.Kind.allCases.filter { !$0.isLight }, id: \.self) { kind in
                         Button(kind.rawValue) { addFurniture(kind) }
                     }
@@ -604,6 +612,8 @@ struct SceneMapEditorView: View {
 
                 segmentDivider
                 Menu {
+                    layerVisibilityToggle(doc.showLights, "Lights") { doc.showLights = $0 }
+                    Divider()
                     Menu("HMI") {
                         Button("Small HMI") { addFurniture(.smallHMI) }
                         Button("Medium HMI") { addFurniture(.mediumHMI) }
@@ -733,6 +743,15 @@ struct SceneMapEditorView: View {
 
     private var segmentDivider: some View {
         Divider().frame(height: 18)
+    }
+
+    /// A layer's Show/Hide toggle for a toolbar tool's menu.
+    @ViewBuilder
+    private func layerVisibilityToggle(_ isOn: Bool, _ name: String, set: @escaping (Bool) -> Void) -> some View {
+        Button { set(!isOn); persist() } label: {
+            Label(isOn ? "Hide \(name)" : "Show \(name)",
+                  systemImage: isOn ? "eye.slash" : "eye")
+        }
     }
 
     private func saveSun() {
@@ -898,7 +917,7 @@ struct SceneMapEditorView: View {
                 // scale (a Canvas inside the group would be a magnified 1× bitmap).
                 // Below the group, above the surround — so the markers, drawn in the
                 // group, still sit on top of it.
-                if !floorPlan.isEmpty || isDrawing {
+                if (doc.showBackground && !floorPlan.isEmpty) || isDrawing {
                     Canvas { ctx, _ in drawFloorPlanLayer(ctx, in: rect, canvas: geo.size) }
                         .allowsHitTesting(false)
                         .clipped()
@@ -916,6 +935,7 @@ struct SceneMapEditorView: View {
                         .scaleEffect(zoom, anchor: .center)
                         .offset(pan)
                         .allowsHitTesting(false)
+                        .opacity(doc.showBackground ? 1 : 0)
                     reframeRender(in: rect, canvas: geo.size)
                     // While reframing, preview the markers on the fetched framing so they
                     // track the map live instead of snapping into place only on commit.
@@ -1279,7 +1299,7 @@ struct SceneMapEditorView: View {
             // Furniture, below the people/cameras so they read as "on" it. Hidden
             // while drawing the floor plan.
             if !isDrawing {
-                ForEach(doc.furniture) { item in
+                ForEach(doc.furniture.filter { $0.kind.isLight ? doc.showLights : doc.showFurniture }) { item in
                     let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
                     let inGroup = totalSelected > 1 && furnitureSelectedIDs.contains(item.id)
                     FurnitureView(
@@ -1328,7 +1348,7 @@ struct SceneMapEditorView: View {
                     .zIndex(furnitureSelectedID == item.id || furnitureSelectedIDs.contains(item.id) ? 2 : 0)
                 }
             }
-            ForEach(doc.elements) { element in
+            ForEach(doc.elements.filter { $0.kind == .camera ? doc.showCameras : doc.showCharacters }) { element in
                 let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
                 let inGroup = totalSelected > 1 && selectedIDs.contains(element.id)
                 MapMarkerView(
@@ -1415,14 +1435,14 @@ struct SceneMapEditorView: View {
             // sibling layer, so they stay tappable out in the white margin.)
             // Camera field-of-view wedges, under the arrows and markers.
             // Reads the scene flag directly so toggling it re-renders here.
-            if scene.sceneMapShowCameraFOV {
+            if scene.sceneMapShowCameraFOV && doc.showCameras {
                 Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
                     .allowsHitTesting(false)
             }
             // Movement arrows are drawn crisply in a screen-space overlay outside
             // the zoom (see below); only their right-click hit areas live here.
             if !doc.arrows.isEmpty, !isDrawing, pendingMove == nil {
-                ForEach(doc.arrows) { arrow in
+                ForEach(doc.arrows.filter { arrowVisible($0) }) { arrow in
                     arrowHitView(arrow, in: rect)
                 }
                 .allowsHitTesting(!backgroundAdjustActive)
@@ -1462,7 +1482,7 @@ struct SceneMapEditorView: View {
                 ForEach(floorPlan.vertices) { vertex in
                     drawingVertexHandle(vertex, in: rect)
                 }
-            } else if pendingMove == nil && !backgroundAdjustActive && !reframeActive {
+            } else if pendingMove == nil && !backgroundAdjustActive && !reframeActive && doc.showBackground {
                 // Outside Edit: right-click targets on walls / doors / windows, so their
                 // context menus (length, delete, flip, …) don't require entering Edit.
                 // No draw or move gestures — those stay in the drawing layer above.
@@ -1476,7 +1496,7 @@ struct SceneMapEditorView: View {
             // Wall measurement labels: always visible (with their context menu), but
             // only draggable while editing. After the draw catcher, so an in-EDIT drag
             // reaches the label.
-            if mapMetersWide != nil && !floorPlan.hideMeasurements {
+            if mapMetersWide != nil && !floorPlan.hideMeasurements && (doc.showBackground || isDrawing) {
                 ForEach(floorPlan.walls) { wall in
                     wallMeasureLabel(wall, in: rect, draggable: isDrawing)
                 }
@@ -2611,12 +2631,12 @@ struct SceneMapEditorView: View {
     /// scaled or offset (Adjusted) map.
     private func selectMarkersInMarquee(_ box: CGRect, in rect: CGRect, canvas: CGSize) {
         var markerHits: Set<UUID> = []
-        for element in doc.elements {
+        for element in doc.elements where (element.kind == .camera ? doc.showCameras : doc.showCharacters) {
             let c = pieceScreenCenter(nx: element.x, ny: element.y, in: rect, canvas: canvas)
             if box.contains(c) { markerHits.insert(element.id) }
         }
         var furnitureHits: Set<UUID> = []
-        for item in doc.furniture {
+        for item in doc.furniture where (item.kind.isLight ? doc.showLights : doc.showFurniture) {
             let c = pieceScreenCenter(nx: item.x, ny: item.y, in: rect, canvas: canvas)
             if box.contains(c) { furnitureHits.insert(item.id) }
         }
@@ -3024,6 +3044,14 @@ struct SceneMapEditorView: View {
         wallSelectedID = nil
         furnitureSelectedID = nil
         furnitureSelectedIDs = []
+    }
+
+    /// Whether an arrow shows: it belongs to the marker layer it connects (both its
+    /// endpoints are the same kind), so it hides when that layer is hidden.
+    private func arrowVisible(_ arrow: MapArrow) -> Bool {
+        let el = doc.elements.first { $0.id == arrow.fromID } ?? doc.elements.first { $0.id == arrow.toID }
+        guard let kind = el?.kind else { return false }
+        return kind == .camera ? doc.showCameras : doc.showCharacters
     }
 
     @ViewBuilder
@@ -4552,6 +4580,8 @@ struct SceneMapEditorView: View {
         for arrow in doc.arrows {
             guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
                   let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
+            // An arrow belongs to the marker layer it connects, so it hides with it.
+            guard (from.kind == .camera ? doc.showCameras : doc.showCharacters) else { continue }
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
             // Trim the first/last segment so the shaft clears the marker icons.
             let n = pts.count

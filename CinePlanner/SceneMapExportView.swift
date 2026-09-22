@@ -220,25 +220,25 @@ struct SceneMapExportView: View {
             // Image and markers transform as one, so the markers keep the spots on
             // the image they annotate — the same placement the editor shows.
             ZStack {
-                if let background {
+                if let background, doc.showBackground {
                     Image(platformImage: background)
                         .resizable()
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
-                } else {
+                } else if background == nil {
                     Canvas { ctx, _ in Self.drawGrid(ctx, rect) }
                 }
-                if !plan.isEmpty {
+                if !plan.isEmpty && doc.showBackground {
                     Canvas { ctx, _ in Self.drawFloorPlan(ctx, plan: plan, in: rect) }
                 }
-                ForEach(doc.furniture) { item in
+                ForEach(doc.furniture.filter { $0.kind.isLight ? doc.showLights : doc.showFurniture }) { item in
                     FurnitureView(furniture: item, isSelected: false, contentRect: rect,
                                   placeScale: CGFloat(place.scale), placeRotation: place.rotation,
                                   onSelect: {}, onMove: { _ in }, onRotate: { _ in },
                                   onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
                                   onDuplicate: {}, viewable: viewableMarkers, onDelete: {})
                 }
-                ForEach(doc.elements) { element in
+                ForEach(doc.elements.filter { $0.kind == .camera ? doc.showCameras : doc.showCharacters }) { element in
                     MapMarkerView(element: element, label: labels[element.id] ?? element.label,
                                   isSelected: false, contentRect: rect,
                                   onSelect: {}, onMove: { _ in }, onRotate: { _ in },
@@ -399,6 +399,8 @@ struct SceneMapExportView: View {
         for arrow in doc.arrows {
             guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
                   let to = doc.elements.first(where: { $0.id == arrow.toID }) else { continue }
+            // Arrows hide with the marker layer they connect.
+            guard (from.kind == .camera ? doc.showCameras : doc.showCharacters) else { continue }
             var pts = [canvasPoint(from.x, from.y, in: rect)]
             pts += arrow.pivots.map { canvasPoint($0.x, $0.y, in: rect) }
             pts.append(canvasPoint(to.x, to.y, in: rect))

@@ -529,9 +529,20 @@ struct SceneMapDoc: Codable, Equatable {
     var furniture: [Furniture] = []
     var texts: [MapText] = []
 
+    // Per-layer visibility, toggled from each toolbar tool's menu. Default visible, so
+    // older maps (no flags) show everything.
+    var showCharacters = true
+    var showCameras = true
+    var showBackground = true
+    var showFurniture = true
+    var showLights = true
+
     var isEmpty: Bool { elements.isEmpty && arrows.isEmpty && furniture.isEmpty && texts.isEmpty }
 
-    enum CodingKeys: String, CodingKey { case elements, arrows, furniture, texts }
+    enum CodingKeys: String, CodingKey {
+        case elements, arrows, furniture, texts
+        case showCharacters, showCameras, showBackground, showFurniture, showLights
+    }
 
     init() {}
 
@@ -543,6 +554,11 @@ struct SceneMapDoc: Codable, Equatable {
         arrows = try c.decodeIfPresent([MapArrow].self, forKey: .arrows) ?? []
         furniture = try c.decodeIfPresent([Furniture].self, forKey: .furniture) ?? []
         texts = try c.decodeIfPresent([MapText].self, forKey: .texts) ?? []
+        showCharacters = try c.decodeIfPresent(Bool.self, forKey: .showCharacters) ?? true
+        showCameras = try c.decodeIfPresent(Bool.self, forKey: .showCameras) ?? true
+        showBackground = try c.decodeIfPresent(Bool.self, forKey: .showBackground) ?? true
+        showFurniture = try c.decodeIfPresent(Bool.self, forKey: .showFurniture) ?? true
+        showLights = try c.decodeIfPresent(Bool.self, forKey: .showLights) ?? true
     }
 
     // MARK: - JSON round-tripping (stored on Scene.sceneMapJSON)
