@@ -27,6 +27,8 @@ private struct MountedSoftboxGlyph: Equatable {
     var lightWidthFrac: CGFloat   // light width ÷ frame width
     var lightHeightFrac: CGFloat  // light depth ÷ frame height
     var openingFrac: CGFloat      // softbox opening width ÷ frame width
+    var baseFrac: CGFloat         // softbox base (= light front) width ÷ frame width
+    var frontInsetFrac: CGFloat   // fixture front inset from its box top ÷ frame height
 }
 
 private struct FurnitureGlyph: View {
@@ -61,8 +63,8 @@ private struct FurnitureGlyph: View {
                                    width: sb.lightWidthFrac * canvasSize.width,
                                    height: sb.lightHeightFrac * canvasSize.height)
             drawMountedSoftbox(centerX: canvasSize.width / 2,
-                               backY: lightRect.minY, frontY: 0,
-                               baseWidth: lightRect.width,
+                               backY: lightRect.minY + sb.frontInsetFrac * canvasSize.height, frontY: 0,
+                               baseWidth: sb.baseFrac * canvasSize.width,
                                openingWidth: sb.openingFrac * canvasSize.width,
                                into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
             drawFurniture(kind, in: lightRect,
@@ -827,7 +829,9 @@ struct FurnitureView: View {
         return MountedSoftboxGlyph(depthFrac: sb.depth / h,
                                    lightWidthFrac: ls.width / w,
                                    lightHeightFrac: ls.height / h,
-                                   openingFrac: min(sb.opening, w) / w)
+                                   openingFrac: min(sb.opening, w) / w,
+                                   baseFrac: furniture.kind.frontWidthFraction * ls.width / w,
+                                   frontInsetFrac: furniture.kind.frontInsetFraction * ls.height / h)
     }
     var body: some View {
         let w = max(sizePts.width, 8), h = max(sizePts.height, 8)

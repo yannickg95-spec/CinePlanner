@@ -333,6 +333,22 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// Fixtures a softbox can be mounted on (its base snaps to their front).
         var canMountSoftbox: Bool { isHMI || isTungsten || isCOB || isPanel }
 
+        /// How wide the fixture's emitting front is, as a fraction of its drawn width —
+        /// so a mounted softbox's base meets the actual front, not the piece's full
+        /// footprint. The tungsten housing is inset 10% each side (0.80 wide); the HMI
+        /// reflector is nearly full width; panels emit across their whole face.
+        var frontWidthFraction: CGFloat {
+            if isTungsten { return 0.80 }
+            if isHMI { return 0.96 }
+            if isCOB { return 0.72 }
+            return 1.0   // panels and anything else
+        }
+
+        /// How far the fixture's front is inset from the top of its drawn box, as a
+        /// fraction of its height — so a mounted softbox meets the real front and
+        /// leaves no gap. The tungsten housing is inset 3% at the top.
+        var frontInsetFraction: CGFloat { isTungsten ? 0.03 : 0 }
+
         /// A mounted softbox's real Chimera bank, expressed as (front opening width,
         /// depth) relative to the light's own width — so it scales with the fixture and
         /// its base always meets the light's front. HMI lamps use the Chimera softbox
@@ -346,7 +362,14 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallHMI:  return (2.86, 1.61)
             case .mediumHMI: return (3.00, 1.50)
             case .bigHMI:    return (2.57, 1.29)
-            default:         return canMountSoftbox ? (2.5, 1.3) : nil
+            // Tungsten fresnels use Chimera's Quartz (high-heat) banks:
+            //   • Small  = ARRI 650      → XS      (≈ 56 × 34 cm on a 19 cm front)
+            //   • Medium = ARRI 5K       → Medium  (≈ 120 × 60 cm on a 46 cm front)
+            //   • Big    = ARRI T24 24K  → Senior Large (≈ 180 × 90 cm on an 80 cm front)
+            case .smallTungsten:  return (2.95, 1.80)
+            case .mediumTungsten: return (2.61, 1.30)
+            case .bigTungsten:    return (2.25, 1.13)
+            default:              return canMountSoftbox ? (2.5, 1.3) : nil
             }
         }
 
