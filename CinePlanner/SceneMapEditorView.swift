@@ -190,6 +190,9 @@ struct SceneMapEditorView: View {
     @State private var arrowSelectedID: UUID?
     /// Furniture selected for editing (reveals rotate/resize handles).
     @State private var furnitureSelectedID: UUID?
+    /// Furniture picked out by a marquee drag (multi-selection), alongside the single
+    /// `furnitureSelectedID`. Members move and delete together with any selected markers.
+    @State private var furnitureSelectedIDs: Set<UUID> = []
     /// The furniture currently in resize mode (armed via the context menu). Lights are
     /// move-only until armed; cleared when the selection changes.
     @State private var furnitureResizeID: UUID?
@@ -252,13 +255,14 @@ struct SceneMapEditorView: View {
             // reset. Otherwise never let a stale/empty external value wipe a map we
             // already have; our own edits go through `doc` directly, not this path.
             if newValue == nil {
-                if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = [] }
+                if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = []; furnitureSelectedIDs = [] }
                 return
             }
             let incoming = SceneMapDoc.load(from: newValue)
             guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty) else { return }
             doc = incoming
             selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
+            furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(PlatformImage.init(data:))
@@ -932,7 +936,7 @@ struct SceneMapEditorView: View {
                          including: backgroundAdjustActive ? .gesture : .subviews)
                 .onTapGesture {
                     if !isDrawing && !backgroundAdjustActive {
-                        selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil
+                        selectedIDs = []; furnitureSelectedIDs = []; openingSelectedID = nil; wallSelectedID = nil
                         arrowSelectedID = nil; furnitureSelectedID = nil; furnitureResizeID = nil
                         cameraInfoElementID = nil
                     }
@@ -1159,9 +1163,11 @@ struct SceneMapEditorView: View {
             // while drawing the floor plan.
             if !isDrawing {
                 ForEach(doc.furniture) { item in
+                    let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
+                    let inGroup = totalSelected > 1 && furnitureSelectedIDs.contains(item.id)
                     FurnitureView(
                         furniture: item,
-                        isSelected: furnitureSelectedID == item.id,
+                        isSelected: furnitureSelectedID == item.id || furnitureSelectedIDs.contains(item.id),
                         resizeArmed: furnitureResizeID == item.id,
                         canResetSize: furnitureSizeChanged(item),
                         widthOnlyResize: item.kind.resizeWidthOnly
@@ -1190,17 +1196,24 @@ struct SceneMapEditorView: View {
                         onMoveLabel: { offset in moveFurnitureLabel(item.id, to: offset) },
                         metersWide: mapMetersWide,
                         viewable: scene.sceneMapViewableMarkerSize,
-                        onDelete: { deleteFurniture(item.id) }
+                        selectedCount: inGroup ? totalSelected : 1,
+                        isGroupMember: inGroup,
+                        groupDragOffset: inGroup ? (groupDragTranslation ?? .zero) : .zero,
+                        onGroupDragChanged: { groupDragTranslation = $0 },
+                        onGroupDragEnded: { commitGroupDrag($0, in: rect) },
+                        onDelete: { deleteFurnitureOrSelection(item.id) }
                     )
                     .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive
                                       && pieceHittable(nx: item.x, ny: item.y, in: paneRect, canvas: geo.size))
                     // Furniture normally sits below the people/cameras, but the selected
                     // piece floats above them — so a just-added (auto-selected) light
                     // can't hide under a marker and stays easy to grab.
-                    .zIndex(furnitureSelectedID == item.id ? 2 : 0)
+                    .zIndex(furnitureSelectedID == item.id || furnitureSelectedIDs.contains(item.id) ? 2 : 0)
                 }
             }
             ForEach(doc.elements) { element in
+                let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
+                let inGroup = totalSelected > 1 && selectedIDs.contains(element.id)
                 MapMarkerView(
                     element: element,
                     label: resolvedLabel(for: element),
@@ -1233,11 +1246,10 @@ struct SceneMapEditorView: View {
                     fovProfiles: fovProfileRows,
                     selectedFOVProfileID: selectedFOVProfileID(for: element),
                     onSelectFOVProfile: { selectFOVProfile($0, for: element) },
-                    showsRotationHandle: selectedIDs.count == 1,
-                    selectedCount: (selectedIDs.count > 1 && selectedIDs.contains(element.id)) ? selectedIDs.count : 1,
-                    isGroupMember: selectedIDs.count > 1 && selectedIDs.contains(element.id),
-                    groupDragOffset: (selectedIDs.count > 1 && selectedIDs.contains(element.id))
-                        ? (groupDragTranslation ?? .zero) : .zero,
+                    showsRotationHandle: totalSelected == 1,
+                    selectedCount: inGroup ? totalSelected : 1,
+                    isGroupMember: inGroup,
+                    groupDragOffset: inGroup ? (groupDragTranslation ?? .zero) : .zero,
                     onGroupDragChanged: { groupDragTranslation = $0 },
                     onGroupDragEnded: { commitGroupDrag($0, in: rect) },
                     scale: sceneMarkerScale(kind: element.kind,
@@ -1404,9 +1416,9 @@ struct SceneMapEditorView: View {
         // gesture takes over the canvas and ignores the (hit-test-disabled) markers.
         .gesture(backgroundAdjustGesture(in: rect),
                  including: backgroundAdjustActive ? .gesture : .subviews)
-        .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; furnitureResizeID = nil; cameraInfoElementID = nil } }
+        .onTapGesture { if !isDrawing && !backgroundAdjustActive { selectedIDs = []; furnitureSelectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil; furnitureResizeID = nil; cameraInfoElementID = nil } }
         #if os(macOS)
-        .onDeleteCommand { if !selectedIDs.isEmpty { deleteSelectedMarkers() } }
+        .onDeleteCommand { if !selectedIDs.isEmpty || !furnitureSelectedIDs.isEmpty { deleteSelectedPieces() } }
         #endif
     }
 
@@ -1971,7 +1983,7 @@ struct SceneMapEditorView: View {
     /// straight onto the image.
     private func startBackgroundAdjust() {
         cameraInfoElementID = nil
-        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; furnitureSelectedID = nil; furnitureSelectedIDs = []; arrowSelectedID = nil
         zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero
         // Start from what's on screen — including an auto-fit that hasn't been saved —
         // so opening the tool doesn't jump the map back to 1×.
@@ -2378,22 +2390,38 @@ struct SceneMapEditorView: View {
     }
 
     /// Deletes a marker, or — when it's part of a multi-selection — every selected
-    /// marker (used by the marker's Delete menu item and the delete key).
+    /// piece (used by the marker's Delete menu item and the delete key).
     private func deleteMarkerOrSelection(_ id: UUID) {
-        if selectedIDs.count > 1 && selectedIDs.contains(id) {
-            deleteSelectedMarkers()
+        if selectedIDs.count + furnitureSelectedIDs.count > 1 && selectedIDs.contains(id) {
+            deleteSelectedPieces()
         } else {
             deleteElement(id)
         }
     }
 
-    /// Deletes every selected marker (and any arrows touching them) in one go.
-    private func deleteSelectedMarkers() {
-        guard !selectedIDs.isEmpty else { return }
+    /// Deletes a furniture piece, or — when it's part of a multi-selection — every
+    /// selected piece (used by the furniture Delete menu item).
+    private func deleteFurnitureOrSelection(_ id: UUID) {
+        if selectedIDs.count + furnitureSelectedIDs.count > 1 && furnitureSelectedIDs.contains(id) {
+            deleteSelectedPieces()
+        } else {
+            deleteFurniture(id)
+        }
+    }
+
+    /// Deletes every selected marker and furniture piece (and any arrows touching a
+    /// deleted marker) in one go.
+    private func deleteSelectedPieces() {
         let ids = selectedIDs
-        doc.elements.removeAll { ids.contains($0.id) }
-        doc.arrows.removeAll { ids.contains($0.fromID) || ids.contains($0.toID) }
+        let fids = furnitureSelectedIDs
+        guard !ids.isEmpty || !fids.isEmpty else { return }
+        if !ids.isEmpty {
+            doc.elements.removeAll { ids.contains($0.id) }
+            doc.arrows.removeAll { ids.contains($0.fromID) || ids.contains($0.toID) }
+        }
+        if !fids.isEmpty { doc.furniture.removeAll { fids.contains($0.id) } }
         selectedIDs = []
+        furnitureSelectedIDs = []
         persist()
     }
 
@@ -2401,6 +2429,7 @@ struct SceneMapEditorView: View {
     /// selection.
     private func selectMarker(_ id: UUID) {
         selectedIDs = [id]
+        furnitureSelectedIDs = []
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
@@ -2419,20 +2448,34 @@ struct SceneMapEditorView: View {
             doc.elements[i].x = clamp ? min(max(nx, 0), 1) : nx
             doc.elements[i].y = clamp ? min(max(ny, 0), 1) : ny
         }
+        for i in doc.furniture.indices where furnitureSelectedIDs.contains(doc.furniture[i].id) {
+            let cx = rect.minX + doc.furniture[i].x * rect.width + translation.width
+            let cy = rect.minY + doc.furniture[i].y * rect.height + translation.height
+            let nx = (cx - rect.minX) / rect.width
+            let ny = (cy - rect.minY) / rect.height
+            doc.furniture[i].x = clamp ? min(max(nx, 0), 1) : nx
+            doc.furniture[i].y = clamp ? min(max(ny, 0), 1) : ny
+        }
         persist()
     }
 
-    /// Selects every camera/mannequin marker whose center falls inside the marquee
-    /// rectangle (canvas screen points). Marker centers are taken through the same
-    /// placement transform the box is measured in, so selection stays correct on a
+    /// Selects every camera/mannequin marker and every furniture/light piece whose centre
+    /// falls inside the marquee rectangle (canvas screen points). Centres are taken through
+    /// the same placement transform the box is measured in, so selection stays correct on a
     /// scaled or offset (Adjusted) map.
     private func selectMarkersInMarquee(_ box: CGRect, in rect: CGRect, canvas: CGSize) {
-        var hits: Set<UUID> = []
+        var markerHits: Set<UUID> = []
         for element in doc.elements {
             let c = pieceScreenCenter(nx: element.x, ny: element.y, in: rect, canvas: canvas)
-            if box.contains(c) { hits.insert(element.id) }
+            if box.contains(c) { markerHits.insert(element.id) }
         }
-        selectedIDs = hits
+        var furnitureHits: Set<UUID> = []
+        for item in doc.furniture {
+            let c = pieceScreenCenter(nx: item.x, ny: item.y, in: rect, canvas: canvas)
+            if box.contains(c) { furnitureHits.insert(item.id) }
+        }
+        selectedIDs = markerHits
+        furnitureSelectedIDs = furnitureHits
         openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil; furnitureSelectedID = nil
     }
 
@@ -2624,7 +2667,7 @@ struct SceneMapEditorView: View {
         // explicitly picks "Resize" again.
         if furnitureSelectedID != id { furnitureResizeID = nil }
         furnitureSelectedID = id
-        selectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; furnitureSelectedIDs = []; openingSelectedID = nil; wallSelectedID = nil; arrowSelectedID = nil
     }
 
     private func moveFurniture(_ id: UUID, to n: CGPoint) {
@@ -2758,6 +2801,7 @@ struct SceneMapEditorView: View {
     private func deleteFurniture(_ id: UUID) {
         doc.furniture.removeAll { $0.id == id }
         if furnitureSelectedID == id { furnitureSelectedID = nil }
+        furnitureSelectedIDs.remove(id)
         persist()
     }
 
@@ -2821,6 +2865,7 @@ struct SceneMapEditorView: View {
         openingSelectedID = nil
         wallSelectedID = nil
         furnitureSelectedID = nil
+        furnitureSelectedIDs = []
     }
 
     @ViewBuilder
@@ -3038,6 +3083,7 @@ struct SceneMapEditorView: View {
         selectedIDs = []
         arrowSelectedID = nil
         furnitureSelectedID = nil
+        furnitureSelectedIDs = []
     }
 
     private func moveVertex(_ id: UUID, to loc: CGPoint, in rect: CGRect) {
@@ -3222,6 +3268,7 @@ struct SceneMapEditorView: View {
         wallSelectedID = nil
         arrowSelectedID = nil
         furnitureSelectedID = nil
+        furnitureSelectedIDs = []
     }
 
     /// Projects a normalized point onto a wall, returning the parameter t.
@@ -3669,7 +3716,7 @@ struct SceneMapEditorView: View {
 
     private func startScaleMeasure() {
         cameraInfoElementID = nil
-        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; furnitureSelectedID = nil; furnitureSelectedIDs = []; arrowSelectedID = nil
         openingSelectedID = nil; wallSelectedID = nil
         scaleMeasurePoints = []
         scaleMeasureActive = true
@@ -3893,7 +3940,7 @@ struct SceneMapEditorView: View {
         isDrawing = false
         chainLastVertex = nil
         pendingMove = nil
-        selectedIDs = []; furnitureSelectedID = nil; arrowSelectedID = nil
+        selectedIDs = []; furnitureSelectedID = nil; furnitureSelectedIDs = []; arrowSelectedID = nil
         wallSelectedID = nil; openingSelectedID = nil
         doc = SceneMapDoc()
         floorPlan = FloorPlan()
@@ -4472,7 +4519,7 @@ struct SceneMapEditorView: View {
         // If the whole map was just cleared from under us (e.g. "Clear Scene"),
         // don't resurrect the stale in-memory doc — reset it to match.
         if scene.sceneMapJSON == nil {
-            if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = [] }
+            if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = []; furnitureSelectedIDs = [] }
             return
         }
         let shotUIDs = Set(scene.shots.map(\.uid))

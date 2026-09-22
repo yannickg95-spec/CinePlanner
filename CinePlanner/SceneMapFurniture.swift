@@ -795,6 +795,15 @@ struct FurnitureView: View {
     /// that renders tiny on a large measured map stays easy to see (mirrors the
     /// camera/mannequin markers' viewable-size floor). Off = true real-world size.
     var viewable: Bool = false
+    /// Multi-selection (marquee) support, mirroring the camera/mannequin markers: when
+    /// this piece is one of several selected, dragging it moves the whole group and the
+    /// delete label counts them. `groupDragOffset` is the live group translation the
+    /// parent applies to every selected piece.
+    var selectedCount: Int = 1
+    var isGroupMember: Bool = false
+    var groupDragOffset: CGSize = .zero
+    var onGroupDragChanged: (CGSize) -> Void = { _ in }
+    var onGroupDragEnded: (CGSize) -> Void = { _ in }
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -937,6 +946,9 @@ struct FurnitureView: View {
             }
         }
         .position(livePosition ?? center)
+        // While part of a multi-selection, the parent offsets every selected piece by
+        // the live group translation so they move together.
+        .offset(groupDragOffset)
     }
 
     /// The piece's vertical half-extent (group units) at its current rotation — the
@@ -996,6 +1008,12 @@ struct FurnitureView: View {
     private var dragGesture: some Gesture {
         DragGesture(coordinateSpace: .named(SceneMapEditorView.canvasContentSpace))
             .onChanged { value in
+                // Part of a multi-selection → drag the whole group (the parent offsets
+                // every selected piece), leaving the selection intact.
+                if isGroupMember {
+                    onGroupDragChanged(value.translation)
+                    return
+                }
                 onSelect()
                 if livePosition == nil {
                     grabOffset = CGSize(width: center.x - value.location.x, height: center.y - value.location.y)
@@ -1003,6 +1021,10 @@ struct FurnitureView: View {
                 livePosition = CGPoint(x: value.location.x + grabOffset.width, y: value.location.y + grabOffset.height)
             }
             .onEnded { value in
+                if isGroupMember {
+                    onGroupDragEnded(value.translation)
+                    return
+                }
                 let final = CGPoint(x: value.location.x + grabOffset.width, y: value.location.y + grabOffset.height)
                 livePosition = nil
                 onMove(normalized(final))
@@ -1195,6 +1217,8 @@ struct FurnitureView: View {
         }
         Divider()
         Button { onDuplicate() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-        Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
+        Button(role: .destructive) { onDelete() } label: {
+            Label(selectedCount > 1 ? "Delete \(selectedCount) Items" : "Delete", systemImage: "trash")
+        }
     }
 }
