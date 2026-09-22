@@ -23,6 +23,7 @@ struct MapTextView: View {
     let onSelect: () -> Void
     let onMove: (CGPoint) -> Void
     let onEdit: () -> Void
+    var onResize: (Double) -> Void = { _ in }   // signed step applied to the font size
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -60,6 +61,8 @@ struct MapTextView: View {
             .gesture(dragGesture)
             .contextMenu {
                 Button { onEdit() } label: { Label("Edit Text", systemImage: "pencil") }
+                Button { onResize(2) } label: { Label("Larger", systemImage: "textformat.size.larger") }
+                Button { onResize(-2) } label: { Label("Smaller", systemImage: "textformat.size.smaller") }
                 Divider()
                 Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
             }

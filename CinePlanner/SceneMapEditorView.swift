@@ -1253,6 +1253,13 @@ struct SceneMapEditorView: View {
         persist()
     }
 
+    /// Grows or shrinks a text note's font (points), clamped to a sensible range.
+    private func resizeText(_ id: UUID, by step: Double) {
+        guard let i = doc.texts.firstIndex(where: { $0.id == id }) else { return }
+        doc.texts[i].fontSize = min(max(doc.texts[i].fontSize + step, 8), 60)
+        persist()
+    }
+
     private func deleteText(_ id: UUID) {
         doc.texts.removeAll { $0.id == id }
         persist()
@@ -1387,6 +1394,7 @@ struct SceneMapEditorView: View {
                     onSelect: { cameraInfoElementID = nil },
                     onMove: { n in moveText(text.id, to: n) },
                     onEdit: { editTextNote(text.id) },
+                    onResize: { step in resizeText(text.id, by: step) },
                     onDelete: { deleteText(text.id) }
                 )
                 .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive
