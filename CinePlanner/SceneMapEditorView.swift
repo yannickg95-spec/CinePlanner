@@ -1074,13 +1074,46 @@ struct SceneMapEditorView: View {
                       width: rect.width, height: rect.height)
     }
 
+    /// The on-screen point a normalized map position maps to: through the canvas zoom/pan,
+    /// then the map group's placement (rotate + scale about the pane centre, then offset)
+    /// — the same transform the map is drawn with (mirrors the camera card's math).
+    private func pieceScreenCenter(nx: Double, ny: Double, in rect: CGRect, canvas: CGSize) -> CGPoint {
+        let cxMid = canvas.width / 2, cyMid = canvas.height / 2
+        let zx = cxMid + (rect.minX + CGFloat(nx) * rect.width - cxMid) * zoom + pan.width
+        let zy = cyMid + (rect.minY + CGFloat(ny) * rect.height - cyMid) * zoom + pan.height
+        let place = mapPlacement
+        let theta = (place.rotation - reframeTurn) * .pi / 180
+        let c = cos(theta), s = sin(theta)
+        let rx = (zx - cxMid) * c - (zy - cyMid) * s
+        let ry = (zx - cxMid) * s + (zy - cyMid) * c
+        return CGPoint(x: cxMid + CGFloat(place.scale) * rx + CGFloat(place.offsetX) * rect.width,
+                       y: cyMid + CGFloat(place.scale) * ry + CGFloat(place.offsetY) * rect.height)
+    }
+
+    /// Whether a piece at this normalized spot renders inside the pane, so it should take
+    /// taps. The marker/furniture layer is oversized and never hit-clipped (so a piece in
+    /// the white margin stays grabbable and the drawing catcher below stays reachable), so
+    /// a big Adjust could otherwise push a piece's invisible hit-area out over the toolbar
+    /// and swallow its taps. Gating per piece keeps in-pane pieces live without letting the
+    /// whole layer consume taps. The stored spot is used (not the live drag position) so an
+    /// in-progress drag past the edge isn't cut off.
+    private func pieceHittable(nx: Double, ny: Double, in rect: CGRect, canvas: CGSize) -> Bool {
+        let p = pieceScreenCenter(nx: nx, ny: ny, in: rect, canvas: canvas)
+        let m: CGFloat = 4   // tiny slack so a piece centred right on the edge still counts
+        return p.x >= -m && p.x <= canvas.width + m && p.y >= -m && p.y <= canvas.height + m
+    }
+
     /// Furniture and camera/mannequin markers, in their own oversized, never-clipped
     /// layer (see `canvas`) so a piece pushed into the white margin by the placement
     /// stays selectable and draggable. Gestures read `canvasContentSpace` — the
     /// pre-placement space, like `rect` here — so grabs land true at any scale. Holds
     /// only positioned views (no Canvas), so the large frame stays cheap.
     private func markerFurnitureLayer(in rect: CGRect, geo: GeometryProxy) -> some View {
-        ZStack {
+        // The pane rect (not the overscanned layer rect) — the space a normalized point
+        // maps through to land on screen, so pieces whose stored spot falls outside the
+        // pane can drop their hit-testing (see `pieceHittable`).
+        let paneRect = contentRect(in: geo.size)
+        return ZStack {
             // Furniture, below the people/cameras so they read as "on" it. Hidden
             // while drawing the floor plan.
             if !isDrawing {
@@ -1118,7 +1151,8 @@ struct SceneMapEditorView: View {
                         viewable: scene.sceneMapViewableMarkerSize,
                         onDelete: { deleteFurniture(item.id) }
                     )
-                    .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive)
+                    .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive
+                                      && pieceHittable(nx: item.x, ny: item.y, in: paneRect, canvas: geo.size))
                     // Furniture normally sits below the people/cameras, but the selected
                     // piece floats above them — so a just-added (auto-selected) light
                     // can't hide under a marker and stays easy to grab.
@@ -1173,7 +1207,8 @@ struct SceneMapEditorView: View {
                     placeScale: CGFloat(mapPlacement.scale),
                     placeRotation: mapPlacement.rotation
                 )
-                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive)
+                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive
+                                  && pieceHittable(nx: element.x, ny: element.y, in: paneRect, canvas: geo.size))
                 // Above unselected furniture, below the *selected* furniture piece.
                 .zIndex(1)
             }
