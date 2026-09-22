@@ -340,14 +340,41 @@ struct Furniture: Identifiable, Codable, Equatable {
         var frontWidthFraction: CGFloat {
             if isTungsten { return 0.80 }
             if isHMI { return 0.96 }
-            if isCOB { return 0.72 }
+            // COBs drop the reflector when a softbox is fitted, so its base seats on the
+            // body front (the mount face) — as wide as the drawn body, yoke arms aside.
+            switch self {
+            case .smallCOB:  return 0.66   // body half-width 0.33
+            case .mediumCOB: return 0.77   // body half-width 0.385
+            case .bigCOB:    return 0.70   // XT52 body spans 0.155–0.852
+            default: break
+            }
             return 1.0   // panels and anything else
+        }
+
+        /// Fraction of a COB's full (reflector-included) length taken by its body alone.
+        /// When a softbox replaces the reflector, only the body is drawn, so the softbox
+        /// mounts on the body front instead of on the reflector mouth.
+        ///   • Small  = STORM 80C   → 22 cm body of a 40 cm piece
+        ///   • Medium = STORM 1200X → 36.9 cm body of a 51.9 cm piece
+        ///   • Big    = STORM XT52  → 55 cm body of a 79.4 cm piece
+        var cobBodyLengthFraction: CGFloat {
+            switch self {
+            case .smallCOB:  return 0.55
+            case .mediumCOB: return 0.71
+            case .bigCOB:    return 0.69
+            default:         return 1
+            }
         }
 
         /// How far the fixture's front is inset from the top of its drawn box, as a
         /// fraction of its height — so a mounted softbox meets the real front and
-        /// leaves no gap. The tungsten housing is inset 3% at the top.
-        var frontInsetFraction: CGFloat { isTungsten ? 0.03 : 0 }
+        /// leaves no gap. The tungsten housing is inset 3% at the top; a COB's body
+        /// (drawn without its reflector) starts 5% in, where the softbox seats.
+        var frontInsetFraction: CGFloat {
+            if isTungsten { return 0.03 }
+            if isCOB { return 0.05 }
+            return 0
+        }
 
         /// A mounted softbox's real Chimera bank, expressed as (front opening width,
         /// depth) relative to the light's own width — so it scales with the fixture and
@@ -369,6 +396,15 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallTungsten:  return (2.95, 1.80)
             case .mediumTungsten: return (2.61, 1.30)
             case .bigTungsten:    return (2.25, 1.13)
+            // LED COBs carry a reflector by default; a softbox replaces it, mounting on
+            // the body via the Bowens / Aputure mount. Each COB uses the round Aputure
+            // softbox built for the light it stands in for (ratios vs. the body width):
+            //   • Small  = STORM 80C   → Light Dome Mini III (58 cm opening / 22 cm body ≈ 2.64, 33 cm deep)
+            //   • Medium = STORM 1200X → Light Dome III       (90 / 33 ≈ 2.73, 48 cm deep)
+            //   • Big    = STORM XT52  → Mount Light Dome 150 (150 / 53 ≈ 2.83, 72 cm deep)
+            case .smallCOB:  return (2.64, 1.49)
+            case .mediumCOB: return (2.73, 1.45)
+            case .bigCOB:    return (2.83, 1.36)
             default:              return canMountSoftbox ? (2.5, 1.3) : nil
             }
         }

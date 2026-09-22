@@ -69,7 +69,7 @@ private struct FurnitureGlyph: View {
                                into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
             drawFurniture(kind, in: lightRect,
                           into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
-                          hasModifier: hasModifier)
+                          hasModifier: hasModifier, reflectorReplaced: kind.isCOB)
         }
         // Render k× larger, then scale back: the layout stays `size`, but the raster
         // is drawn at k× so the parent group's scaleEffect has real pixels to show.
@@ -106,6 +106,7 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
                                 reflectorFrontHalf: CGFloat = 0.28,
                                 reflectorBaseHalf: CGFloat = 0.14,
                                 bodyHalfWidth: CGFloat = 0.365,
+                                showReflector: Bool = true,
                                 into ctx: inout GraphicsContext,
                                 fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
                                 stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
@@ -125,21 +126,25 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     let frontHalf = reflectorFrontHalf     // at the front mouth
     let reflDepth = min(max(reflectorDepth, 0.1), 0.7)
     // The reflector sits in front of the housing, with a collar band between them; the
-    // housing occupies the rest, the connector poking out the back.
+    // housing occupies the rest, the connector poking out the back. With a softbox
+    // fitted the reflector is removed and the body fills the piece, so the softbox
+    // mounts on the body front (the Bowens / Aputure mount).
     let collarGap: CGFloat = 0.025
-    let bodyY0 = reflDepth + collarGap
-    let bodyY1: CGFloat = 0.95
+    let bodyY0 = showReflector ? reflDepth + collarGap : 0.05
+    let bodyY1: CGFloat = showReflector ? 0.95 : 0.97
     let bodyH = bodyY1 - bodyY0
 
-    // Reflector.
-    var hood = Path()
-    hood.move(to: CGPoint(x: X(mid - frontHalf), y: Y(0)))
-    hood.addLine(to: CGPoint(x: X(mid + frontHalf), y: Y(0)))
-    hood.addLine(to: CGPoint(x: X(mid + baseHalf), y: Y(reflDepth)))
-    hood.addLine(to: CGPoint(x: X(mid - baseHalf), y: Y(reflDepth)))
-    hood.closeSubpath()
-    ctx.fill(hood, with: deepFill)
-    ctx.stroke(hood, with: stroke, lineWidth: lw)
+    if showReflector {
+        // Reflector.
+        var hood = Path()
+        hood.move(to: CGPoint(x: X(mid - frontHalf), y: Y(0)))
+        hood.addLine(to: CGPoint(x: X(mid + frontHalf), y: Y(0)))
+        hood.addLine(to: CGPoint(x: X(mid + baseHalf), y: Y(reflDepth)))
+        hood.addLine(to: CGPoint(x: X(mid - baseHalf), y: Y(reflDepth)))
+        hood.closeSubpath()
+        ctx.fill(hood, with: deepFill)
+        ctx.stroke(hood, with: stroke, lineWidth: lw)
+    }
 
     // Yoke arms — thin bars just outside each side of the housing.
     let bodyHalf = bodyHalfWidth
@@ -159,10 +164,17 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     ctx.fill(bodyPath, with: fill)
     ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
 
-    // ProLock collar — the band between the reflector base and the housing.
-    let collarRect = box(mid - baseHalf, reflDepth - 0.004, mid + baseHalf, bodyY0 + 0.012)
-    ctx.fill(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: fill)
-    ctx.stroke(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: stroke, lineWidth: lw)
+    if showReflector {
+        // ProLock collar — the band between the reflector base and the housing.
+        let collarRect = box(mid - baseHalf, reflDepth - 0.004, mid + baseHalf, bodyY0 + 0.012)
+        ctx.fill(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: fill)
+        ctx.stroke(furnitureRoundedPath(collarRect, collarRect.height * 0.35), with: stroke, lineWidth: lw)
+    } else {
+        // Mount lip across the body front — the speedring the softbox seats on.
+        let lipRect = box(mid - bodyHalfWidth * 0.85, bodyY0 - 0.012, mid + bodyHalfWidth * 0.85, bodyY0 + 0.03)
+        ctx.fill(furnitureRoundedPath(lipRect, lipRect.height * 0.4), with: fill)
+        ctx.stroke(furnitureRoundedPath(lipRect, lipRect.height * 0.4), with: stroke, lineWidth: lw)
+    }
 
     // Round tilt knobs at the outer ends of the yoke arms.
     let knobR = unit * 0.05
@@ -192,27 +204,39 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
 /// a big rounded body carried between two yoke arms with tilt knobs, a reflector hood
 /// flaring out the front, a control strip across the back of the body and a connector
 /// at its back corner. Front = up at 0°, so rotating the piece aims the light.
-private func drawStormXT52(_ rect: CGRect, into ctx: inout GraphicsContext,
+private func drawStormXT52(_ rect: CGRect, showReflector: Bool = true,
+                           into ctx: inout GraphicsContext,
                            fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
                            stroke: GraphicsContext.Shading, detail: GraphicsContext.Shading,
                            lineWidth lw: CGFloat) {
     // Geometry is expressed as fractions of the piece's bounding box.
     func X(_ f: CGFloat) -> CGFloat { rect.minX + f * rect.width }
-    func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * rect.height }
+    // With a softbox fitted the reflector is dropped, so the body (which normally sits
+    // below the 0.252 hood/lip) is remapped to fill the whole piece and the softbox
+    // mounts on its front.
+    let srcTop: CGFloat = showReflector ? 0 : 0.252
+    func Y(_ f: CGFloat) -> CGFloat {
+        guard !showReflector else { return rect.minY + f * rect.height }
+        let t = (f - srcTop) / (1 - srcTop)
+        return rect.minY + (0.02 + t * 0.98) * rect.height
+    }
     func box(_ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat) -> CGRect {
-        CGRect(x: X(x0), y: Y(y0), width: (x1 - x0) * rect.width, height: (y1 - y0) * rect.height)
+        let a = Y(y0), b = Y(y1)
+        return CGRect(x: X(x0), y: a, width: (x1 - x0) * rect.width, height: b - a)
     }
     let unit = min(rect.width, rect.height)
 
-    // Reflector hood (30 cm mouth, 20 cm collar, 20 cm long on a 79.4 cm piece).
-    var hood = Path()
-    hood.move(to: CGPoint(x: X(0.217), y: Y(0.000)))
-    hood.addLine(to: CGPoint(x: X(0.783), y: Y(0.000)))
-    hood.addLine(to: CGPoint(x: X(0.689), y: Y(0.252)))
-    hood.addLine(to: CGPoint(x: X(0.311), y: Y(0.252)))
-    hood.closeSubpath()
-    ctx.fill(hood, with: deepFill)
-    ctx.stroke(hood, with: stroke, lineWidth: lw)
+    if showReflector {
+        // Reflector hood (30 cm mouth, 20 cm collar, 20 cm long on a 79.4 cm piece).
+        var hood = Path()
+        hood.move(to: CGPoint(x: X(0.217), y: Y(0.000)))
+        hood.addLine(to: CGPoint(x: X(0.783), y: Y(0.000)))
+        hood.addLine(to: CGPoint(x: X(0.689), y: Y(0.252)))
+        hood.addLine(to: CGPoint(x: X(0.311), y: Y(0.252)))
+        hood.closeSubpath()
+        ctx.fill(hood, with: deepFill)
+        ctx.stroke(hood, with: stroke, lineWidth: lw)
+    }
 
     // Yoke arms down each side, behind the body.
     for xs in [(CGFloat(0.081), CGFloat(0.155)), (CGFloat(0.852), CGFloat(0.929))] {
@@ -226,7 +250,7 @@ private func drawStormXT52(_ rect: CGRect, into ctx: inout GraphicsContext,
     ctx.fill(bodyPath, with: fill)
     ctx.stroke(bodyPath, with: stroke, lineWidth: lw)
 
-    // Mount lip where the hood meets the body (matches the 20 cm collar).
+    // Mount lip at the body front — the collar the hood or a softbox seats on.
     let lipRect = box(0.311, 0.252, 0.689, 0.282)
     let lip = furnitureRoundedPath(lipRect, lipRect.height * 0.4)
     ctx.fill(lip, with: fill)
@@ -359,7 +383,7 @@ private func drawMountedSoftbox(centerX: CGFloat, backY: CGFloat, frontY: CGFloa
 /// Top-down silhouette per furniture kind, drawn into `rect`.
 private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: inout GraphicsContext,
                            fill: Color, stroke: Color, lineWidth lw: CGFloat,
-                           hasModifier: Bool = false) {
+                           hasModifier: Bool = false, reflectorReplaced: Bool = false) {
     // Opaque light tint so furniture occludes the map/background behind it, with
     // the darker outline and detail lines still reading on top.
     let solidFill = fill.mixedWithWhite(0.72)
@@ -471,7 +495,7 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         // (was 20), flaring wide at the mouth to a narrower collar; 40 cm total.
         drawStormMonolight(rect, reflectorDepth: 18.0 / 40.0,
                            reflectorFrontHalf: 0.30, reflectorBaseHalf: 0.206,
-                           bodyHalfWidth: 0.33,
+                           bodyHalfWidth: 0.33, showReflector: !reflectorReplaced,
                            into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
@@ -480,12 +504,13 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         // long with an 18 cm mouth / 10 cm collar. Footprint 33 × 51.9 cm.
         drawStormMonolight(rect, reflectorDepth: 15.0 / 51.9,
                            reflectorFrontHalf: 9.0 / 33.0, reflectorBaseHalf: 5.0 / 33.0,
-                           bodyHalfWidth: 0.385,
+                           bodyHalfWidth: 0.385, showReflector: !reflectorReplaced,
                            into: &ctx, fill: fillC, deepFill: deepFillC,
                            stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .bigLight, .bigCOB:
-        drawStormXT52(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
+        drawStormXT52(rect, showReflector: !reflectorReplaced,
+                      into: &ctx, fill: fillC, deepFill: deepFillC,
                       stroke: strokeC, detail: detailC, lineWidth: lw)
 
     case .mediumHMI, .smallHMI:
@@ -806,6 +831,16 @@ struct FurnitureView: View {
         }
         return CGSize(width: w * contentRect.width, height: h * contentRect.height)
     }
+    /// The light as drawn once a softbox is fitted. COBs shed their reflector then, so
+    /// only the body is drawn and the softbox mounts on its front; every other light
+    /// keeps its full glyph. Width is unchanged.
+    private var glyphLightSize: CGSize {
+        let ls = lightSizePts
+        if furniture.hasSoftbox, furniture.kind.isCOB {
+            return CGSize(width: ls.width, height: ls.height * furniture.kind.cobBodyLengthFraction)
+        }
+        return ls
+    }
     /// A mounted softbox's on-screen opening width and depth (points), sized off the
     /// light's front. `nil` when no softbox is fitted.
     private var softboxPts: (opening: CGFloat, depth: CGFloat)? {
@@ -818,14 +853,14 @@ struct FurnitureView: View {
     /// (keeping the light centred on the furniture's stored position) and widened to
     /// the softbox opening.
     private var sizePts: CGSize {
-        let ls = lightSizePts
-        guard let sb = softboxPts else { return ls }
+        let ls = glyphLightSize
+        guard let sb = softboxPts else { return lightSizePts }
         return CGSize(width: max(ls.width, sb.opening), height: ls.height + 2 * sb.depth)
     }
     /// The mounted-softbox geometry as frame fractions, for the given frame size.
     private func softboxGlyph(w: CGFloat, h: CGFloat) -> MountedSoftboxGlyph? {
         guard let sb = softboxPts, w > 0, h > 0 else { return nil }
-        let ls = lightSizePts
+        let ls = glyphLightSize
         return MountedSoftboxGlyph(depthFrac: sb.depth / h,
                                    lightWidthFrac: ls.width / w,
                                    lightHeightFrac: ls.height / h,
