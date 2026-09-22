@@ -177,6 +177,9 @@ struct CinePlannerApp: App {
                     .task { CreditDefaultsSync.shared.start() }
             }
             .environmentObject(access)
+            // The app is designed for light mode only — never follow the system into
+            // dark mode, on any platform.
+            .preferredColorScheme(.light)
         }
         .modelContainer(sharedModelContainer)
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
