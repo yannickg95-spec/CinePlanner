@@ -140,8 +140,19 @@ struct MapMarkerView: View {
     /// sits near the bottom edge so the caption can't hang off the map.
     private var labelOffsetY: CGFloat {
         let c = livePosition ?? center
-        let d = 14 * scale + 12   // just below the scaled icon
+        // Keep a roughly constant on-screen gap below the marker's ring, so the caption
+        // clears the icon even when the map is zoomed right out. The offset rides the
+        // placement scale, so the constant part grows in local units as that shrinks.
+        let ring = 20 * scale
+        let gap: CGFloat = 14 / max(placeScale, 0.15)
+        let d = ring + gap
         return (c.y + d + 14 > contentRect.maxY) ? -d : d
+    }
+
+    /// How far the label may be dragged from the marker (local units): grows as the map
+    /// is zoomed out so the default offset always stays within reach.
+    private var labelDragMaxDistance: CGFloat {
+        Self.labelMaxDistance / max(placeScale, 0.15)
     }
 
     /// Converts a canvas point back to normalized content-rect coordinates. When
@@ -188,14 +199,19 @@ struct MapMarkerView: View {
             if !label.isEmpty && !element.labelHidden {
                 let nudge = liveLabelOffset ?? element.labelOffset
                 labelView
+                    // Grab area + gesture BEFORE the counter-scale, so the hit region is
+                    // scaled together with the caption. (Applied after the counter-scale
+                    // it stayed in the un-scaled layout space, which the map's placement
+                    // then shrank to a tiny target on a zoomed-out map — the caption
+                    // looked full size but was almost impossible to grab.)
+                    .contentShape(Rectangle().inset(by: -12))
+                    .gesture(labelDragGesture)
                     // Counter the canvas zoom and the map placement so the caption
                     // stays a constant on-screen size and upright, while still
                     // riding with its marker.
                     .scaleEffect(1 / (zoom * placeScale), anchor: .top)
                     .rotationEffect(.degrees(-placeRotation), anchor: .top)
-                    .contentShape(Rectangle())
                     .offset(x: nudge.width, y: labelOffsetY + nudge.height)
-                    .gesture(labelDragGesture)
                     .help("Drag to move the label")
             }
 
@@ -388,8 +404,8 @@ struct MapMarkerView: View {
                 // nudged clear of an arrow but never stray far from its icon.
                 var dx = newPos.x - c.x, dy = newPos.y - c.y
                 let dist = hypot(dx, dy)
-                if dist > Self.labelMaxDistance {
-                    let scale = Self.labelMaxDistance / dist
+                if dist > labelDragMaxDistance {
+                    let scale = labelDragMaxDistance / dist
                     dx *= scale; dy *= scale
                 }
                 liveLabelOffset = CGSize(width: dx, height: dy - labelOffsetY)
