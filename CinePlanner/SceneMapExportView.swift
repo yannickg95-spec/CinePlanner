@@ -250,6 +250,11 @@ struct SceneMapExportView: View {
                                   placeScale: CGFloat(place.scale),
                                   placeRotation: place.rotation)
                 }
+                ForEach(doc.texts) { text in
+                    MapTextView(text: text, contentRect: rect,
+                                placeScale: CGFloat(place.scale), placeRotation: place.rotation,
+                                onSelect: {}, onMove: { _ in }, onEdit: {}, onDelete: {})
+                }
             }
             .sceneMapPlacement(place, in: rect)
             // Arrows: outside the placement group (replicated on the context) so they

@@ -128,6 +128,12 @@ struct SceneMapEditorView: View {
     @State private var furnitureLabelText = ""
     @State private var markerToLabel: UUID?
     @State private var markerLabelText = ""
+    /// The text annotation being edited in the alert, and its working string.
+    @State private var textToEdit: UUID?
+    @State private var textEditString = ""
+    /// The last hovered point on the map, in the untransformed canvas-root space
+    /// (`canvasScreenSpace`), used to place a right-click "Add Text" where the pointer is.
+    @State private var lastMapHoverScreen: CGPoint?
     @State private var backgroundImage: PlatformImage?
     /// Which kind of file the single background importer is currently offering.
     /// Two separate `.fileImporter` modifiers on one view collide in SwiftUI —
@@ -401,6 +407,16 @@ struct SceneMapEditorView: View {
             Button("Cancel", role: .cancel) { markerToLabel = nil }
         } message: {
             Text("Shown beneath the character marker on the map.")
+        }
+        .alert("Text", isPresented: Binding(
+            get: { textToEdit != nil },
+            set: { if !$0 { endTextEdit() } }
+        )) {
+            TextField("Text", text: $textEditString)
+            Button("Save") { commitTextEdit() }
+            Button("Cancel", role: .cancel) { endTextEdit() }
+        } message: {
+            Text("A free text note placed on the map.")
         }
         .onDisappear { persist(); persistFloorPlan() }
     }
@@ -975,6 +991,22 @@ struct SceneMapEditorView: View {
             // gesture). Defined on the canvas root so it sits outside the placement and
             // zoom transforms the map group and canvas content apply.
             .coordinateSpace(name: SceneMapEditorView.canvasScreenSpace)
+            // Track the pointer in the untransformed pane space so a right-click "Add
+            // Text" can drop the note where the cursor is (a context menu doesn't report
+            // its own click location).
+            .onContinuousHover(coordinateSpace: .named(SceneMapEditorView.canvasScreenSpace)) { phase in
+                if case .active(let loc) = phase { lastMapHoverScreen = loc }
+            }
+            // Right-click an empty spot on the map to drop a text note there. Markers,
+            // furniture, walls and openings carry their own menus (in front), so this
+            // only appears on empty space.
+            .contextMenu {
+                if !isDrawing && !backgroundAdjustActive && !reframeActive && pendingMove == nil {
+                    Button { addTextAtLastHover(in: rect, canvas: geo.size) } label: {
+                        Label("Add Text", systemImage: "textformat")
+                    }
+                }
+            }
             // Marquee (rubber-band) selection box: its corners are captured in this pane
             // space, so it's drawn here — outside the map group's placement — or a
             // zoomed-out map's scale/offset would drag the box away from the pointer.
@@ -1148,6 +1180,84 @@ struct SceneMapEditorView: View {
         return p.x >= -m && p.x <= canvas.width + m && p.y >= -m && p.y <= canvas.height + m
     }
 
+    /// The inverse of `pieceScreenCenter`: a point in the untransformed pane space back to
+    /// a normalized map position, so a right-click drops a note where the pointer is.
+    private func normalizedFromScreen(_ p: CGPoint, in rect: CGRect, canvas: CGSize) -> CGPoint {
+        let cxMid = canvas.width / 2, cyMid = canvas.height / 2
+        let place = mapPlacement
+        let s = max(CGFloat(place.scale), 0.0001)
+        let rx = (p.x - cxMid - CGFloat(place.offsetX) * rect.width) / s
+        let ry = (p.y - cyMid - CGFloat(place.offsetY) * rect.height) / s
+        let theta = (place.rotation - reframeTurn) * .pi / 180
+        let c = cos(theta), sn = sin(theta)
+        let dzx = rx * c + ry * sn
+        let dzy = -rx * sn + ry * c
+        let zx = cxMid + dzx, zy = cyMid + dzy
+        let z = max(zoom, 0.0001)
+        let nx = ((zx - pan.width - cxMid) / z + cxMid - rect.minX) / rect.width
+        let ny = ((zy - pan.height - cyMid) / z + cyMid - rect.minY) / rect.height
+        return CGPoint(x: nx, y: ny)
+    }
+
+    // MARK: - Text notes
+
+    /// Drops a new text note at the last hovered point (the right-click spot) and opens
+    /// the editor to type it.
+    private func addTextAtLastHover(in rect: CGRect, canvas: CGSize) {
+        let screen = lastMapHoverScreen ?? CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+        var n = normalizedFromScreen(screen, in: rect, canvas: canvas)
+        if !allowsPiecesOutsideMap {
+            n.x = min(max(n.x, 0), 1); n.y = min(max(n.y, 0), 1)
+        }
+        let note = MapText(x: Double(n.x), y: Double(n.y))
+        doc.texts.append(note)
+        textEditString = ""
+        textToEdit = note.id
+        persist()
+    }
+
+    private func editTextNote(_ id: UUID) {
+        guard let note = doc.texts.first(where: { $0.id == id }) else { return }
+        textEditString = note.string
+        textToEdit = id
+    }
+
+    /// Saves the edited string; an emptied note is removed rather than left invisible.
+    private func commitTextEdit() {
+        guard let id = textToEdit else { return }
+        let trimmed = textEditString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            doc.texts.removeAll { $0.id == id }
+        } else if let i = doc.texts.firstIndex(where: { $0.id == id }) {
+            doc.texts[i].string = trimmed
+        }
+        textToEdit = nil
+        persist()
+    }
+
+    /// Dismissed without saving: drop a note that was never given any text (e.g. a
+    /// just-added one), otherwise leave the existing note untouched.
+    private func endTextEdit() {
+        if let id = textToEdit,
+           let note = doc.texts.first(where: { $0.id == id }),
+           note.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            doc.texts.removeAll { $0.id == id }
+            persist()
+        }
+        textToEdit = nil
+    }
+
+    private func moveText(_ id: UUID, to n: CGPoint) {
+        guard let i = doc.texts.firstIndex(where: { $0.id == id }) else { return }
+        doc.texts[i].x = Double(n.x); doc.texts[i].y = Double(n.y)
+        persist()
+    }
+
+    private func deleteText(_ id: UUID) {
+        doc.texts.removeAll { $0.id == id }
+        persist()
+    }
+
     /// Furniture and camera/mannequin markers, in their own oversized, never-clipped
     /// layer (see `canvas`) so a piece pushed into the white margin by the placement
     /// stays selectable and draggable. Gestures read `canvasContentSpace` — the
@@ -1264,6 +1374,24 @@ struct SceneMapEditorView: View {
                                   && pieceHittable(nx: element.x, ny: element.y, in: paneRect, canvas: geo.size))
                 // Above unselected furniture, below the *selected* furniture piece.
                 .zIndex(1)
+            }
+            // Free text notes, on top of the pieces.
+            ForEach(doc.texts) { text in
+                MapTextView(
+                    text: text,
+                    contentRect: rect,
+                    zoom: zoom,
+                    placeScale: CGFloat(mapPlacement.scale),
+                    placeRotation: mapPlacement.rotation,
+                    clampToBounds: !allowsPiecesOutsideMap,
+                    onSelect: { cameraInfoElementID = nil },
+                    onMove: { n in moveText(text.id, to: n) },
+                    onEdit: { editTextNote(text.id) },
+                    onDelete: { deleteText(text.id) }
+                )
+                .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive
+                                  && pieceHittable(nx: text.x, ny: text.y, in: paneRect, canvas: geo.size))
+                .zIndex(3)
             }
         }
     }

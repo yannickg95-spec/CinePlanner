@@ -144,6 +144,35 @@ struct MapArrow: Identifiable, Codable, Equatable {
     }
 }
 
+/// A free text annotation placed on the map (normalized position, upright and a
+/// constant on-screen size like the marker labels).
+struct MapText: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var x: Double            // normalized centre
+    var y: Double
+    var string: String = ""
+    var colorHex: String = "#1A1A1A"
+    var fontSize: Double = 15
+
+    enum CodingKeys: String, CodingKey { case id, x, y, string, colorHex, fontSize }
+
+    init(id: UUID = UUID(), x: Double, y: Double, string: String = "",
+         colorHex: String = "#1A1A1A", fontSize: Double = 15) {
+        self.id = id; self.x = x; self.y = y; self.string = string
+        self.colorHex = colorHex; self.fontSize = fontSize
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        x = try c.decode(Double.self, forKey: .x)
+        y = try c.decode(Double.self, forKey: .y)
+        string = try c.decodeIfPresent(String.self, forKey: .string) ?? ""
+        colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#1A1A1A"
+        fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 15
+    }
+}
+
 /// A piece of furniture placed on the map (top-down).
 struct Furniture: Identifiable, Codable, Equatable {
     enum Kind: String, Codable, CaseIterable {
@@ -498,10 +527,11 @@ struct SceneMapDoc: Codable, Equatable {
     var elements: [MapElement] = []
     var arrows: [MapArrow] = []
     var furniture: [Furniture] = []
+    var texts: [MapText] = []
 
-    var isEmpty: Bool { elements.isEmpty && arrows.isEmpty && furniture.isEmpty }
+    var isEmpty: Bool { elements.isEmpty && arrows.isEmpty && furniture.isEmpty && texts.isEmpty }
 
-    enum CodingKeys: String, CodingKey { case elements, arrows, furniture }
+    enum CodingKeys: String, CodingKey { case elements, arrows, furniture, texts }
 
     init() {}
 
@@ -512,6 +542,7 @@ struct SceneMapDoc: Codable, Equatable {
         elements = try c.decodeIfPresent([MapElement].self, forKey: .elements) ?? []
         arrows = try c.decodeIfPresent([MapArrow].self, forKey: .arrows) ?? []
         furniture = try c.decodeIfPresent([Furniture].self, forKey: .furniture) ?? []
+        texts = try c.decodeIfPresent([MapText].self, forKey: .texts) ?? []
     }
 
     // MARK: - JSON round-tripping (stored on Scene.sceneMapJSON)
