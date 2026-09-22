@@ -260,7 +260,9 @@ struct SceneMapExportView: View {
             // Arrows: outside the placement group (replicated on the context) so they
             // rasterize crisply, matching the editor.
             if !doc.arrows.isEmpty {
-                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect, canvas: size, place: place) }
+                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect, canvas: size, place: place,
+                                                   metersWide: metersWide, cameraMeters: cameraMeters,
+                                                   viewable: viewableMarkers) }
             }
             // Chrome stays put (untransformed), matching the editor.
             if isSatellite, background != nil {
@@ -384,7 +386,8 @@ struct SceneMapExportView: View {
     /// placement, replicating it on the graphics context so the vector stays crisp
     /// (a Canvas inside the group's scaleEffect would be a magnified 1× bitmap).
     private static func drawArrows(_ baseCtx: GraphicsContext, doc: SceneMapDoc, in rect: CGRect,
-                                   canvas: CGSize, place: SceneMapBackgroundTransform) {
+                                   canvas: CGSize, place: SceneMapBackgroundTransform,
+                                   metersWide: Double?, cameraMeters: Double?, viewable: Bool) {
         let cx = canvas.width / 2, cy = canvas.height / 2
         var ctx = baseCtx
         ctx.translateBy(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
@@ -392,10 +395,12 @@ struct SceneMapExportView: View {
         ctx.rotate(by: .degrees(place.rotation))
         ctx.scaleBy(x: CGFloat(place.scale), y: CGFloat(place.scale))
         ctx.translateBy(x: -cx, y: -cy)
-        // Counter the placement scale so the shaft and head keep a constant on-screen
-        // size (the trim that clears the markers still scales, since the markers do).
-        let placeScale = CGFloat(place.scale)
-        let lineWidth: CGFloat = 6 / placeScale
+        // Shaft/head and the marker-clearing trim are all in map (rect) units, so they
+        // scale with the markers and the placement together.
+        func markerScale(_ el: MapElement) -> CGFloat {
+            sceneMarkerScale(kind: el.kind, metersWide: metersWide, cameraMeters: cameraMeters,
+                             mapWidthPoints: rect.width, viewable: viewable)
+        }
         for arrow in doc.arrows {
             guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
                   let to = doc.elements.first(where: { $0.id == arrow.toID }) else { continue }
@@ -406,13 +411,19 @@ struct SceneMapExportView: View {
             pts.append(canvasPoint(to.x, to.y, in: rect))
             guard pts.count >= 2 else { continue }
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
+            // Clear each marker (its own scale, rotation-independent) plus a gap.
+            let fromScale = markerScale(from), toScale = markerScale(to)
+            let gap: CGFloat = 6
+            let startTrim = 24 * fromScale + gap, endTrim = 24 * toScale + gap
             let n = pts.count
             let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
-            pts[0] = CGPoint(x: pts[0].x + ds.x * 20, y: pts[0].y + ds.y * 20)
+            pts[0] = CGPoint(x: pts[0].x + ds.x * startTrim, y: pts[0].y + ds.y * startTrim)
             let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
-            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * 22, y: pts[n - 1].y - de.y * 22)
+            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * endTrim, y: pts[n - 1].y - de.y * endTrim)
+            let avgScale = (fromScale + toScale) / 2
+            let lineWidth: CGFloat = 6 * avgScale
             let tip = pts[n - 1]
-            let headLength: CGFloat = 20 / placeScale, headHalfWidth: CGFloat = 11 / placeScale
+            let headLength: CGFloat = 20 * avgScale, headHalfWidth: CGFloat = 11 * avgScale
             let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
             var shaftPts = pts
             shaftPts[n - 1] = baseCenter

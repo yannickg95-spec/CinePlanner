@@ -4590,25 +4590,39 @@ struct SceneMapEditorView: View {
         // makes this a bit gentler than a full 1/zoom counter-scale. (Widths are in
         // pre-scale units; the ctx scale multiplies them back up.) Dividing by the
         // placement scale keeps them constant as the whole map group is scaled too.
-        let vs = 1 / (pow(max(zoom, 1), 0.7) * CGFloat(mapPlacement.scale))
-        let lineWidth: CGFloat = 6 * vs
+        func markerScale(_ el: MapElement) -> CGFloat {
+            sceneMarkerScale(kind: el.kind, metersWide: mapMetersWide, cameraMeters: mapCameraMeters,
+                             mapWidthPoints: rect.width, viewable: scene.sceneMapViewableMarkerSize)
+        }
         for arrow in doc.arrows {
             guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
                   let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
             // An arrow belongs to the marker layer it connects, so it hides with it.
             guard (from.kind == .camera ? doc.showCameras : doc.showCharacters) else { continue }
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
-            // Trim the first/last segment so the shaft clears the marker icons.
+            // Clear the marker icons at both ends, whatever their size or rotation: the
+            // icon fits a 40·scale circle, so trim by that radius (rotation-independent)
+            // plus a gap. Each end uses its own marker's scale.
+            let toEl = doc.elements.first(where: { $0.id == arrow.toID })
+            let fromScale = markerScale(from)
+            let toScale = toEl.map(markerScale) ?? fromScale
+            let gap: CGFloat = 6
+            let startTrim = 24 * fromScale + gap
+            let endTrim = 24 * toScale + gap
             let n = pts.count
             let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
-            pts[0] = CGPoint(x: pts[0].x + ds.x * 20, y: pts[0].y + ds.y * 20)
+            pts[0] = CGPoint(x: pts[0].x + ds.x * startTrim, y: pts[0].y + ds.y * startTrim)
             let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
-            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * 22, y: pts[n - 1].y - de.y * 22)
+            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * endTrim, y: pts[n - 1].y - de.y * endTrim)
 
+            // Shaft/head scale with the markers (same units as the trim), so the arrow
+            // stays in proportion — small markers get a slim shaft and a small head.
+            let avgScale = (fromScale + toScale) / 2
+            let lineWidth: CGFloat = 6 * avgScale
             // Solid triangular head; the shaft attaches to its base (not the tip).
             let tip = pts[n - 1]
-            let headLength: CGFloat = 20 * vs
-            let headHalfWidth: CGFloat = 11 * vs
+            let headLength: CGFloat = 20 * avgScale
+            let headHalfWidth: CGFloat = 11 * avgScale
             let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
             var shaftPts = pts
             shaftPts[n - 1] = baseCenter
