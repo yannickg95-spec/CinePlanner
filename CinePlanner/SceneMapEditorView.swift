@@ -2785,16 +2785,28 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Duplicates a furniture piece, offset slightly and placed on top, then
-    /// selects the copy.
+    /// Duplicates a furniture piece, placing the copy right beside the original (one
+    /// piece-width to the side, so they sit edge to edge rather than far apart or on top
+    /// of each other), then selects the copy. Falls to the left when the original is too
+    /// close to the right edge.
     private func duplicateFurniture(_ id: UUID) {
         guard let item = doc.furniture.first(where: { $0.id == id }) else { return }
         var copy = item
         copy.id = UUID()
-        copy.x = min(max(item.x + 0.03, 0), 1)
-        copy.y = min(max(item.y + 0.03, 0), 1)
+        // A gap of the piece's own width (floored so tiny lights still separate).
+        let gap = max(item.width, 0.025) + 0.005
+        // On maps that keep pieces inside the bounds, place the copy to the right unless
+        // that runs off the edge (then to the left) and clamp. Where pieces may sit in
+        // the white margin, keep the copy right beside the original — never clamp it back
+        // to the map, which would fling a far-out light back to the edge.
+        let clamp = !allowsPiecesOutsideMap
+        var nx = item.x + gap
+        if clamp && nx > 1 { nx = item.x - gap }
+        copy.x = clamp ? min(max(nx, 0), 1) : nx
+        copy.y = clamp ? min(max(item.y, 0), 1) : item.y
         doc.furniture.append(copy)
         furnitureSelectedID = copy.id
+        furnitureSelectedIDs = []
         persist()
     }
 
