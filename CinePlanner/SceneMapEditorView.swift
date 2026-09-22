@@ -1326,6 +1326,16 @@ struct SceneMapEditorView: View {
                 ForEach(floorPlan.vertices) { vertex in
                     drawingVertexHandle(vertex, in: rect)
                 }
+            } else if pendingMove == nil && !backgroundAdjustActive && !reframeActive {
+                // Outside Edit: right-click targets on walls / doors / windows, so their
+                // context menus (length, delete, flip, …) don't require entering Edit.
+                // No draw or move gestures — those stay in the drawing layer above.
+                ForEach(floorPlan.walls) { wall in
+                    wallContextHitArea(wall, in: rect)
+                }
+                ForEach(floorPlan.openings) { opening in
+                    openingContextHitArea(opening, in: rect)
+                }
             }
             // Wall measurement labels: always visible (with their context menu), but
             // only draggable while editing. After the draw catcher, so an in-EDIT drag
@@ -3029,6 +3039,68 @@ struct SceneMapEditorView: View {
                 }
                 .rotationEffect(angle)
                 .position(mid)
+        }
+    }
+
+    /// A right-click (and tap-to-select) target along a wall, present outside Edit too,
+    /// so the wall's menu (length, distance labels, delete) is reachable without entering
+    /// Edit. Deliberately carries no draw/move gestures — those live in the drawing layer.
+    @ViewBuilder
+    private func wallContextHitArea(_ wall: Wall, in rect: CGRect) -> some View {
+        if let (a, b) = floorPlan.endpoints(wall) {
+            let p1 = canvasPoint(a.x, a.y, in: rect)
+            let p2 = canvasPoint(b.x, b.y, in: rect)
+            let mid = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+            let length = hypot(p2.x - p1.x, p2.y - p1.y)
+            let angle = Angle(radians: Double(atan2(p2.y - p1.y, p2.x - p1.x)))
+            Rectangle().fill(Color.clear)
+                .frame(width: max(length, 1), height: 18)
+                .contentShape(Rectangle())
+                .onTapGesture { selectWall(wall.id) }
+                .contextMenu {
+                    Button { beginWallScale(wall.id) } label: {
+                        Label(realLength(of: wall) == nil ? "Set Length…" : "Change Length…",
+                              systemImage: "ruler")
+                    }
+                    Button { toggleMeasurementLabels() } label: {
+                        Label(floorPlan.hideMeasurements ? "Show Distance Labels" : "Hide Distance Labels",
+                              systemImage: floorPlan.hideMeasurements ? "eye" : "eye.slash")
+                    }
+                    Divider()
+                    Button(role: .destructive) { deleteWall(wall.id) } label: {
+                        Label("Delete Wall", systemImage: "trash")
+                    }
+                }
+                .rotationEffect(angle)
+                .position(mid)
+        }
+    }
+
+    /// A right-click (and tap-to-select) target over a door / window, present outside Edit
+    /// too, so its menu (flip, width, delete, …) is reachable without entering Edit.
+    @ViewBuilder
+    private func openingContextHitArea(_ opening: Opening, in rect: CGRect) -> some View {
+        if let wall = floorPlan.wall(opening.wallID), let (a, b) = floorPlan.endpoints(wall),
+           let center = openingCenter(opening, in: rect) {
+            let dir = unit(CGPoint(x: b.x - a.x, y: b.y - a.y))
+            let perp = CGPoint(x: -dir.y, y: dir.x)
+            let halfPts = CGFloat(opening.width) * rect.width / 2
+            let angle = Angle(radians: Double(atan2(dir.y, dir.x)))
+            let length = max(halfPts * 2 + 6, 22)
+            let isDoor = opening.kind == .door
+            let reach = max(halfPts * 2, 24)
+            let thickness: CGFloat = isDoor ? reach + 12 : 18
+            let swing = opening.flipped ? CGPoint(x: -perp.x, y: -perp.y) : perp
+            let hitCenter = isDoor
+                ? CGPoint(x: center.x + swing.x * reach / 2, y: center.y + swing.y * reach / 2)
+                : center
+            Rectangle().fill(Color.clear)
+                .frame(width: length, height: thickness)
+                .contentShape(Rectangle())
+                .onTapGesture { selectOpening(opening.id) }
+                .contextMenu { openingMenu(opening) }
+                .rotationEffect(angle)
+                .position(hitCenter)
         }
     }
 
