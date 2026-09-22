@@ -908,6 +908,13 @@ struct SceneMapEditorView: View {
                 .scaleEffect(place.scale)
                 .offset(x: CGFloat(place.offsetX) * rect.width, y: CGFloat(place.offsetY) * rect.height)
                 .clipped()
+                // The placement scaleEffect also scales the group's hit region, so once
+                // the map is enlarged with Adjust the group's edit handles (wall labels,
+                // arrow strips) spilled over the toolbar above and swallowed its taps —
+                // the same trap the canvas zoom hits (see the contentShape below the zoom
+                // scaleEffect). Reset the interactive shape to the (unscaled) pane so
+                // touches outside it pass through to the toolbar again.
+                .contentShape(Rectangle())
                 // Markers and furniture ride the SAME placement, but in their own layer
                 // that overflows the pane and is never clipped or masked — so a piece the
                 // placement pushes into the white margin (a CineStager import fitted to an
@@ -928,6 +935,12 @@ struct SceneMapEditorView: View {
                     // frame is oversized, a marker out in the white — rendered inside the
                     // pane by the fit — still receives taps.
                     .clipped()
+                    // NB: no `.contentShape(Rectangle())` here — this layer sits in front
+                    // of the drawing catcher and wall/opening handles (in the group
+                    // below), so a full-pane content shape would make the otherwise
+                    // pass-through layer swallow every tap and break drawing and editing.
+                    // The group's own content shape already bounds the placement-scaled
+                    // hit region to the pane.
                     // Hidden while reframing — `reframeMarkerOverlay` shows the live
                     // preview positions instead.
                     .opacity(reframeActive ? 0 : 1)
