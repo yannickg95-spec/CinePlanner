@@ -1042,6 +1042,17 @@ struct SceneMapEditorView: View {
                         .allowsHitTesting(false)
                 }
             }
+            // Placing the second (moved) marker: a pane-wide catcher measured in the
+            // untransformed root space, so the drop point can be anywhere on screen —
+            // including the white margin, which the placement-scaled canvas layer misses.
+            .overlay {
+                if pendingMove != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasScreenSpace))
+                            .onEnded { value in placeMovedMarkerAtScreen(value.location, in: rect, canvas: geo.size) })
+                }
+            }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
             // and reading the framing being previewed so it turns as the map is
@@ -1502,14 +1513,9 @@ struct SceneMapEditorView: View {
                 }
                 .allowsHitTesting(!backgroundAdjustActive)
             }
-            // Placing the second (moved) marker: the next click drops it and
-            // draws the connecting arrow.
-            if pendingMove != nil {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(SpatialTapGesture(coordinateSpace: .named(SceneMapEditorView.canvasSpace))
-                        .onEnded { value in placeMovedMarker(at: value.location, in: rect) })
-            }
+            // Placing the second (moved) marker is handled by a pane-wide catcher at the
+            // canvas root (see `canvas`), so a point out in the white margin — where this
+            // placement-scaled layer doesn't reach — can still be chosen.
             // Set-true-scale: the tapped points, a connecting line, and (until two are
             // placed) a catcher above the markers to record the next tap.
             if scaleMeasureActive {
@@ -2993,6 +2999,15 @@ struct SceneMapEditorView: View {
 
     /// Completes a move. If the click lands on an existing marker of the same
     /// kind, the arrow connects to it; otherwise a new marker is dropped there.
+    /// Places the moved marker from a point in the untransformed root space (so the white
+    /// margin works): map it back to a pre-placement canvas point, then reuse the normal
+    /// placement path (which also snaps to a nearby existing marker).
+    private func placeMovedMarkerAtScreen(_ p: CGPoint, in rect: CGRect, canvas: CGSize) {
+        let n = normalizedFromScreen(p, in: rect, canvas: canvas)
+        let loc = CGPoint(x: rect.minX + n.x * rect.width, y: rect.minY + n.y * rect.height)
+        placeMovedMarker(at: loc, in: rect)
+    }
+
     private func placeMovedMarker(at loc: CGPoint, in rect: CGRect) {
         defer { pendingMove = nil }
         guard let move = pendingMove,
