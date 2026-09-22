@@ -892,6 +892,11 @@ struct SceneMapEditorView: View {
                         .offset(pan)
                         .allowsHitTesting(false)
                     reframeRender(in: rect, canvas: geo.size)
+                    // While reframing, preview the markers on the fetched framing so they
+                    // track the map live instead of snapping into place only on commit.
+                    // Placed exactly like `reframeRender`, in the same layer, so it stays
+                    // pinned to the preview image whatever the transform stack does.
+                    reframeMarkerOverlay(in: rect, canvas: geo.size)
                     canvasContent(in: rect, geo: geo)
                 }
                 // The placement turns, scales and shifts the whole group — image and
@@ -923,6 +928,9 @@ struct SceneMapEditorView: View {
                     // frame is oversized, a marker out in the white — rendered inside the
                     // pane by the fit — still receives taps.
                     .clipped()
+                    // Hidden while reframing — `reframeMarkerOverlay` shows the live
+                    // preview positions instead.
+                    .opacity(reframeActive ? 0 : 1)
             }
             // Which way is North — the same compass the exports carry. Drawn outside
             // the transform so it stays in its corner while the map moves under it,
@@ -1419,6 +1427,68 @@ struct SceneMapEditorView: View {
                 .position(x: canvas.width / 2 + offset.width, y: canvas.height / 2 + offset.height)
                 .allowsHitTesting(false)
         }
+    }
+
+    /// Live marker/furniture preview during a reframe: each piece is remapped onto the
+    /// fetched framing and drawn on the same rect the preview image fills, so it stays
+    /// on its real-world spot as the map is panned, zoomed and turned — matching where
+    /// it will land on commit. Non-interactive; the real layer is hidden meanwhile.
+    @ViewBuilder
+    private func reframeMarkerOverlay(in rect: CGRect, canvas: CGSize) -> some View {
+        if reframeActive, let shot = reframePreviewArea, let anchor = satelliteAnchor,
+           let perPoint = anchor.mapPointsPerScreenPoint(contentWidth: rect.width, zoom: zoom),
+           let offset = anchor.screenOffset(of: shot, contentWidth: rect.width, zoom: zoom, pan: pan),
+           perPoint > 0 {
+            let side = CGFloat(shot.meters * MKMapPointsPerMeterAtLatitude(shot.center.latitude) / perPoint)
+            // The preview image's on-screen rect — the same square markers are placed in.
+            let previewRect = CGRect(x: canvas.width / 2 + offset.width - side / 2,
+                                     y: canvas.height / 2 + offset.height - side / 2,
+                                     width: side, height: side)
+            let ratio = anchor.sizeRatio(to: shot)
+            let labelRotation = mapPlacement.rotation - reframeTurn
+            ForEach(doc.furniture) { item in
+                let copy = Self.remapped(item, from: anchor, to: shot, sizeRatio: ratio)
+                FurnitureView(furniture: copy, isSelected: false, contentRect: previewRect,
+                              zoom: zoom, placeScale: 1, placeRotation: labelRotation,
+                              onSelect: {}, onMove: { _ in }, onRotate: { _ in },
+                              onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
+                              onDuplicate: {}, viewable: scene.sceneMapViewableMarkerSize, onDelete: {})
+                    .allowsHitTesting(false)
+            }
+            ForEach(doc.elements) { element in
+                let copy = Self.remapped(element, from: anchor, to: shot)
+                MapMarkerView(element: copy, label: resolvedLabel(for: element),
+                              zoom: zoom, isSelected: false, contentRect: previewRect,
+                              onSelect: {}, onMove: { _ in }, onRotate: { _ in },
+                              onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
+                              onMoveLabel: { _ in },
+                              scale: sceneMarkerScale(kind: element.kind, metersWide: shot.meters,
+                                                      cameraMeters: mapCameraMeters, mapWidthPoints: side,
+                                                      viewable: scene.sceneMapViewableMarkerSize),
+                              placeScale: 1, placeRotation: labelRotation)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// A marker copy remapped from `anchor` onto the reframed `shot`, for live preview.
+    private static func remapped(_ element: MapElement, from anchor: SatelliteFraming,
+                                 to shot: SatelliteFraming) -> MapElement {
+        var copy = element
+        let p = anchor.remap(CGPoint(x: element.x, y: element.y), to: shot)
+        copy.x = Double(p.x); copy.y = Double(p.y)
+        return copy
+    }
+
+    /// A furniture copy remapped onto the reframed `shot` (position and real-world size).
+    private static func remapped(_ item: Furniture, from anchor: SatelliteFraming,
+                                 to shot: SatelliteFraming, sizeRatio: Double) -> Furniture {
+        var copy = item
+        let p = anchor.remap(CGPoint(x: item.x, y: item.y), to: shot)
+        copy.x = Double(p.x); copy.y = Double(p.y)
+        copy.width = item.width * sizeRatio
+        copy.height = item.height * sizeRatio
+        return copy
     }
 
     /// Picks up the reframe tool. It sits on the map rather than in the toolbar:
