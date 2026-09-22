@@ -1446,10 +1446,14 @@ struct SceneMapEditorView: View {
                                      width: side, height: side)
             let ratio = anchor.sizeRatio(to: shot)
             let labelRotation = mapPlacement.rotation - reframeTurn
+            // `zoom: 1` — this overlay bakes the reframe zoom into `previewRect`/`side`
+            // and the marker `scale`, not a `scaleEffect`, so the label/handle
+            // counter-scale (which divides by `zoom`) must not also undo it, or the
+            // captions would shrink and grow as the map is zoomed during the adjust.
             ForEach(doc.furniture) { item in
                 let copy = Self.remapped(item, from: anchor, to: shot, sizeRatio: ratio)
                 FurnitureView(furniture: copy, isSelected: false, contentRect: previewRect,
-                              zoom: zoom, placeScale: 1, placeRotation: labelRotation,
+                              zoom: 1, placeScale: 1, placeRotation: labelRotation,
                               onSelect: {}, onMove: { _ in }, onRotate: { _ in },
                               onResize: { _, _ in }, onSetColor: { _ in }, onReorder: { _ in },
                               onDuplicate: {}, viewable: scene.sceneMapViewableMarkerSize, onDelete: {})
@@ -1458,7 +1462,7 @@ struct SceneMapEditorView: View {
             ForEach(doc.elements) { element in
                 let copy = Self.remapped(element, from: anchor, to: shot)
                 MapMarkerView(element: copy, label: resolvedLabel(for: element),
-                              zoom: zoom, isSelected: false, contentRect: previewRect,
+                              zoom: 1, isSelected: false, contentRect: previewRect,
                               onSelect: {}, onMove: { _ in }, onRotate: { _ in },
                               onSetColor: { _ in }, onDelete: {}, onMoveTo: {}, onMoveFrom: {},
                               onMoveLabel: { _ in },
