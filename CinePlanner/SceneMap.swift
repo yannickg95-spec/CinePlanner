@@ -333,6 +333,23 @@ struct Furniture: Identifiable, Codable, Equatable {
         /// Fixtures a softbox can be mounted on (its base snaps to their front).
         var canMountSoftbox: Bool { isHMI || isTungsten || isCOB || isPanel }
 
+        /// A mounted softbox's real Chimera bank, expressed as (front opening width,
+        /// depth) relative to the light's own width — so it scales with the fixture and
+        /// its base always meets the light's front. HMI lamps use the Chimera softbox
+        /// built for the real fixture they stand in for:
+        ///   • Small HMI  = ARRI M8     → Daylite Junior Small  (80 cm opening / 28 cm front ≈ 2.86, 45 cm deep)
+        ///   • Medium HMI = ARRI M40    → Daylite Plus Medium   (120 / 40 = 3.0, 60 cm deep)
+        ///   • Big HMI    = ARRIMAX 18K → Daylite Senior Large  (180 / 70 ≈ 2.57, 90 cm deep)
+        /// Other softbox-mountable lights use a sensible generic bank.
+        var mountedSoftbox: (openingRatio: Double, depthRatio: Double)? {
+            switch self {
+            case .smallHMI:  return (2.86, 1.61)
+            case .mediumHMI: return (3.00, 1.50)
+            case .bigHMI:    return (2.57, 1.29)
+            default:         return canMountSoftbox ? (2.5, 1.3) : nil
+            }
+        }
+
         /// Pieces whose width:height ratio is locked while resizing, so they can only
         /// scale uniformly and never be stretched.
         var lockAspectRatio: Bool { isCOB || isHMI || isTungsten || isPanel }
@@ -383,8 +400,11 @@ struct Furniture: Identifiable, Codable, Equatable {
     var labelOffset: CGSize = .zero   // canvas-point nudge from the label's default spot
     /// Tube only: a diffusion modifier is fitted, widening its cross-section to 20 cm.
     var hasModifier: Bool = false
+    /// Light only: a softbox is mounted on the front. Drawn as part of the light (one
+    /// piece), so the light and softbox select, drag and rotate together.
+    var hasSoftbox: Bool = false
 
-    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset, hasModifier }
+    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset, hasModifier, hasSoftbox }
 
     init(kind: Kind, x: Double, y: Double, width: Double, height: Double) {
         self.kind = kind; self.x = x; self.y = y; self.width = width; self.height = height
@@ -403,6 +423,7 @@ struct Furniture: Identifiable, Codable, Equatable {
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
         labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
         hasModifier = try c.decodeIfPresent(Bool.self, forKey: .hasModifier) ?? false
+        hasSoftbox = try c.decodeIfPresent(Bool.self, forKey: .hasSoftbox) ?? false
     }
 }
 

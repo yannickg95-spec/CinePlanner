@@ -2495,29 +2495,13 @@ struct SceneMapEditorView: View {
         persist()
     }
 
-    /// Adds a softbox mounted on `lightID`: its flat base is scaled to the light's
-    /// front width and placed flush against the front, with the diffusion opening
-    /// facing forward and the same rotation as the light.
+    /// Toggles a softbox mounted on `lightID`. The softbox is part of the light (drawn
+    /// attached to its front, base matching the front, no gap), so the two select, drag
+    /// and rotate as one. Its real Chimera size comes from `Kind.mountedSoftbox`.
     private func addSoftbox(to lightID: UUID) {
-        guard let light = doc.furniture.first(where: { $0.id == lightID }) else { return }
-        // The softbox's flat base spans ~0.20 of its width, so a base as wide as the
-        // light's front (≈ the marker width) makes the box ~5× that width.
-        let baseFraction = 0.20
-        let frontWidth = light.width
-        let sbW = min(frontWidth / baseFraction, 0.95)
-        let sbH = sbW   // small-softbox proportions (square)
-        // Front points "up" in the light's local frame; rotate it by the light's angle.
-        let r = light.rotation * .pi / 180
-        let frontDir = CGPoint(x: sin(r), y: -cos(r))
-        let dist = light.height / 2 + sbH / 2
-        var sb = Furniture(kind: .softbox,
-                           x: light.x + Double(frontDir.x) * dist,
-                           y: light.y + Double(frontDir.y) * dist,
-                           width: sbW, height: sbH)
-        sb.rotation = light.rotation
-        sb.colorHex = Furniture.Kind.softbox.defaultColorHex
-        doc.furniture.append(sb)
-        selectFurniture(sb.id)
+        guard let i = doc.furniture.firstIndex(where: { $0.id == lightID }) else { return }
+        doc.furniture[i].hasSoftbox.toggle()
+        selectFurniture(doc.furniture[i].id)
         persist()
     }
 

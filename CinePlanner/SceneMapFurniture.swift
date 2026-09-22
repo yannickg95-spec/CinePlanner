@@ -19,6 +19,16 @@ enum FurnitureLayerMove { case toFront, forward, backward, toBack }
 
 /// Draws a furniture piece as a top-down floor-plan silhouette (fill + outline,
 /// with light interior detail lines), sized to `size`, tinted by `fill`/`stroke`.
+/// Geometry of a softbox mounted on a light, as fractions of the (expanded) glyph
+/// frame: the light sits centred, its front feeds a diffuser flaring out to the
+/// opening. All fractions so they survive the glyph's render-scaling.
+private struct MountedSoftboxGlyph: Equatable {
+    var depthFrac: CGFloat        // softbox depth ÷ frame height
+    var lightWidthFrac: CGFloat   // light width ÷ frame width
+    var lightHeightFrac: CGFloat  // light depth ÷ frame height
+    var openingFrac: CGFloat      // softbox opening width ÷ frame width
+}
+
 private struct FurnitureGlyph: View {
     let kind: Furniture.Kind
     let size: CGSize
@@ -27,6 +37,8 @@ private struct FurnitureGlyph: View {
     let lineWidth: CGFloat
     /// Tube only: draw the diffusion modifier fitted over the tube.
     var hasModifier: Bool = false
+    /// A softbox mounted on the light's front, drawn as part of the piece.
+    var softbox: MountedSoftboxGlyph? = nil
     /// Live magnification this glyph will undergo (map placement scale × canvas
     /// zoom). The Canvas is drawn that many times larger and scaled back down, so it
     /// rasterizes at the final on-screen resolution instead of a blurry, magnified
@@ -37,7 +49,23 @@ private struct FurnitureGlyph: View {
         let k = min(max(renderScale, 1), 8)
         Canvas { context, canvasSize in
             var ctx = context
-            drawFurniture(kind, in: CGRect(origin: .zero, size: canvasSize),
+            guard let sb = softbox else {
+                drawFurniture(kind, in: CGRect(origin: .zero, size: canvasSize),
+                              into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
+                              hasModifier: hasModifier)
+                return
+            }
+            // Light centred in the frame; the softbox flares forward (up) from its front.
+            let lightRect = CGRect(x: (1 - sb.lightWidthFrac) / 2 * canvasSize.width,
+                                   y: sb.depthFrac * canvasSize.height,
+                                   width: sb.lightWidthFrac * canvasSize.width,
+                                   height: sb.lightHeightFrac * canvasSize.height)
+            drawMountedSoftbox(centerX: canvasSize.width / 2,
+                               backY: lightRect.minY, frontY: 0,
+                               baseWidth: lightRect.width,
+                               openingWidth: sb.openingFrac * canvasSize.width,
+                               into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
+            drawFurniture(kind, in: lightRect,
                           into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
                           hasModifier: hasModifier)
         }
@@ -293,6 +321,37 @@ private func drawHMILight(_ rect: CGRect, into ctx: inout GraphicsContext,
         bars.addLine(to: CGPoint(x: bx, y: Y(barBottom)))
     }
     ctx.stroke(bars, with: stroke, style: StrokeStyle(lineWidth: unit * 0.03, lineCap: .round))
+}
+
+/// A softbox mounted on a light's front, seen from above: a diffuser flaring from a
+/// base that meets the light's front (`baseWidth`) out to the wider diffusion opening
+/// (`openingWidth`) over `backY − frontY`, with a diffusion line across the opening.
+/// `front` is up (toward the top of the frame), matching the light's facing.
+private func drawMountedSoftbox(centerX: CGFloat, backY: CGFloat, frontY: CGFloat,
+                                baseWidth: CGFloat, openingWidth: CGFloat,
+                                into ctx: inout GraphicsContext,
+                                fill: Color, stroke: Color, lineWidth lw: CGFloat) {
+    let fillC = GraphicsContext.Shading.color(fill.mixedWithWhite(0.80))
+    let strokeC = GraphicsContext.Shading.color(stroke)
+    let detailC = GraphicsContext.Shading.color(stroke.opacity(0.55))
+    let bx0 = centerX - baseWidth / 2, bx1 = centerX + baseWidth / 2
+    let ox0 = centerX - openingWidth / 2, ox1 = centerX + openingWidth / 2
+    let midY = (backY + frontY) / 2
+    var body = Path()
+    body.move(to: CGPoint(x: bx0, y: backY))
+    body.addQuadCurve(to: CGPoint(x: ox0, y: frontY),
+                      control: CGPoint(x: (bx0 + ox0) / 2, y: midY))
+    body.addLine(to: CGPoint(x: ox1, y: frontY))
+    body.addQuadCurve(to: CGPoint(x: bx1, y: backY),
+                      control: CGPoint(x: (bx1 + ox1) / 2, y: midY))
+    body.closeSubpath()
+    ctx.fill(body, with: fillC)
+    ctx.stroke(body, with: strokeC, lineWidth: lw)
+    // Diffusion line just inside the front (opening) edge.
+    var face = Path()
+    face.move(to: CGPoint(x: ox0 + lw, y: frontY + lw))
+    face.addLine(to: CGPoint(x: ox1 - lw, y: frontY + lw))
+    ctx.stroke(face, with: detailC, style: StrokeStyle(lineWidth: lw, lineCap: .round))
 }
 
 /// Top-down silhouette per furniture kind, drawn into `rect`.
@@ -731,7 +790,8 @@ struct FurnitureView: View {
         CGPoint(x: contentRect.minX + furniture.x * contentRect.width,
                 y: contentRect.minY + furniture.y * contentRect.height)
     }
-    private var sizePts: CGSize {
+    /// The light's own on-screen size (before any mounted softbox extends the piece).
+    private var lightSizePts: CGSize {
         if let liveSize { return liveSize }
         var w = CGFloat(furniture.width), h = CGFloat(furniture.height)
         // Enlarge-markers mode: never let a light draw smaller than its default size,
@@ -744,6 +804,31 @@ struct FurnitureView: View {
         }
         return CGSize(width: w * contentRect.width, height: h * contentRect.height)
     }
+    /// A mounted softbox's on-screen opening width and depth (points), sized off the
+    /// light's front. `nil` when no softbox is fitted.
+    private var softboxPts: (opening: CGFloat, depth: CGFloat)? {
+        guard furniture.hasSoftbox, let r = furniture.kind.mountedSoftbox else { return nil }
+        let lw = lightSizePts.width
+        return (opening: CGFloat(r.openingRatio) * lw, depth: CGFloat(r.depthRatio) * lw)
+    }
+    /// The whole piece's footprint. With a softbox the piece grows: the box extends the
+    /// light's front by its depth, so the frame is padded by that depth on both ends
+    /// (keeping the light centred on the furniture's stored position) and widened to
+    /// the softbox opening.
+    private var sizePts: CGSize {
+        let ls = lightSizePts
+        guard let sb = softboxPts else { return ls }
+        return CGSize(width: max(ls.width, sb.opening), height: ls.height + 2 * sb.depth)
+    }
+    /// The mounted-softbox geometry as frame fractions, for the given frame size.
+    private func softboxGlyph(w: CGFloat, h: CGFloat) -> MountedSoftboxGlyph? {
+        guard let sb = softboxPts, w > 0, h > 0 else { return nil }
+        let ls = lightSizePts
+        return MountedSoftboxGlyph(depthFrac: sb.depth / h,
+                                   lightWidthFrac: ls.width / w,
+                                   lightHeightFrac: ls.height / h,
+                                   openingFrac: min(sb.opening, w) / w)
+    }
     var body: some View {
         let w = max(sizePts.width, 8), h = max(sizePts.height, 8)
         ZStack {
@@ -751,6 +836,7 @@ struct FurnitureView: View {
                            fill: color, stroke: isSelected ? Color.accentColor : color,
                            lineWidth: isSelected ? 2.5 : 2,
                            hasModifier: furniture.hasModifier,
+                           softbox: softboxGlyph(w: w, h: h),
                            renderScale: zoom * placeScale)
                 .contentShape(Rectangle())
                 .rotationEffect(.degrees(displayRotation))
@@ -1054,7 +1140,8 @@ struct FurnitureView: View {
         }
         if furniture.kind.canMountSoftbox {
             Button { onAddSoftbox() } label: {
-                Label("Add Softbox", systemImage: "rectangle.portrait.on.rectangle.portrait")
+                Label(furniture.hasSoftbox ? "Remove Softbox" : "Add Softbox",
+                      systemImage: furniture.hasSoftbox ? "rectangle.slash" : "rectangle.portrait.on.rectangle.portrait")
             }
         }
         if furniture.kind.isLight {
