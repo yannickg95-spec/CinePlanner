@@ -82,7 +82,8 @@ struct PDFExportOptions: Equatable {
 
     // MARK: - Persistence (field/image/layout choices; scene selection is not stored)
 
-    private static let storeKey = "pdfExportOptions_v1"
+    /// Synced across devices by SettingsSync.
+    static let storeKey = "pdfExportOptions_v1"
     private struct Stored: Codable {
         var excludedFieldLabels: [String]
         var includeReferenceImages: Bool

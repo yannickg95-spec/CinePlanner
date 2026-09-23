@@ -995,6 +995,9 @@ struct ScriptPDFViewer: View {
     /// Live copy of the version's left/right side, for the same reason.
     @State private var coverageOnRight: Bool = false
     @State private var currentPageIndex = 0
+    /// The script data the shown document was made from, to spot a script that
+    /// another device replaced (see `.onChange(of: SyncRefresher…generation)`).
+    @State private var loadedPDFData: Data?
 
     private var currentPDFData: Data? {
         version?.pdfData ?? project.scriptPDFData
@@ -1143,6 +1146,7 @@ struct ScriptPDFViewer: View {
                         version: version,
                         coverageMargin: CGFloat(coverageMarginOverride ?? coverageMargin),
                         coverageOnRight: coverageOnRightOverride ?? coverageOnRight,
+                        syncGeneration: SyncRefresher.shared.generation,
                         cachedDocument: $cachedPDFDocument,
                         currentPageIndex: $currentPageIndex
                     )
@@ -1154,6 +1158,7 @@ struct ScriptPDFViewer: View {
         .onAppear {
             coverageMargin = version?.coverageLineMargin ?? 0.15
             coverageOnRight = version?.coverageLinesOnRight ?? false
+            loadedPDFData = currentPDFData
             // Consume a pending import request set before this viewer mounted (iPhone
             // opens the script sheet on "New Version"); onChange only sees changes
             // that happen while mounted, so catch an already-true flag here.
@@ -1168,8 +1173,19 @@ struct ScriptPDFViewer: View {
             // PDFView, document load, coordinator and layout), which froze iPad.
             // Setting a new document keeps the same view and updates it in place.
             cachedPDFDocument = currentPDFData.flatMap { PDFDocument(data: $0) }
+            loadedPDFData = currentPDFData
             coverageMargin = version?.coverageLineMargin ?? 0.15
             coverageOnRight = version?.coverageLinesOnRight ?? false
+        }
+        // Another device changed this script's settings or replaced the script.
+        .onChange(of: SyncRefresher.shared.generation) {
+            coverageMargin = version?.coverageLineMargin ?? 0.15
+            coverageOnRight = version?.coverageLinesOnRight ?? false
+            let data = currentPDFData
+            if data != loadedPDFData {
+                loadedPDFData = data
+                cachedPDFDocument = data.flatMap { PDFDocument(data: $0) }
+            }
         }
         .sheet(isPresented: $showMarginSheet) {
             // No detents: the sheet sizes itself (a narrow content-height column on
@@ -1343,6 +1359,7 @@ private struct PDFContentView: View {
     let version: ScriptVersion?
     var coverageMargin: CGFloat = 0.15
     var coverageOnRight: Bool = false
+    var syncGeneration = 0
     @Binding var cachedDocument: PDFDocument?
     @Binding var currentPageIndex: Int
 
@@ -1363,6 +1380,7 @@ private struct PDFContentView: View {
                         version: version,
                         coverageMargin: coverageMargin,
                         coverageOnRight: coverageOnRight,
+                        syncGeneration: syncGeneration,
                         currentPageIndex: $currentPageIndex
                     )
                     #else
@@ -1375,6 +1393,7 @@ private struct PDFContentView: View {
                         version: version,
                         coverageMargin: coverageMargin,
                         coverageOnRight: coverageOnRight,
+                        syncGeneration: syncGeneration,
                         currentPageIndex: $currentPageIndex
                     )
                     #endif
@@ -1406,6 +1425,9 @@ struct PDFViewerWithCoverageRepresentable {
     let version: ScriptVersion? // Scope coverage lines to this script version's scenes
     var coverageMargin: CGFloat = 0.15 // Near-text edge of the coverage-line band (fraction of page width)
     var coverageOnRight: Bool = false  // Draw the lines down the right margin
+    /// Changes after an iCloud import (see SyncRefresher), so the view updates and
+    /// redraws coverage from the refreshed shots.
+    var syncGeneration = 0
     /// The page the user is currently looking at (0-based). Reported upward so the
     /// editor can capture it when placing a new scene's script page.
     @Binding var currentPageIndex: Int

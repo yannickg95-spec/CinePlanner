@@ -202,7 +202,7 @@ struct CinePlannerApp: App {
                     .frame(minWidth: 1100, minHeight: 700)
                     #endif
                     .task { registerForCloudKitPush() }
-                    .task { CreditDefaultsSync.shared.start() }
+                    .task { SettingsSync.shared.start() }
             }
             .environmentObject(access)
             // The app is designed for light mode only — never follow the system into

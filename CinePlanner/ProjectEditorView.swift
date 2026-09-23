@@ -1143,6 +1143,11 @@ struct ProjectEditorView: View {
             coverageOnRightOverride: scriptCoverageOnRight
         )
         .id(scriptReloadToken)
+        // Another device changed the script's coverage-line placement.
+        .onChange(of: SyncRefresher.shared.generation) {
+            scriptCoverageMargin = selectedVersion?.coverageLineMargin ?? 0.15
+            scriptCoverageOnRight = selectedVersion?.coverageLinesOnRight ?? false
+        }
     }
 
     /// iPhone header for the scenes screen: the Script button + version chips.

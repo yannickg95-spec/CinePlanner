@@ -260,7 +260,7 @@ struct SceneMapEditorView: View {
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
         // Start from what's actually in the store: the UI context's copy of the scene
         // isn't refreshed when iCloud imports, so it can be older than the store.
-        .onAppear { reloadFromStoreIfNewer(); syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; calibrateSatelliteCapture(); refreshMapScale() }
+        .onAppear { sun = scene.sunSettings; reloadFromStoreIfNewer(); syncShotLabels(); pruneOrphanedShotCameras(); calibrateSatelliteCapture(); refreshMapScale() }
         // Pick up another device's edits live: after each iCloud import, re-read this
         // scene from the store and show a newer map / floor plan.
         .onReceive(NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)) { note in
@@ -269,6 +269,11 @@ struct SceneMapEditorView: View {
                   event.type == .import, event.endDate != nil, event.succeeded else { return }
             reloadFromStoreIfNewer()
         }
+        // Reading the sync generation re-runs this body once SyncRefresher has
+        // refreshed the scene, so settings read straight off it (camera FOV, marker
+        // size) redraw and the `onChange(of: scene.…)` watchers below see the
+        // imported values (background image, sun settings).
+        .onChange(of: SyncRefresher.shared.generation) { _, _ in reloadFromStoreIfNewer() }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -4408,6 +4413,17 @@ struct SceneMapEditorView: View {
             floorPlan = incomingPlan
             if scene.sceneFloorPlanJSON != fresh.sceneFloorPlanJSON { scene.sceneFloorPlanJSON = fresh.sceneFloorPlanJSON }
         }
+
+        // The map's settings. Sun edits are saved as they're made, so the store's
+        // copy is never older than ours.
+        let incomingSun = fresh.sunSettings
+        if incomingSun != sun { sun = incomingSun }
+        // The background's placement — unless it's being aligned here right now.
+        if !isBackgroundAdjustMode, fresh.sceneMapBackgroundTransform != bgTransform {
+            bgTransform = fresh.sceneMapBackgroundTransform
+        }
+        if fresh.sceneMapMetersWide != mapMetersWide { mapMetersWide = fresh.sceneMapMetersWide }
+        if fresh.sceneMapCameraSizeMeters != mapCameraMeters { mapCameraMeters = fresh.sceneMapCameraSizeMeters }
     }
 
     /// Flushes the store. Uses the environment context (never nil, unlike a

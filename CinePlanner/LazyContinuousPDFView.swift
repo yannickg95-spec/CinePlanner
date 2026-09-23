@@ -30,6 +30,9 @@ struct LazyContinuousPDFView: UIViewRepresentable {
     let version: ScriptVersion?
     var coverageMargin: CGFloat = 0.15
     var coverageOnRight: Bool = false
+    /// Changes after an iCloud import (see SyncRefresher), so the view updates and
+    /// redraws coverage from the refreshed shots.
+    var syncGeneration = 0
     @Binding var currentPageIndex: Int
 
     struct Bar { let color: UIColor; let label: String; let minY: CGFloat; let maxY: CGFloat }
