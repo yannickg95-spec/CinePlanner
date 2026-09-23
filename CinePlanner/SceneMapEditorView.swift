@@ -137,6 +137,9 @@ struct SceneMapEditorView: View {
     /// The last hovered point on the map, in the untransformed canvas-root space
     /// (`canvasScreenSpace`), used to place a right-click "Add Text" where the pointer is.
     @State private var lastMapHoverScreen: CGPoint?
+    /// Touch: where the current finger went down on empty map (root space), so a long
+    /// press can drop a text note right there (touch has no hover to track).
+    @State private var touchDownScreen: CGPoint?
     @State private var backgroundImage: PlatformImage?
     /// Which kind of file the single background importer is currently offering.
     /// Two separate `.fileImporter` modifiers on one view collide in SwiftUI —
@@ -980,6 +983,22 @@ struct SceneMapEditorView: View {
                         cameraInfoElementID = nil
                     }
                 }
+                #if os(iOS)
+                // Touch: long-press an empty spot to drop a text note under the finger
+                // (the Mac uses a right-click menu with the pointer's hover position).
+                // Simultaneous, so the pan / marquee / tap above keep working; markers,
+                // furniture and notes sit in front of this layer and keep their own
+                // long-press menus, and walls/doors/windows/arrows are skipped by position.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(SceneMapEditorView.canvasScreenSpace))
+                        .onChanged { value in if touchDownScreen == nil { touchDownScreen = value.startLocation } }
+                        .onEnded { _ in touchDownScreen = nil }
+                )
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5, maximumDistance: 10)
+                        .onEnded { _ in longPressAddText(in: rect, canvas: geo.size) }
+                )
+                #endif
                 // Markers and furniture ride the SAME placement, but in their own layer
                 // that overflows the pane and is never clipped or masked — so a piece the
                 // placement pushes into the white margin (a CineStager import fitted to an
@@ -1022,7 +1041,10 @@ struct SceneMapEditorView: View {
             }
             // Right-click an empty spot on the map to drop a text note there. Markers,
             // furniture, walls and openings carry their own menus (in front), so this
-            // only appears on empty space.
+            // only appears on empty space. Mac only: on touch a canvas-wide context menu
+            // is a long press that lifts the whole map as its preview (reading as if the
+            // background got selected) — touch uses the long press on the map group.
+            #if os(macOS)
             .contextMenu {
                 if !isDrawing && !backgroundAdjustActive && !reframeActive && pendingMove == nil {
                     Button { addTextAtLastHover(in: rect, canvas: geo.size) } label: {
@@ -1030,6 +1052,7 @@ struct SceneMapEditorView: View {
                     }
                 }
             }
+            #endif
             // Marquee (rubber-band) selection box: its corners are captured in this pane
             // space, so it's drawn here — outside the map group's placement — or a
             // zoomed-out map's scale/offset would drag the box away from the pointer.
@@ -1239,6 +1262,56 @@ struct SceneMapEditorView: View {
     /// the editor to type it.
     private func addTextAtLastHover(in rect: CGRect, canvas: CGSize) {
         let screen = lastMapHoverScreen ?? CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+        addText(atScreen: screen, in: rect, canvas: canvas)
+    }
+
+    /// Touch: a long press on empty map drops a text note under the finger — unless it
+    /// landed on a wall, door, window or arrow, whose own long-press menu it is.
+    private func longPressAddText(in rect: CGRect, canvas: CGSize) {
+        guard let point = touchDownScreen,
+              !isDrawing, !backgroundAdjustActive, !reframeActive, pendingMove == nil,
+              !mapItemUnderTouch(point, in: rect, canvas: canvas) else { return }
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+        addText(atScreen: point, in: rect, canvas: canvas)
+    }
+
+    /// Whether a root-space point lies on a wall, door/window or arrow — the items
+    /// inside the map group that carry their own long-press menus (markers, furniture
+    /// and notes sit in a layer in front, so they never reach the group's gesture).
+    /// Compared in pre-placement canvas units, the same space their hit areas use.
+    private func mapItemUnderTouch(_ p: CGPoint, in rect: CGRect, canvas: CGSize) -> Bool {
+        let n = normalizedFromScreen(p, in: rect, canvas: canvas)
+        let q = CGPoint(x: rect.minX + n.x * rect.width, y: rect.minY + n.y * rect.height)
+        func distance(to a: CGPoint, _ b: CGPoint) -> CGFloat {
+            let dx = b.x - a.x, dy = b.y - a.y
+            let len2 = dx * dx + dy * dy
+            let t = len2 > 0 ? min(max(((q.x - a.x) * dx + (q.y - a.y) * dy) / len2, 0), 1) : 0
+            return hypot(q.x - (a.x + t * dx), q.y - (a.y + t * dy))
+        }
+        if doc.showBackground {
+            // Walls: their hit strip is 18 tall, so 9 either side of the line.
+            for wall in floorPlan.walls {
+                guard let (a, b) = floorPlan.endpoints(wall) else { continue }
+                if distance(to: canvasPoint(a.x, a.y, in: rect), canvasPoint(b.x, b.y, in: rect)) <= 9 { return true }
+            }
+            // Doors/windows: within their width (plus a door's swing) of the centre.
+            for opening in floorPlan.openings {
+                guard let c = openingCenter(opening, in: rect) else { continue }
+                let reach = max(CGFloat(opening.width) * rect.width, 24)
+                if hypot(q.x - c.x, q.y - c.y) <= reach { return true }
+            }
+        }
+        for arrow in doc.arrows where arrowVisible(arrow) {
+            guard let pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2 else { continue }
+            for i in 0..<(pts.count - 1) where distance(to: pts[i], pts[i + 1]) <= 10 { return true }
+        }
+        return false
+    }
+
+    /// Drops a new text note at a root-space point and opens the editor to type it.
+    private func addText(atScreen screen: CGPoint, in rect: CGRect, canvas: CGSize) {
         var n = normalizedFromScreen(screen, in: rect, canvas: canvas)
         if !allowsPiecesOutsideMap {
             n.x = min(max(n.x, 0), 1); n.y = min(max(n.y, 0), 1)

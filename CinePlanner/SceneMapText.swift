@@ -53,10 +53,12 @@ struct MapTextView: View {
             .fixedSize()
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 5))
-            .contentShape(Rectangle())
-            .scaleEffect(counter, anchor: .center)
-            .rotationEffect(.degrees(-placeRotation))
-            .position(livePosition ?? center)
+            // Hit shape, gestures and menu on the note itself, BEFORE the counter-scale
+            // and `.position`: `.position` makes a view fill its whole parent (here the
+            // oversized marker layer), so a menu attached after it lifted that entire
+            // area as its long-press preview on touch — reading as if the background
+            // got selected. Before the counter-scale, the hit area also scales with it.
+            .contentShape(RoundedRectangle(cornerRadius: 5))
             .onTapGesture { onSelect(); onEdit() }
             .gesture(dragGesture)
             .contextMenu {
@@ -66,6 +68,9 @@ struct MapTextView: View {
                 Divider()
                 Button(role: .destructive) { onDelete() } label: { Label("Delete", systemImage: "trash") }
             }
+            .scaleEffect(counter, anchor: .center)
+            .rotationEffect(.degrees(-placeRotation))
+            .position(livePosition ?? center)
     }
 
     private var dragGesture: some Gesture {
