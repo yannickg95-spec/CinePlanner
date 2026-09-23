@@ -112,6 +112,9 @@ struct MapMarkerView: View {
     /// backdrop blur that doesn't fade with the parent's opacity, so over a dark
     /// satellite image the caption stayed bright and the marker read lighter.
     var isGhosted: Bool = false
+    /// Reports the marker's live (normalized) spot while it's dragged, then `nil` once
+    /// dropped — so arrows attached to it can follow the drag live.
+    var onLiveMove: (CGPoint?) -> Void = { _ in }
 
     /// The ghost fade, applied by this view to each of its parts rather than by the
     /// parent to the whole marker: an opacity that far out doesn't reach the camera
@@ -382,8 +385,10 @@ struct MapMarkerView: View {
                     grabOffset = CGSize(width: center.x - value.location.x,
                                         height: center.y - value.location.y)
                 }
-                livePosition = CGPoint(x: value.location.x + grabOffset.width,
-                                       y: value.location.y + grabOffset.height)
+                let live = CGPoint(x: value.location.x + grabOffset.width,
+                                   y: value.location.y + grabOffset.height)
+                livePosition = live
+                onLiveMove(normalized(live))
             }
             .onEnded { value in
                 if isGroupMember {
@@ -394,6 +399,7 @@ struct MapMarkerView: View {
                                     y: value.location.y + grabOffset.height)
                 livePosition = nil
                 onMove(normalized(final))
+                onLiveMove(nil)
             }
     }
 

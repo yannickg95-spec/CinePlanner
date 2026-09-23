@@ -140,6 +140,9 @@ struct SceneMapEditorView: View {
     /// Touch: where the current finger went down on empty map (root space), so a long
     /// press can drop a text note right there (touch has no hover to track).
     @State private var touchDownScreen: CGPoint?
+    /// Live (normalized) spots of markers being dragged that have arrows attached, so
+    /// those arrows follow the drag. Empty when nothing's being dragged.
+    @State private var liveMarkerPositions: [UUID: CGPoint] = [:]
     @State private var backgroundImage: PlatformImage?
     /// Which kind of file the single background importer is currently offering.
     /// Two separate `.fileImporter` modifiers on one view collide in SwiftUI —
@@ -1382,6 +1385,9 @@ struct SceneMapEditorView: View {
         // maps through to land on screen, so pieces whose stored spot falls outside the
         // pane can drop their hit-testing (see `pieceHittable`).
         let paneRect = contentRect(in: geo.size)
+        // Markers that anchor an arrow report their live drag spot (so the arrow follows);
+        // the rest don't, so dragging them doesn't re-render the editor every frame.
+        let arrowed = Set(doc.arrows.flatMap { [$0.fromID, $0.toID] })
         return ZStack {
             // Furniture, below the people/cameras so they read as "on" it. Hidden
             // while drawing the floor plan.
@@ -1492,7 +1498,10 @@ struct SceneMapEditorView: View {
                     placeRotation: mapPlacement.rotation,
                     // Fades itself, part by part (see MapMarkerView.ghostOpacity) — an
                     // opacity out here left the camera's white outline un-faded live.
-                    isGhosted: !visible
+                    isGhosted: !visible,
+                    onLiveMove: arrowed.contains(element.id)
+                        ? { p in liveMarkerPositions[element.id] = p }
+                        : { _ in }
                 )
                 .allowsHitTesting(visible && !isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive
                                   && pieceHittable(nx: element.x, ny: element.y, in: paneRect, canvas: geo.size))
@@ -4627,10 +4636,25 @@ struct SceneMapEditorView: View {
     private func arrowCanvasPoints(_ arrow: MapArrow, in rect: CGRect) -> [CGPoint]? {
         guard let from = doc.elements.first(where: { $0.id == arrow.fromID }),
               let to = doc.elements.first(where: { $0.id == arrow.toID }) else { return nil }
-        var pts = [canvasPoint(from.x, from.y, in: rect)]
+        var pts = [arrowEndpoint(from, in: rect)]
         pts += arrow.pivots.map { canvasPoint($0.x, $0.y, in: rect) }
-        pts.append(canvasPoint(to.x, to.y, in: rect))
+        pts.append(arrowEndpoint(to, in: rect))
         return pts
+    }
+
+    /// Where an arrow meets its marker: the marker's live spot while it's being dragged
+    /// (so the arrow follows it instead of snapping over on release), shifted by the
+    /// live group translation when it's part of a multi-selection drag.
+    private func arrowEndpoint(_ element: MapElement, in rect: CGRect) -> CGPoint {
+        if let live = liveMarkerPositions[element.id] {
+            return canvasPoint(Double(live.x), Double(live.y), in: rect)
+        }
+        var p = canvasPoint(element.x, element.y, in: rect)
+        if let t = groupDragTranslation, selectedIDs.contains(element.id),
+           selectedIDs.count + furnitureSelectedIDs.count > 1 {
+            p.x += t.width; p.y += t.height
+        }
+        return p
     }
 
     /// Applies the map group's full transform — the placement (rotate/scale about
