@@ -107,6 +107,18 @@ struct MapMarkerView: View {
     /// constant on-screen size while still moving with the marker.
     var placeScale: CGFloat = 1
     var placeRotation: Double = 0
+    /// The marker's layer is hidden from the toolbar, so the parent draws it as a faded
+    /// ghost. The label then swaps its material for a solid capsule: a material is a
+    /// backdrop blur that doesn't fade with the parent's opacity, so over a dark
+    /// satellite image the caption stayed bright and the marker read lighter.
+    var isGhosted: Bool = false
+
+    /// The ghost fade, applied by this view to each of its parts rather than by the
+    /// parent to the whole marker: an opacity that far out doesn't reach the camera
+    /// icon's flattened group live (Core Animation fades the 16 white outline copies
+    /// one by one, so they stack into a near-solid white silhouette under the faded
+    /// glyph — invisible on a white map, glaring over a dark satellite image).
+    private var ghostOpacity: Double { isGhosted ? SceneMapEditorView.hiddenLayerOpacity : 1 }
 
     /// Marker color choices offered in the right-click menu.
     private static let palette: [(name: String, hex: String)] = [
@@ -175,6 +187,7 @@ struct MapMarkerView: View {
             if isSelected {
                 Circle().stroke(Color.accentColor, lineWidth: 2)
                     .frame(width: 40 * scale, height: 40 * scale)
+                    .opacity(ghostOpacity)
             }
 
             // The icon turns to point in its facing direction, scaled to its
@@ -199,6 +212,7 @@ struct MapMarkerView: View {
             if !label.isEmpty && !element.labelHidden {
                 let nudge = liveLabelOffset ?? element.labelOffset
                 labelView
+                    .opacity(ghostOpacity)
                     // Grab area + gesture BEFORE the counter-scale, so the hit region is
                     // scaled together with the caption. (Applied after the counter-scale
                     // it stayed in the un-scaled layout space, which the map's placement
@@ -215,7 +229,8 @@ struct MapMarkerView: View {
                     .help("Drag to move the label")
             }
 
-            if isSelected && showsRotationHandle {
+            // No handle on a ghost: its layer is hidden, so it can't be turned anyway.
+            if isSelected && showsRotationHandle && !isGhosted {
                 // Counter-scale so the handle keeps a constant on-screen size (and
                 // grab area) instead of ballooning with the map zoom. Its distance
                 // from the marker still scales, so it sits just outside the marker.
@@ -437,6 +452,11 @@ struct MapMarkerView: View {
                         .frame(width: 15, height: 15)
                         .offset(y: -2)
                 }
+                // Flattened (cheap — just the small icon) so a faded marker (hidden
+                // layer) fades as one shape instead of the head darkening where it
+                // overlaps the shoulders. The fade sits right on the flattened group.
+                .compositingGroup()
+                .opacity(ghostOpacity)
             } else {
                 // Just the camera icon, pointing in its facing direction.
                 // `video.fill` points right by default, so a -90° base turn makes
@@ -470,16 +490,27 @@ struct MapMarkerView: View {
                 // outline copies separately, so they shade one another and the white
                 // outline turns grey (most visible in the rendered exports).
                 .compositingGroup()
+                // Ghost fade directly on the flattened icon (see `ghostOpacity`).
+                .opacity(ghostOpacity)
                 .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
             }
         }
     }
 
+    @ViewBuilder
     private var labelView: some View {
-        Text(label)
+        let caption = Text(label)
             .font(.caption2).fontWeight(.medium)
             .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(.thinMaterial, in: Capsule())
+        if isGhosted {
+            // Solid capsule, flattened with its text (cheap — just the caption), so the
+            // whole label fades evenly with the ghosted marker. See `isGhosted`.
+            caption
+                .background(Color.white.opacity(0.9), in: Capsule())
+                .compositingGroup()
+        } else {
+            caption.background(.thinMaterial, in: Capsule())
+        }
     }
 }
 

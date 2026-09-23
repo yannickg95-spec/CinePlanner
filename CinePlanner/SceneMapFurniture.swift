@@ -854,6 +854,9 @@ struct FurnitureView: View {
     var groupDragOffset: CGSize = .zero
     var onGroupDragChanged: (CGSize) -> Void = { _ in }
     var onGroupDragEnded: (CGSize) -> Void = { _ in }
+    /// The piece's layer is hidden from the toolbar and drawn as a faded ghost; the
+    /// label then uses a solid capsule so it fades with it (see the label).
+    var isGhosted: Bool = false
     let onDelete: () -> Void
 
     @State private var livePosition: CGPoint?
@@ -949,7 +952,10 @@ struct FurnitureView: View {
                     .font(.caption).fontWeight(.medium)
                     .lineLimit(1)
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(.regularMaterial, in: Capsule())
+                    // Ghosted (layer hidden): a solid capsule, since a material doesn't
+                    // fade with the parent's opacity and stays bright over satellite.
+                    .background(isGhosted ? AnyShapeStyle(Color.white.opacity(0.9))
+                                          : AnyShapeStyle(.regularMaterial), in: Capsule())
                     .scaleEffect(1 / (zoom * placeScale), anchor: .top)
                     .rotationEffect(.degrees(-placeRotation), anchor: .top)
                     .offset(x: nudge.width, y: labelBaseOffsetY(w: w, h: h) + nudge.height)

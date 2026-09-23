@@ -28,6 +28,9 @@ struct SceneMapEditorView: View {
     /// gesture sits inside the placement scaleEffect, which skews `.global`) can't throw
     /// the rubber-band box off; the box is drawn in this same space.
     static let canvasScreenSpace = "sceneMapScreen"
+    /// Opacity of a layer hidden from the toolbar: its markers (and their arrows / FOV
+    /// wedges) stay as a faint, non-interactive ghost for reference.
+    static let hiddenLayerOpacity: Double = 0.35
 
     let scene: Scene
     /// When embedded in a pane (vs. presented as a sheet), drop the title bar,
@@ -1310,9 +1313,12 @@ struct SceneMapEditorView: View {
             // Furniture, below the people/cameras so they read as "on" it. Hidden
             // while drawing the floor plan.
             if !isDrawing {
-                ForEach(doc.furniture.filter { $0.kind.isLight ? doc.showLights : doc.showFurniture }) { item in
+                ForEach(doc.furniture) { item in
                     let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
                     let inGroup = totalSelected > 1 && furnitureSelectedIDs.contains(item.id)
+                    // A layer hidden from the toolbar stays as a faint ghost for
+                    // reference, but can't be picked up.
+                    let visible = item.kind.isLight ? doc.showLights : doc.showFurniture
                     FurnitureView(
                         furniture: item,
                         isSelected: furnitureSelectedID == item.id || furnitureSelectedIDs.contains(item.id),
@@ -1349,9 +1355,11 @@ struct SceneMapEditorView: View {
                         groupDragOffset: inGroup ? (groupDragTranslation ?? .zero) : .zero,
                         onGroupDragChanged: { groupDragTranslation = $0 },
                         onGroupDragEnded: { commitGroupDrag($0, in: rect) },
+                        isGhosted: !visible,
                         onDelete: { deleteFurnitureOrSelection(item.id) }
                     )
-                    .allowsHitTesting(pendingMove == nil && !reframeActive && !backgroundAdjustActive
+                    .opacity(visible ? 1 : Self.hiddenLayerOpacity)
+                    .allowsHitTesting(visible && pendingMove == nil && !reframeActive && !backgroundAdjustActive
                                       && pieceHittable(nx: item.x, ny: item.y, in: paneRect, canvas: geo.size))
                     // Furniture normally sits below the people/cameras, but the selected
                     // piece floats above them — so a just-added (auto-selected) light
@@ -1359,9 +1367,11 @@ struct SceneMapEditorView: View {
                     .zIndex(furnitureSelectedID == item.id || furnitureSelectedIDs.contains(item.id) ? 2 : 0)
                 }
             }
-            ForEach(doc.elements.filter { $0.kind == .camera ? doc.showCameras : doc.showCharacters }) { element in
+            ForEach(doc.elements) { element in
                 let totalSelected = selectedIDs.count + furnitureSelectedIDs.count
                 let inGroup = totalSelected > 1 && selectedIDs.contains(element.id)
+                // Hidden layer: a faint, non-interactive ghost (see furniture above).
+                let visible = element.kind == .camera ? doc.showCameras : doc.showCharacters
                 MapMarkerView(
                     element: element,
                     label: resolvedLabel(for: element),
@@ -1406,9 +1416,12 @@ struct SceneMapEditorView: View {
                                             mapWidthPoints: rect.width,
                                             viewable: scene.sceneMapViewableMarkerSize),
                     placeScale: CGFloat(mapPlacement.scale),
-                    placeRotation: mapPlacement.rotation
+                    placeRotation: mapPlacement.rotation,
+                    // Fades itself, part by part (see MapMarkerView.ghostOpacity) — an
+                    // opacity out here left the camera's white outline un-faded live.
+                    isGhosted: !visible
                 )
-                .allowsHitTesting(!isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive
+                .allowsHitTesting(visible && !isDrawing && pendingMove == nil && !reframeActive && !backgroundAdjustActive
                                   && pieceHittable(nx: element.x, ny: element.y, in: paneRect, canvas: geo.size))
                 // Above unselected furniture, below the *selected* furniture piece.
                 .zIndex(1)
@@ -1446,9 +1459,11 @@ struct SceneMapEditorView: View {
             // sibling layer, so they stay tappable out in the white margin.)
             // Camera field-of-view wedges, under the arrows and markers.
             // Reads the scene flag directly so toggling it re-renders here.
-            if scene.sceneMapShowCameraFOV && doc.showCameras {
+            if scene.sceneMapShowCameraFOV {
                 Canvas { ctx, _ in drawCameraFOV(ctx, in: rect) }
                     .allowsHitTesting(false)
+                    // Ghosts with the camera layer when that's hidden.
+                    .opacity(doc.showCameras ? 1 : Self.hiddenLayerOpacity)
             }
             // Movement arrows are drawn crisply in a screen-space overlay outside
             // the zoom (see below); only their right-click hit areas live here.
@@ -4597,8 +4612,8 @@ struct SceneMapEditorView: View {
         for arrow in doc.arrows {
             guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
                   let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
-            // An arrow belongs to the marker layer it connects, so it hides with it.
-            guard (from.kind == .camera ? doc.showCameras : doc.showCharacters) else { continue }
+            // An arrow belongs to the marker layer it connects, so it ghosts with it.
+            let layerVisible = from.kind == .camera ? doc.showCameras : doc.showCharacters
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
             // Clear the marker icons at both ends, whatever their size or rotation: the
             // icon fits a 40·scale circle, so trim by that radius (rotation-independent)
@@ -4626,16 +4641,21 @@ struct SceneMapEditorView: View {
             let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
             var shaftPts = pts
             shaftPts[n - 1] = baseCenter
-            ctx.stroke(smoothPolyline(shaftPts), with: shading,
-                       style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
-
             let perp = CGPoint(x: -de.y, y: de.x)
             var head = Path()
             head.move(to: tip)
             head.addLine(to: CGPoint(x: baseCenter.x + perp.x * headHalfWidth, y: baseCenter.y + perp.y * headHalfWidth))
             head.addLine(to: CGPoint(x: baseCenter.x - perp.x * headHalfWidth, y: baseCenter.y - perp.y * headHalfWidth))
             head.closeSubpath()
-            ctx.fill(head, with: shading)
+            // Draw shaft + head as one layer and fade it whole when the layer is hidden,
+            // so the shaft's round cap overlapping the head doesn't show as a darker spot.
+            var arrowCtx = ctx
+            arrowCtx.opacity = layerVisible ? 1 : Self.hiddenLayerOpacity
+            arrowCtx.drawLayer { layer in
+                layer.stroke(smoothPolyline(shaftPts), with: shading,
+                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                layer.fill(head, with: shading)
+            }
         }
     }
 
