@@ -59,7 +59,14 @@ struct MapTextView: View {
             // area as its long-press preview on touch — reading as if the background
             // got selected. Before the counter-scale, the hit area also scales with it.
             .contentShape(RoundedRectangle(cornerRadius: 5))
-            .onTapGesture { onSelect(); onEdit() }
+            .onTapGesture {
+                onSelect()
+                // Mac: click to edit. Touch: a tap is too easy to hit while working the
+                // map, so editing goes through the long-press menu ("Edit Text") only.
+                #if os(macOS)
+                onEdit()
+                #endif
+            }
             .gesture(dragGesture)
             .contextMenu {
                 Button { onEdit() } label: { Label("Edit Text", systemImage: "pencil") }
