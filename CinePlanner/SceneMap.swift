@@ -537,11 +537,24 @@ struct SceneMapDoc: Codable, Equatable {
     var showFurniture = true
     var showLights = true
 
+    /// When this map was last edited (seconds since 1970; 0 = unknown / older map).
+    /// The whole map syncs as one field, so when two devices' versions meet, the newer
+    /// edit wins instead of whichever device happened to save last.
+    var editedAt: Double = 0
+
     var isEmpty: Bool { elements.isEmpty && arrows.isEmpty && furniture.isEmpty && texts.isEmpty }
+
+    /// Same map content, ignoring when it was edited.
+    func sameContent(as other: SceneMapDoc) -> Bool {
+        var a = self, b = other
+        a.editedAt = 0; b.editedAt = 0
+        return a == b
+    }
 
     enum CodingKeys: String, CodingKey {
         case elements, arrows, furniture, texts
         case showCharacters, showCameras, showBackground, showFurniture, showLights
+        case editedAt
     }
 
     init() {}
@@ -559,6 +572,7 @@ struct SceneMapDoc: Codable, Equatable {
         showBackground = try c.decodeIfPresent(Bool.self, forKey: .showBackground) ?? true
         showFurniture = try c.decodeIfPresent(Bool.self, forKey: .showFurniture) ?? true
         showLights = try c.decodeIfPresent(Bool.self, forKey: .showLights) ?? true
+        editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt) ?? 0
     }
 
     // MARK: - JSON round-tripping (stored on Scene.sceneMapJSON)

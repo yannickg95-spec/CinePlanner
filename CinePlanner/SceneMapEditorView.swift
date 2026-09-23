@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 import CoreLocation
 import MapKit
 import os
+import CoreData
 
 struct SceneMapEditorView: View {
     static let canvasSpace = "sceneMapCanvas"
@@ -257,7 +258,17 @@ struct SceneMapEditorView: View {
             canvas
         }
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
-        .onAppear { syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; calibrateSatelliteCapture(); refreshMapScale() }
+        // Start from what's actually in the store: the UI context's copy of the scene
+        // isn't refreshed when iCloud imports, so it can be older than the store.
+        .onAppear { reloadFromStoreIfNewer(); syncShotLabels(); pruneOrphanedShotCameras(); sun = scene.sunSettings; calibrateSatelliteCapture(); refreshMapScale() }
+        // Pick up another device's edits live: after each iCloud import, re-read this
+        // scene from the store and show a newer map / floor plan.
+        .onReceive(NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)) { note in
+            guard let event = note.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+                    as? NSPersistentCloudKitContainer.Event,
+                  event.type == .import, event.endDate != nil, event.succeeded else { return }
+            reloadFromStoreIfNewer()
+        }
         // Keep this editor's in-memory doc in sync when shots change underneath
         // it (e.g. a shot is deleted from the shot list while the map is open),
         // so a stale doc can't re-add the marker when it next persists.
@@ -4337,13 +4348,66 @@ struct SceneMapEditorView: View {
     }
 
     private func persistFloorPlan() {
+        // Only write a real change. An unconditional write (e.g. on leaving the editor)
+        // re-sent this device's possibly outdated copy and overwrote another device's
+        // newer plan in iCloud.
+        let stored = FloorPlan.load(from: storeScene()?.sceneFloorPlanJSON ?? scene.sceneFloorPlanJSON)
+        guard floorPlan != stored else { return }
         scene.sceneFloorPlanJSON = floorPlan.jsonString
         saveContext()
     }
 
     private func persist() {
+        // Only write a real change, compared with what's actually in the store (not the
+        // UI context's copy, which iCloud imports don't refresh). An unconditional write
+        // — `onDisappear` saved every time the map was left — re-sent this device's
+        // stale copy and overwrote the other device's newer edits in iCloud.
+        let stored = SceneMapDoc.load(from: storeScene()?.sceneMapJSON ?? scene.sceneMapJSON)
+        guard !doc.sameContent(as: stored) else { return }
+        doc.editedAt = Date().timeIntervalSince1970
         scene.sceneMapJSON = doc.jsonString
         saveContext()
+    }
+
+    /// This scene as it is in the store right now, read through a fresh context. The
+    /// UI's `scene` lives in the main context, whose copy isn't refreshed when iCloud
+    /// imports another device's edits — so it can be older than the store.
+    private func storeScene() -> Scene? {
+        let id = scene.persistentModelID
+        let context = ModelContext(modelContext.container)
+        var descriptor = FetchDescriptor<Scene>(predicate: #Predicate { $0.persistentModelID == id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Brings the open editor up to date with the store after an iCloud import (or on
+    /// opening): shows a newer map or floor plan from another device. When two versions
+    /// of the map meet, the newer edit wins — if ours is newer (the other device saved
+    /// an older copy over it), ours is written back so it wins in iCloud too.
+    private func reloadFromStoreIfNewer() {
+        guard let fresh = storeScene() else { return }
+
+        let incoming = SceneMapDoc.load(from: fresh.sceneMapJSON)
+        if !incoming.sameContent(as: doc) {
+            if incoming.editedAt >= doc.editedAt {
+                doc = incoming
+                selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
+                furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
+                // Keep the UI context's copy in step with the store.
+                if scene.sceneMapJSON != fresh.sceneMapJSON { scene.sceneMapJSON = fresh.sceneMapJSON }
+            } else {
+                // Our edit is newer than what's in the store: put it back.
+                scene.sceneMapJSON = doc.jsonString
+                saveContext()
+            }
+        }
+
+        // The floor plan: take the store's (unless we're mid-drawing it).
+        let incomingPlan = FloorPlan.load(from: fresh.sceneFloorPlanJSON)
+        if !isDrawing, incomingPlan != floorPlan {
+            floorPlan = incomingPlan
+            if scene.sceneFloorPlanJSON != fresh.sceneFloorPlanJSON { scene.sceneFloorPlanJSON = fresh.sceneFloorPlanJSON }
+        }
     }
 
     /// Flushes the store. Uses the environment context (never nil, unlike a
