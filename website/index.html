@@ -218,15 +218,21 @@
 
   /* ECOSYSTEM BAND */
   .eco-wrap { border-top: 1px solid var(--border); background: linear-gradient(180deg, rgba(62,207,255,0.03), transparent 60%); }
-  .eco-inner { max-width: 1200px; margin: 0 auto; padding: 100px 48px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 72px; align-items: center; }
+  .eco-inner { max-width: 1200px; margin: 0 auto; padding: 100px 48px; display: grid; grid-template-columns: 0.92fr 1.2fr; gap: 64px; align-items: center; }
   .eco-eyebrow { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #3ecfff; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
   .eco-eyebrow span { display: block; width: 48px; height: 1px; background: #3ecfff; opacity: 0.4; }
   .eco-title { font-family: "Unbounded", sans-serif; font-size: clamp(26px, 3.4vw, 40px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.12; margin-bottom: 20px; }
   .eco-body { font-size: 16px; color: var(--muted); line-height: 1.8; max-width: 460px; margin-bottom: 30px; }
   .eco-cta { display: inline-flex; align-items: center; gap: 10px; font-family: "DM Sans", sans-serif; font-size: 14px; font-weight: 500; color: var(--bg); background: #3ecfff; padding: 13px 24px; border-radius: 100px; text-decoration: none; transition: opacity 0.2s, transform 0.2s; }
   .eco-cta:hover { opacity: 0.88; transform: translateY(-1px); }
-  .eco-visual { display: flex; align-items: center; justify-content: center; gap: 18px; }
+  .eco-visual { display: flex; align-items: center; justify-content: center; gap: 16px; min-width: 0; }
+  .eco-visual img { height: 148px; width: auto; max-width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(0,0,0,0.5); display: block; }
   .eco-arrow { color: #3ecfff; flex-shrink: 0; }
+  @media (max-width: 560px) {
+    .eco-visual { flex-direction: column; gap: 14px; }
+    .eco-visual img { height: auto; width: 100%; max-width: 340px; }
+    .eco-arrow { transform: rotate(90deg); }
+  }
 
   /* MAKER STRIP (replaces testimonials pre-launch) */
   .maker-wrap { border-top: 1px solid var(--border); }
@@ -497,31 +503,9 @@
       <a href="https://cinestager.com" class="eco-cta" target="_blank" rel="noopener">Discover CineStager →</a>
     </div>
     <div class="eco-visual">
-      <!-- AR previz -->
-      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CineStager AR previz" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
-        <rect width="150" height="200" rx="12" fill="#0c0c14"/>
-        <rect x="0" y="120" width="150" height="80" fill="rgba(62,207,255,0.04)"/>
-        <path d="M20 120 L130 120 L110 200 L40 200 Z" fill="none" stroke="rgba(62,207,255,0.25)" stroke-width="1"/>
-        <rect x="30" y="30" width="90" height="60" rx="4" fill="none" stroke="#3ecfff" stroke-width="1" stroke-dasharray="4 3"/>
-        <line x1="30" y1="60" x2="120" y2="60" stroke="rgba(62,207,255,0.3)" stroke-width="0.6"/>
-        <line x1="75" y1="30" x2="75" y2="90" stroke="rgba(62,207,255,0.3)" stroke-width="0.6"/>
-        <circle cx="62" cy="140" r="7" fill="#3ecfff"/>
-        <circle cx="90" cy="150" r="7" fill="#e8e8f5"/>
-        <text x="12" y="18" fill="#3ecfff" font-family="DM Mono, monospace" font-size="7">AR · 35mm</text>
-      </svg>
+      <img src="img/cinestager-ar.jpg" alt="CineStager AR view on location — camera, lens and framelines over a scanned set" loading="lazy" decoding="async">
       <svg class="eco-arrow" width="42" height="24" viewBox="0 0 42 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 H36 M30 5 l7 7 l-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <!-- CinePlanner map -->
-      <svg width="150" height="200" viewBox="0 0 150 200" xmlns="http://www.w3.org/2000/svg" aria-label="CinePlanner overhead scene map" style="border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 40px rgba(0,0,0,0.5);">
-        <rect width="150" height="200" rx="12" fill="#0c0c14"/>
-        <g fill="#13141f"><rect x="16" y="96" width="60" height="60" rx="3"/><rect x="90" y="40" width="46" height="50" rx="3"/></g>
-        <g stroke="#191a28" stroke-width="6" opacity="0.7"><path d="M0 90 H150 M78 0 V200"/></g>
-        <path d="M92 150 q-14 -24 -34 -32" stroke="#3ecfff" stroke-width="1" stroke-dasharray="4 3" fill="none"/>
-        <circle cx="92" cy="150" r="8" fill="#3ecfff"/><rect x="88" y="146" width="8" height="8" fill="#0c0c14"/>
-        <circle cx="58" cy="118" r="6" fill="#e8e8f5"/>
-        <circle cx="78" cy="104" r="6" fill="#6a6a8a"/>
-        <text x="12" y="18" fill="#3ecfff" font-family="DM Mono, monospace" font-size="7">PLAN · MAP</text>
-        <text x="138" y="18" fill="#3ecfff" font-family="DM Mono, monospace" font-size="7" text-anchor="end">N</text>
-      </svg>
+      <img src="img/cinestager-map.jpg" alt="CineStager top-down scene map that flows into CinePlanner" loading="lazy" decoding="async">
     </div>
   </div>
 </div>
