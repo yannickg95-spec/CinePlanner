@@ -2,9 +2,10 @@
 //  EntitlementStore.swift
 //  CinePlanner
 //
-//  StoreKit 2 wrapper for the one-time "CinePlanner Pro" unlock: loads the
-//  product, runs the purchase/restore flows, reports whether the app is unlocked,
-//  and exposes the App Store data used for grandfathering and trusted time.
+//  StoreKit 2 wrapper for the one-time "CinePlanner Pro" unlock and the free
+//  "7-day Trial" product: loads both, runs the purchase/restore flows, reports
+//  whether the app is unlocked and when the trial started, and exposes the App
+//  Store data used for grandfathering and trusted time.
 //
 
 import Foundation
@@ -14,7 +15,10 @@ import StoreKit
 @MainActor
 final class EntitlementStore: ObservableObject {
     @Published private(set) var product: Product?
+    @Published private(set) var trialProduct: Product?
     @Published private(set) var isPurchased = false
+    /// When the account started the trial (the trial purchase's date), if it has.
+    @Published private(set) var trialStartDate: Date?
     @Published private(set) var isLoadingProduct = false
     @Published var lastError: String?
 
@@ -27,24 +31,30 @@ final class EntitlementStore: ObservableObject {
         isLoadingProduct = true
         defer { isLoadingProduct = false }
         do {
-            let products = try await Product.products(for: [Purchases.proProductID])
-            product = products.first
+            let products = try await Product.products(for: [Purchases.proProductID, Purchases.trialProductID])
+            product = products.first { $0.id == Purchases.proProductID }
+            trialProduct = products.first { $0.id == Purchases.trialProductID }
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    /// True if a valid, un-revoked entitlement for the unlock exists.
+    /// Reads the account's valid, un-revoked entitlements: the unlock, and the
+    /// trial's start.
     func refreshPurchased() async {
+        var purchased = false
+        var trialStart: Date?
         for await result in Transaction.currentEntitlements {
-            if case .verified(let transaction) = result,
-               transaction.productID == Purchases.proProductID,
-               transaction.revocationDate == nil {
-                isPurchased = true
-                return
+            guard case .verified(let transaction) = result,
+                  transaction.revocationDate == nil else { continue }
+            switch transaction.productID {
+            case Purchases.proProductID: purchased = true
+            case Purchases.trialProductID: trialStart = transaction.originalPurchaseDate
+            default: break
             }
         }
-        isPurchased = false
+        isPurchased = purchased
+        trialStartDate = trialStart
     }
 
     // MARK: - Buying / restoring
@@ -56,28 +66,48 @@ final class EntitlementStore: ObservableObject {
             lastError = "The purchase isn't available right now. Please try again later."
             return false
         }
+        guard await buy(product) != nil else { return false }
+        isPurchased = true
+        return true
+    }
+
+    /// Starts the free trial by "buying" the free trial product. Returns true once
+    /// the trial is running.
+    @discardableResult
+    func startTrial() async -> Bool {
+        guard let trialProduct else {
+            lastError = "The free trial can't be started right now. Please check your connection and try again."
+            return false
+        }
+        guard let transaction = await buy(trialProduct) else { return false }
+        trialStartDate = transaction.originalPurchaseDate
+        return true
+    }
+
+    /// Runs a purchase and returns its verified, finished transaction — nil when it
+    /// was cancelled, is pending, or failed (with `lastError` set as needed).
+    private func buy(_ product: Product) async -> Transaction? {
         do {
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else {
                     lastError = "The purchase couldn't be verified."
-                    return false
+                    return nil
                 }
                 await transaction.finish()
-                isPurchased = true
-                return true
+                return transaction
             case .userCancelled:
-                return false
+                return nil
             case .pending:
                 lastError = "Your purchase is awaiting approval."
-                return false
+                return nil
             @unknown default:
-                return false
+                return nil
             }
         } catch {
             lastError = error.localizedDescription
-            return false
+            return nil
         }
     }
 
@@ -94,9 +124,15 @@ final class EntitlementStore: ObservableObject {
 
     /// People who first downloaded the app before it went free (i.e. paid up front)
     /// keep full access for free.
+    ///
+    /// Only for App Store downloads: in the sandbox (TestFlight, App Review) and in
+    /// Xcode, `originalAppVersion` is always "1.0", which would read as a pre-free
+    /// download and unlock everything — hiding the trial and the purchase from
+    /// testers and from the reviewers who have to find it.
     static func isGrandfathered() async -> Bool {
         guard let result = try? await AppTransaction.shared,
-              case .verified(let appTransaction) = result else { return false }
+              case .verified(let appTransaction) = result,
+              appTransaction.environment == .production else { return false }
         let original = appTransaction.originalAppVersion
         if let build = Int(original) {
             // iOS: originalAppVersion is the build number.

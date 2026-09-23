@@ -1,8 +1,6 @@
 {
   "identifier" : "B40EEA2F-E6F5-4781-9311-75479747F08C",
-  "nonRenewingSubscriptions" : [
-
-  ],
+  "nonRenewingSubscriptions" : [],
   "products" : [
     {
       "displayPrice" : "14.99",
@@ -18,14 +16,32 @@
       "productID" : "com.YannickGiraud.CinePlanner.pro",
       "referenceName" : "CinePlanner Pro",
       "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "0",
+      "familyShareable" : false,
+      "internalID" : "AF72446A-2F29-4ADC-B68F-26A8C69993F5",
+      "localizations" : [
+        {
+          "description" : "Use every feature of CinePlanner free for 7 days.",
+          "displayName" : "7-day Trial",
+          "locale" : "en_US"
+        },
+        {
+          "description" : "Gebruik alle functies van CinePlanner 7 dagen gratis.",
+          "displayName" : "7-day Trial",
+          "locale" : "nl_NL"
+        }
+      ],
+      "productID" : "com.YannickGiraud.CinePlanner.trial",
+      "referenceName" : "7-day Trial",
+      "type" : "NonConsumable"
     }
   ],
   "settings" : {
     "_applicationInternalID" : "6800298885"
   },
-  "subscriptionGroups" : [
-
-  ],
+  "subscriptionGroups" : [],
   "version" : {
     "major" : 3,
     "minor" : 0

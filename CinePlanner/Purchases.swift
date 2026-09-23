@@ -5,8 +5,13 @@
 //  Option 2 monetisation: the app ships free, a one-time non-consumable in-app
 //  purchase unlocks it permanently, and a 7-day trial precedes the paywall.
 //  This file holds the shared constants, a synced-Keychain store, and the trial
-//  clock (which resists reinstalls, a new install on another device of the same
-//  iCloud account, and setting the system clock backwards).
+//  clock (which resists setting the system clock backwards).
+//
+//  The trial itself is a free non-consumable ("7-day Trial"), as App Review
+//  Guideline 3.1.1 requires for a time-based trial in a non-subscription app. The
+//  user starts it from a screen that states the length, what happens afterwards
+//  and the unlock price. Its App Store transaction date is the trial's start, so
+//  the trial survives reinstalls and is shared by every device on the account.
 //
 
 import Foundation
@@ -15,6 +20,10 @@ enum Purchases {
     /// Non-consumable IAP that unlocks the full app. Create this exact product id
     /// in App Store Connect (matches the app's bundle id prefix).
     static let proProductID = "com.YannickGiraud.CinePlanner.pro"
+
+    /// Free (price: Free) non-consumable that starts the trial. Create this exact
+    /// product id in App Store Connect, named "7-day Trial".
+    static let trialProductID = "com.YannickGiraud.CinePlanner.trial"
 
     /// Length of the free trial before the paywall appears.
     static let trialDuration: TimeInterval = 7 * 24 * 60 * 60
@@ -28,7 +37,7 @@ enum Purchases {
     /// ⚠️ Set BOTH of these to the first release that ships free-with-IAP, before
     /// submitting that build — otherwise grandfathering will be wrong.
     static let firstFreeBuild = 6              // iOS: CFBundleVersion of the first free build
-    static let firstFreeShortVersion = "1.6"  // macOS: CFBundleShortVersionString of it
+    static let firstFreeShortVersion = "2.0"  // macOS: CFBundleShortVersionString of it
 }
 
 // MARK: - Synced Keychain (same pattern as GHKeychain, shared across the user's devices)
@@ -77,13 +86,13 @@ enum SyncedKeychain {
 
 // MARK: - Trial clock
 
-/// Tracks the free trial. The start is recorded once (preferring Apple's signed
-/// server time so a clock set forward at first launch can't push it into the
-/// future), and a "high-water" timestamp only ever moves forward, so setting the
-/// clock back can't extend the trial.
+/// Measures the free trial from its start (the trial purchase's App Store date).
+/// A "high-water" timestamp only ever moves forward, so setting the clock back
+/// can't extend the trial.
 enum TrialClock {
     private static let service = "com.YannickGiraud.CinePlanner.trial"
-    private static let startAccount = "start"
+    /// Where builds before the trial IAP kept their own start date; only cleared now.
+    private static let legacyStartAccount = "start"
     private static let highWaterAccount = "highwater"
 
     struct Status {
@@ -101,20 +110,10 @@ enum TrialClock {
         SyncedKeychain.set(String(d.timeIntervalSince1970), service: service, account: account)
     }
 
-    /// Evaluate the trial. `trustedNow` is Apple's signed server time when available.
-    @discardableResult
-    static func evaluate(trustedNow: Date?) -> Status {
+    /// Evaluate a trial that started at `start`. `trustedNow` is Apple's signed
+    /// server time when available.
+    static func evaluate(start: Date, trustedNow: Date?) -> Status {
         let deviceNow = Date()
-
-        // Record the start once. Prefer trusted server time so a forward-set clock
-        // can't create a future start (which would lengthen the trial).
-        let start: Date
-        if let existing = date(startAccount) {
-            start = existing
-        } else {
-            start = trustedNow ?? deviceNow
-            store(start, startAccount)
-        }
 
         // Effective "now" never moves backwards.
         let previousHigh = date(highWaterAccount) ?? start
@@ -128,9 +127,9 @@ enum TrialClock {
         return Status(isActive: active, daysRemaining: days)
     }
 
-    /// Wipes the stored trial (debug only).
+    /// Wipes the stored clock state (debug only).
     static func reset() {
-        SyncedKeychain.delete(service: service, account: startAccount)
+        SyncedKeychain.delete(service: service, account: legacyStartAccount)
         SyncedKeychain.delete(service: service, account: highWaterAccount)
     }
 }
