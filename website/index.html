@@ -227,7 +227,7 @@
   .eco-cta:hover { opacity: 0.88; transform: translateY(-1px); }
   .eco-visual { display: flex; align-items: center; justify-content: center; gap: 16px; min-width: 0; }
   .eco-visual img { height: 148px; width: auto; max-width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(0,0,0,0.5); display: block; }
-  .eco-arrow { color: #3ecfff; flex-shrink: 0; }
+  .eco-arrow { flex-shrink: 0; filter: drop-shadow(0 0 7px rgba(62,207,255,0.45)); }
   @media (max-width: 560px) {
     .eco-visual { flex-direction: column; gap: 14px; }
     .eco-visual img { height: auto; width: 100%; max-width: 340px; }
@@ -504,7 +504,11 @@
     </div>
     <div class="eco-visual">
       <img src="img/cinestager-ar.jpg" alt="CineStager AR view on location — camera, lens and framelines over a scanned set" loading="lazy" decoding="async">
-      <svg class="eco-arrow" width="42" height="24" viewBox="0 0 42 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 H36 M30 5 l7 7 l-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="eco-arrow" width="58" height="24" viewBox="0 0 58 24" fill="none" aria-hidden="true">
+        <defs><linearGradient id="ecoArrow" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ecfff"/><stop offset="1" stop-color="#1a4aff"/></linearGradient></defs>
+        <line x1="2" y1="12" x2="42" y2="12" stroke="url(#ecoArrow)" stroke-width="3" stroke-linecap="round"/>
+        <path d="M40 4 L56 12 L40 20 Z" fill="url(#ecoArrow)"/>
+      </svg>
       <img src="img/cinestager-map.jpg" alt="CineStager top-down scene map that flows into CinePlanner" loading="lazy" decoding="async">
     </div>
   </div>
