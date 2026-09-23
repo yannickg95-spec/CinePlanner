@@ -96,6 +96,10 @@ struct CinePlannerApp: App {
         OnSetLiveActivityController.shared.configure(container: sharedModelContainer)
         #endif
 
+        // Keep the UI's context in step with iCloud imports (see SyncRefresher) — set
+        // up before anything saves, so the main context's saves carry its author tag.
+        MainActor.assumeIsolated { SyncRefresher.shared.start(container: sharedModelContainer) }
+
         // Flush pending edits every few seconds, so CloudKit exports them while the
         // user works instead of only when SwiftData's autosave gets round to it.
         // Started once here (not per window), and a no-op when nothing changed.

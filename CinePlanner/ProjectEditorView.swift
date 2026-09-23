@@ -256,6 +256,9 @@ struct ProjectEditorView: View {
             // Ensure the project has the episode → version structure (migrates legacy projects)
             project.migrateStructureIfNeeded()
             project.lastOpenedDate = Date()
+            // Save right away rather than leave the project dirty until the next flush:
+            // a dirty object isn't refreshed by an iCloud import (see SyncRefresher).
+            try? modelContext.save()
 
             // The script split is seeded where its width is derived (in the
             // editor columns' GeometryReader), so nothing to do here.
@@ -1027,7 +1030,9 @@ struct ProjectEditorView: View {
         }
         .navigationDestination(for: Shot.self) { shot in
             ShotDetailView(shot: shot)
-                .id(shot.uid)
+                // Keyed on the sync generation too, so an iCloud import that changed
+                // data redraws it with the refreshed values (see SyncRefresher).
+                .id("\(shot.uid)#\(SyncRefresher.shared.generation)")
                 .navigationTitle("Shot \(shot.displayNumber)")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
@@ -1050,6 +1055,8 @@ struct ProjectEditorView: View {
             onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } },
             onSelectScene: selectsInPlace ? { _ in } : nil
         )
+        // Redraw after an iCloud import changed data (see SyncRefresher).
+        .id(SyncRefresher.shared.generation)
     }
 
     /// The 3-tab scene content (Shots / Scene Map / Script), without navigation
@@ -1076,6 +1083,7 @@ struct ProjectEditorView: View {
                     onEditShot: { shotToEdit = $0 },
                     onDeleteShots: { pendingShotDeletion = $0 }
                 )
+                .id(SyncRefresher.shared.generation)   // redraw after a data-changing import
             case .map:
                 SceneMapEditorView(scene: scene, embedded: true)
                     .id(scene.uid)
@@ -1296,6 +1304,8 @@ struct ProjectEditorView: View {
                     if hasScriptPDF { sceneBeingMarked = scene }
                 }
             )
+            // Redraw after an iCloud import changed data (see SyncRefresher).
+            .id(SyncRefresher.shared.generation)
             .frame(width: Self.sideColumnWidth)
             .clipped()
 
@@ -1316,6 +1326,7 @@ struct ProjectEditorView: View {
                                     onEditShot: { shotToEdit = $0 },
                                     onDeleteShots: { pendingShotDeletion = $0 }
                                 )
+                                .id(SyncRefresher.shared.generation)   // redraw after a data-changing import
                             } else {
                                 ContentUnavailableView(
                                     "No Scene Selected",
@@ -1484,7 +1495,8 @@ struct ProjectEditorView: View {
         case .shot, .script:
             if let shot = selectedShot {
                 ShotDetailView(shot: shot)
-                    .id(shot.uid)
+                    // Also keyed on the sync generation (see SyncRefresher).
+                    .id("\(shot.uid)#\(SyncRefresher.shared.generation)")
             } else {
                 ContentUnavailableView {
                     Text("No Shot Selected").font(.headline)

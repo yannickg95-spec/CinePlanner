@@ -111,9 +111,13 @@ struct ManageCharactersSheet: View {
 
     /// Writes the edited roster back to the project (dropping unnamed rows).
     private func commit() {
-        project.scriptCharacters = characters
+        let cleaned = characters
             .map { ScriptCharacter(id: $0.id, name: $0.name.trimmingCharacters(in: .whitespaces), colorHex: $0.colorHex) }
             .filter { !$0.name.isEmpty }
+        // Only write a real change: this runs on every close, and re-writing an
+        // unchanged (possibly outdated) list would overwrite another device's edits.
+        guard cleaned != project.scriptCharacters else { return }
+        project.scriptCharacters = cleaned
         try? project.modelContext?.save()
     }
 }

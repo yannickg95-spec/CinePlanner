@@ -2571,7 +2571,10 @@ private struct NumericField: View {
             .onChange(of: text) { _, newText in
                 let digits = newText.filter(\.isNumber)
                 if digits != newText { text = digits; return }
-                if let n = Int(digits) { value = n } // live commit; empty keeps current value
+                // Live commit — but only a real change: seeding the text on appear
+                // would otherwise re-write the same value, dirtying the shot just by
+                // opening it (and a dirty object misses iCloud refreshes).
+                if let n = Int(digits), n != value { value = n } // empty keeps current value
             }
     }
 
@@ -2606,7 +2609,8 @@ private struct DecimalField: View {
             .onChange(of: text) { _, newText in
                 let filtered = sanitize(newText)
                 if filtered != newText { text = filtered; return }
-                if let n = Double(filtered) { value = n } // live commit; empty/"." keeps current
+                // Live commit, only on a real change (see NumericField).
+                if let n = Double(filtered), n != value { value = n } // empty/"." keeps current
             }
     }
 
