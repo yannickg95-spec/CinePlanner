@@ -46,36 +46,73 @@ private struct FurnitureGlyph: View {
     /// rasterizes at the final on-screen resolution instead of a blurry, magnified
     /// 1× bitmap. Capped so the backing bitmap stays bounded at extreme zoom.
     var renderScale: CGFloat = 1
+    /// The piece's facing (degrees). Applied inside the Canvas, so edges are drawn —
+    /// and antialiased — at their final angle. Rotating the finished bitmap with
+    /// `rotationEffect` resampled it and left small, angled pieces with jagged lines.
+    var rotation: Double = 0
+
+    /// The frame the rotated glyph occupies (its axis-aligned bounding box).
+    static func boundingSize(_ size: CGSize, rotation: Double) -> CGSize {
+        let r = rotation * .pi / 180
+        let c = abs(cos(r)), s = abs(sin(r))
+        return CGSize(width: size.width * c + size.height * s,
+                      height: size.width * s + size.height * c)
+    }
 
     var body: some View {
-        let k = min(max(renderScale, 1), 8)
+        // Rasterize at the final on-screen scale (also below 1× when the map is zoomed
+        // out), so the lines land on the real pixel grid instead of being a downsampled
+        // bitmap. Capped so the backing bitmap stays bounded at extreme zoom.
+        let k = min(max(renderScale, 0.05), 8)
+        let bounds = Self.boundingSize(size, rotation: rotation)
         Canvas { context, canvasSize in
             var ctx = context
+            // Turn about the frame centre, then draw the glyph in its own unrotated box.
+            let gw = size.width * k, gh = size.height * k
+            ctx.translateBy(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            ctx.rotate(by: .degrees(rotation))
+            ctx.translateBy(x: -gw / 2, y: -gh / 2)
+            let glyph = CGSize(width: gw, height: gh)
             guard let sb = softbox else {
-                drawFurniture(kind, in: CGRect(origin: .zero, size: canvasSize),
+                drawFurniture(kind, in: CGRect(origin: .zero, size: glyph),
                               into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
                               hasModifier: hasModifier)
                 return
             }
             // Light centred in the frame; the softbox flares forward (up) from its front.
-            let lightRect = CGRect(x: (1 - sb.lightWidthFrac) / 2 * canvasSize.width,
-                                   y: sb.depthFrac * canvasSize.height,
-                                   width: sb.lightWidthFrac * canvasSize.width,
-                                   height: sb.lightHeightFrac * canvasSize.height)
-            drawMountedSoftbox(centerX: canvasSize.width / 2,
-                               backY: lightRect.minY + sb.frontInsetFrac * canvasSize.height, frontY: 0,
-                               baseWidth: sb.baseFrac * canvasSize.width,
-                               openingWidth: sb.openingFrac * canvasSize.width,
+            let lightRect = CGRect(x: (1 - sb.lightWidthFrac) / 2 * glyph.width,
+                                   y: sb.depthFrac * glyph.height,
+                                   width: sb.lightWidthFrac * glyph.width,
+                                   height: sb.lightHeightFrac * glyph.height)
+            drawMountedSoftbox(centerX: glyph.width / 2,
+                               backY: lightRect.minY + sb.frontInsetFrac * glyph.height, frontY: 0,
+                               baseWidth: sb.baseFrac * glyph.width,
+                               openingWidth: sb.openingFrac * glyph.width,
                                into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k)
             drawFurniture(kind, in: lightRect,
                           into: &ctx, fill: fill, stroke: stroke, lineWidth: lineWidth * k,
                           hasModifier: hasModifier, reflectorReplaced: kind.isCOB)
         }
-        // Render k× larger, then scale back: the layout stays `size`, but the raster
-        // is drawn at k× so the parent group's scaleEffect has real pixels to show.
-        .frame(width: size.width * k, height: size.height * k)
+        // Render at k×, then scale back: the layout stays the (rotated) bounding box,
+        // but the raster matches the pixels the parent group's scale will show.
+        .frame(width: bounds.width * k, height: bounds.height * k)
         .scaleEffect(1 / k)
-        .frame(width: size.width, height: size.height)
+        .frame(width: bounds.width, height: bounds.height)
+    }
+}
+
+/// A `size` rectangle centred in the frame and turned by `degrees` — the hit shape for
+/// a furniture glyph that draws its own rotation.
+private struct RotatedRectShape: Shape {
+    var size: CGSize
+    var degrees: Double
+    func path(in rect: CGRect) -> Path {
+        let box = CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                         width: size.width, height: size.height)
+        let turn = CGAffineTransform(translationX: rect.midX, y: rect.midY)
+            .rotated(by: degrees * .pi / 180)
+            .translatedBy(x: -rect.midX, y: -rect.midY)
+        return Path(box).applying(turn)
     }
 }
 
@@ -885,9 +922,11 @@ struct FurnitureView: View {
                            lineWidth: isSelected ? 2.5 : 2,
                            hasModifier: furniture.hasModifier,
                            softbox: softboxGlyph(w: w, h: h),
-                           renderScale: zoom * placeScale)
-                .contentShape(Rectangle())
-                .rotationEffect(.degrees(displayRotation))
+                           renderScale: zoom * placeScale,
+                           rotation: displayRotation)
+                // The glyph draws its own rotation (see FurnitureGlyph); the hit shape
+                // is the piece's rotated footprint inside that bounding box.
+                .contentShape(RotatedRectShape(size: CGSize(width: w, height: h), degrees: displayRotation))
                 .onTapGesture { onSelect() }
                 .gesture(dragGesture)
                 .contextMenu { menu }
