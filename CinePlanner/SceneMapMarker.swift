@@ -466,6 +466,10 @@ struct MapMarkerView: View {
                 // so it thins perpendicular to the lens, not along it) to 85% width.
                 .scaleEffect(x: 1, y: 0.85)
                 .rotationEffect(.degrees(-90))
+                // Flatten first: without it the shadow is applied to each of the 16
+                // outline copies separately, so they shade one another and the white
+                // outline turns grey (most visible in the rendered exports).
+                .compositingGroup()
                 .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
             }
         }

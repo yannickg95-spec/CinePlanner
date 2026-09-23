@@ -226,7 +226,16 @@ struct SceneMapExportView: View {
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                 } else if background == nil {
-                    Canvas { ctx, _ in Self.drawGrid(ctx, rect) }
+                    if plan.isEmpty {
+                        // No background at all: a grid stands in for it.
+                        Canvas { ctx, _ in Self.drawGrid(ctx, rect) }
+                    } else {
+                        // A drawn floor plan sits on plain white "paper", matching the
+                        // editor — no grid.
+                        Rectangle().fill(Color.white)
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                    }
                 }
                 if !plan.isEmpty && doc.showBackground {
                     Canvas { ctx, _ in Self.drawFloorPlan(ctx, plan: plan, in: rect) }
