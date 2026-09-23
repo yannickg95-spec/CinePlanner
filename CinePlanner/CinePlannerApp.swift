@@ -19,6 +19,13 @@ struct CinePlannerApp: App {
 
     /// Purchase + trial state gating the app (free with a one-time unlock IAP).
     @StateObject private var access = AppAccess()
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// How often pending edits are flushed to the store while the app is in use.
+    /// CloudKit only exports what's been *saved*, and SwiftData's own autosave is
+    /// lazy (it tends to fire on navigation, e.g. when a project is closed), so
+    /// edits could sit unsynced for the whole editing session.
+    static let flushInterval: Duration = .seconds(5)
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(versionedSchema: SchemaV1.self)
@@ -88,6 +95,23 @@ struct CinePlannerApp: App {
         // to run a Live Activity step.
         OnSetLiveActivityController.shared.configure(container: sharedModelContainer)
         #endif
+
+        // Flush pending edits every few seconds, so CloudKit exports them while the
+        // user works instead of only when SwiftData's autosave gets round to it.
+        // Started once here (not per window), and a no-op when nothing changed.
+        let context = sharedModelContainer.mainContext
+        Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.flushInterval)
+                if context.hasChanges { try? context.save() }
+            }
+        }
+    }
+
+    /// Saves any pending edits right away (used when the app leaves the foreground).
+    private func flushPendingChanges() {
+        let context = sharedModelContainer.mainContext
+        if context.hasChanges { try? context.save() }
     }
 
     private static func setRecoveryMessage(_ message: String) {
@@ -182,6 +206,11 @@ struct CinePlannerApp: App {
             .preferredColorScheme(.light)
         }
         .modelContainer(sharedModelContainer)
+        // Save the moment the app goes inactive/background, so the last edits reach
+        // CloudKit before the user switches devices.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { flushPendingChanges() }
+        }
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
         .defaultSize(width: 1440, height: 860)
         .commands {
