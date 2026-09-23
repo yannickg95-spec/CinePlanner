@@ -399,14 +399,27 @@ private func drawMountedSoftbox(centerX: CGFloat, backY: CGFloat, frontY: CGFloa
     let detailC = GraphicsContext.Shading.color(stroke.opacity(0.55))
     let bx0 = centerX - baseWidth / 2, bx1 = centerX + baseWidth / 2
     let ox0 = centerX - openingWidth / 2, ox1 = centerX + openingWidth / 2
-    let midY = (backY + frontY) / 2
+    // Bow each side slightly outward (a real bank's fabric bellies out between the
+    // speed ring and the front): push the curve's control point off the straight
+    // base→opening line, perpendicular to it, by a small fraction of the side length.
+    // `t` is how far along the side (from `a`) the bend sits — kept near the lamp, so
+    // the fabric bellies out just past the speed ring and runs straighter to the front.
+    func bowedControl(from a: CGPoint, to b: CGPoint, at t: CGFloat, outward sign: CGFloat) -> CGPoint {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(hypot(dx, dy), 0.0001)
+        let bulge = len * 0.18
+        // Perpendicular to the side; `sign` picks the side facing away from the centre.
+        let nx = -dy / len * sign, ny = dx / len * sign
+        return CGPoint(x: a.x + dx * t + nx * bulge, y: a.y + dy * t + ny * bulge)
+    }
+    let leftBase = CGPoint(x: bx0, y: backY), leftOpen = CGPoint(x: ox0, y: frontY)
+    let rightOpen = CGPoint(x: ox1, y: frontY), rightBase = CGPoint(x: bx1, y: backY)
     var body = Path()
-    body.move(to: CGPoint(x: bx0, y: backY))
-    body.addQuadCurve(to: CGPoint(x: ox0, y: frontY),
-                      control: CGPoint(x: (bx0 + ox0) / 2, y: midY))
-    body.addLine(to: CGPoint(x: ox1, y: frontY))
-    body.addQuadCurve(to: CGPoint(x: bx1, y: backY),
-                      control: CGPoint(x: (bx1 + ox1) / 2, y: midY))
+    body.move(to: leftBase)
+    // Left side runs lamp → front, right side front → lamp: both bend 30% from the lamp.
+    body.addQuadCurve(to: leftOpen, control: bowedControl(from: leftBase, to: leftOpen, at: 0.3, outward: -1))
+    body.addLine(to: rightOpen)
+    body.addQuadCurve(to: rightBase, control: bowedControl(from: rightOpen, to: rightBase, at: 0.7, outward: -1))
     body.closeSubpath()
     ctx.fill(body, with: fillC)
     ctx.stroke(body, with: strokeC, lineWidth: lw)
