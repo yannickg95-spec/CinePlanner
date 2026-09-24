@@ -63,6 +63,9 @@
       },
       "offers": {
         "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR",
+        "description": "Free download with a 7-day free trial; the full version is a one-time in-app purchase — no subscription.",
         "availability": "https://schema.org/InStock",
         "url": "https://apps.apple.com/nl/app/cineplanner/id6800298885"
       }
@@ -158,6 +161,7 @@
   .hero-sub { font-size: clamp(14px, 1.8vw, 17px); color: var(--muted); max-width: 500px; line-height: 1.85; margin-bottom: 48px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.85s; }
   .hero-sub strong { color: var(--text); font-weight: 400; }
   .hero-actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center; opacity: 0; animation: fadeUp 0.8s ease forwards 1.0s; }
+  .hero-note { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 18px; opacity: 0; animation: fadeUp 0.8s ease forwards 1.1s; }
   .btn-primary { display: inline-flex; align-items: center; gap: 10px; background: var(--cyan); color: var(--bg); font-family: "DM Sans", sans-serif; font-size: 14px; font-weight: 500; padding: 14px 28px; border-radius: 100px; text-decoration: none; transition: opacity 0.2s, transform 0.2s; }
   .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
   .btn-secondary { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-family: "DM Mono", monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none; transition: color 0.2s; padding: 14px 4px; }
@@ -334,6 +338,7 @@
     </a>
     <a href="#how" class="btn-secondary">See how it works →</a>
   </div>
+  <p class="hero-note">Free to try for 7 days · then a one-time unlock</p>
 
   <div class="hero-screens">
     <!-- iPad scene map (side, device-framed) -->
@@ -558,7 +563,7 @@
     <div class="cta-glow"></div>
     <img src="icon.svg" alt="CinePlanner" class="cta-icon">
     <h2 class="cta-title">Design your shots.<br><span>Shoot your plan.</span></h2>
-    <p class="cta-sub">CinePlanner is out now on the App Store — native on Mac and iPad, with an iPhone Live Activity for the set.</p>
+    <p class="cta-sub">Free to try for 7 days, then unlock the full version with a one-time purchase — no subscription. Native on Mac and iPad, with an iPhone Live Activity for the set.</p>
     <a href="https://apps.apple.com/nl/app/cineplanner/id6800298885" target="_blank" rel="noopener" style="display:inline-block; line-height:0;">
       <img src="appstore.svg" alt="Download CinePlanner on the App Store" style="height:56px; width:auto;">
     </a>
