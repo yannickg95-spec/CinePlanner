@@ -11,6 +11,7 @@
 import Foundation
 import Combine
 import StoreKit
+import SwiftUI   // PurchaseAction (StoreKit's SwiftUI purchase action)
 
 @MainActor
 final class EntitlementStore: ObservableObject {
@@ -54,19 +55,24 @@ final class EntitlementStore: ObservableObject {
             }
         }
         isPurchased = purchased
-        trialStartDate = trialStart
+        // Keep a start we already know (from `startTrial`) when the entitlements
+        // don't list the trial yet — the sandbox can lag right after the purchase,
+        // which would bounce the user straight back to the trial offer.
+        trialStartDate = trialStart ?? trialStartDate
     }
 
     // MARK: - Buying / restoring
 
     /// Returns true if the purchase completed and the app is now unlocked.
+    /// `purchase` is the view's `@Environment(\.purchase)` action, which shows the
+    /// App Store confirmation in that view's window (iPad and Mac need that).
     @discardableResult
-    func purchase() async -> Bool {
+    func purchase(using purchase: PurchaseAction) async -> Bool {
         guard let product else {
             lastError = "The purchase isn't available right now. Please try again later."
             return false
         }
-        guard await buy(product) != nil else { return false }
+        guard await buy(product, using: purchase) != nil else { return false }
         isPurchased = true
         return true
     }
@@ -74,21 +80,21 @@ final class EntitlementStore: ObservableObject {
     /// Starts the free trial by "buying" the free trial product. Returns true once
     /// the trial is running.
     @discardableResult
-    func startTrial() async -> Bool {
+    func startTrial(using purchase: PurchaseAction) async -> Bool {
         guard let trialProduct else {
             lastError = "The free trial can't be started right now. Please check your connection and try again."
             return false
         }
-        guard let transaction = await buy(trialProduct) else { return false }
+        guard let transaction = await buy(trialProduct, using: purchase) else { return false }
         trialStartDate = transaction.originalPurchaseDate
         return true
     }
 
     /// Runs a purchase and returns its verified, finished transaction — nil when it
     /// was cancelled, is pending, or failed (with `lastError` set as needed).
-    private func buy(_ product: Product) async -> Transaction? {
+    private func buy(_ product: Product, using purchase: PurchaseAction) async -> StoreKit.Transaction? {
         do {
-            let result = try await product.purchase()
+            let result = try await purchase(product)
             switch result {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else {

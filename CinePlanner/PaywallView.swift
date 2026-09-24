@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import StoreKit
 
 // MARK: - Gate
 
@@ -22,8 +23,12 @@ struct RootGateView<Content: View>: View {
 
     var body: some View {
         content
+            // Block the app behind the paywall. This must come BEFORE the overlay:
+            // applied after it, it also disabled the paywall's own buttons, so the
+            // trial and unlock buttons did nothing.
+            .allowsHitTesting(!access.isLocked)
+            .accessibilityHidden(access.isLocked)
             .overlay { if access.isLocked { PaywallView(dismissable: false) } }
-            .allowsHitTesting(!access.isLocked)   // block the app behind the paywall
             .task { await access.start() }
             .animation(.easeInOut, value: access.state)
     }
@@ -75,6 +80,7 @@ struct PaywallView: View {
 
     @EnvironmentObject private var access: AppAccess
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.purchase) private var purchase
     @State private var working = false
 
     private var store: EntitlementStore { access.store }
@@ -268,7 +274,7 @@ struct PaywallView: View {
         working = true
         Task {
             store.lastError = nil
-            if await store.startTrial() { await access.refresh() }
+            if await store.startTrial(using: purchase) { await access.refresh() }
             working = false
         }
     }
@@ -277,7 +283,7 @@ struct PaywallView: View {
         working = true
         Task {
             store.lastError = nil
-            let ok = await store.purchase()
+            let ok = await store.purchase(using: purchase)
             working = false
             if ok {
                 access.unlockedAfterPurchase()
