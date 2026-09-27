@@ -849,6 +849,48 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
         rails.move(to: CGPoint(x: rx1, y: bar.minY)); rails.addLine(to: CGPoint(x: rx1, y: bar.maxY))
         ctx.stroke(rails, with: strokeC, lineWidth: lw)
 
+    case .mirror15, .mirror25, .mirror50, .mirror100:
+        // Mirror on a stand from above: a thin board across the front (the mirror face
+        // up, toward the front, so rotating the piece aims the reflection). The 100 cm
+        // hangs in a U-shaped yoke with the stand's post at the centre-back; the smaller
+        // ones sit on a spigot sticking straight out of the back.
+        let unit = min(w, h)
+        let boardY1 = rect.minY + h * 0.36
+        if kind == .mirror100 {
+            // Yoke: arms from the board's ends back to a crossbar.
+            let armInset = w * 0.06, armW = lw * 1.3   // a fixed weight, so wide mirrors keep a slim yoke
+            let yokeBack = rect.minY + h * 0.74
+            var yoke = Path()
+            yoke.move(to: CGPoint(x: rect.minX + armInset, y: boardY1))
+            yoke.addLine(to: CGPoint(x: rect.minX + armInset, y: yokeBack))
+            yoke.addLine(to: CGPoint(x: rect.maxX - armInset, y: yokeBack))
+            yoke.addLine(to: CGPoint(x: rect.maxX - armInset, y: boardY1))
+            ctx.stroke(yoke, with: strokeC, style: StrokeStyle(lineWidth: armW, lineCap: .round, lineJoin: .round))
+            // Stand post at the centre-back.
+            let postR = min(h * 0.2, w * 0.12)
+            let post = CGRect(x: rect.midX - postR, y: rect.maxY - postR * 2 - lw / 2, width: postR * 2, height: postR * 2)
+            ctx.fill(Path(ellipseIn: post), with: fillC)
+            ctx.stroke(Path(ellipseIn: post), with: strokeC, lineWidth: lw)
+        } else {
+            // Spigot: a short rod square to the board, out of the centre of its back.
+            let spigotW = h * 0.26
+            let spigot = CGRect(x: rect.midX - spigotW / 2, y: boardY1 - lw,
+                                width: spigotW, height: rect.maxY - lw / 2 - (boardY1 - lw))
+            let spigotPath = rr(spigot, spigotW * 0.3)
+            ctx.fill(spigotPath, with: fillC)
+            ctx.stroke(spigotPath, with: strokeC, lineWidth: lw)
+        }
+        // The board, with the glass as a lighter strip along its front edge.
+        let board = CGRect(x: rect.minX + lw / 2, y: rect.minY + lw / 2,
+                           width: w - lw, height: boardY1 - rect.minY - lw / 2)
+        let boardPath = rr(board, min(board.height * 0.3, unit * 0.1))
+        ctx.fill(boardPath, with: deepFillC)
+        var glass = ctx
+        glass.clip(to: boardPath)
+        glass.fill(Path(CGRect(x: board.minX, y: board.minY, width: board.width, height: board.height * 0.55)),
+                   with: .color(fill.mixedWithWhite(0.9)))
+        ctx.stroke(boardPath, with: strokeC, lineWidth: lw)
+
     case .truss:
         // Lighting truss from above: just the tubes — the two chords, end caps and
         // zig-zag web bracing — with the space between them left open (no fill).

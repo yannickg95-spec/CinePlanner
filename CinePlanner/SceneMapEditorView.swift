@@ -673,6 +673,12 @@ struct SceneMapEditorView: View {
                         Button(Furniture.Kind.frame12.displayName) { addFurniture(.frame12) }
                         Button(Furniture.Kind.frame20.displayName) { addFurniture(.frame20) }
                     }
+                    Menu("Mirror") {
+                        Button("15 cm") { addFurniture(.mirror15) }
+                        Button("25 cm") { addFurniture(.mirror25) }
+                        Button("50 cm") { addFurniture(.mirror50) }
+                        Button("100 cm") { addFurniture(.mirror100) }
+                    }
                     Button("Truss") { beginAddTruss() }
                     Button(Furniture.Kind.profileSpot.displayName) { addFurniture(.profileSpot) }
                     ForEach(Furniture.Kind.allCases.filter {
@@ -687,6 +693,7 @@ struct SceneMapEditorView: View {
                             && $0 != .bounce
                             && $0 != .par
                             && $0 != .profileSpot
+                            && !$0.isMirror
                     }, id: \.self) { kind in
                         Button(kind.displayName) { addFurniture(kind) }
                     }

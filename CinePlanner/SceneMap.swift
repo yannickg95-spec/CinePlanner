@@ -216,6 +216,11 @@ struct Furniture: Identifiable, Codable, Equatable {
         case bigCOB = "Big COB"
         // Theatre profile (ellipsoidal) spot.
         case profileSpot = "Profile Spot"
+        // Mirrors on a stand (square boards, named by their size) — grouped under "Mirror".
+        case mirror15 = "Mirror 15cm"
+        case mirror25 = "Mirror 25cm"
+        case mirror50 = "Mirror 50cm"
+        case mirror100 = "Mirror 100cm"
 
         /// Name shown in menus. Kept separate from `rawValue` (which is the stable
         /// storage key) so a piece can be renamed without breaking old saved maps.
@@ -227,6 +232,10 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .frame8:     return "8'x8' · 2.4m"
             case .frame12:    return "12'x12' · 3.6m"
             case .frame20:    return "20'x20' · 6m"
+            case .mirror15:   return "Mirror 15 cm"
+            case .mirror25:   return "Mirror 25 cm"
+            case .mirror50:   return "Mirror 50 cm"
+            case .mirror100:  return "Mirror 100 cm"
             default:          return rawValue
             }
         }
@@ -275,6 +284,11 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .bigCOB:      return CGSize(width: 0.073, height: 0.109)
             // Profile spot: long and narrow, ~0.51 : 1 like its real footprint.
             case .profileSpot: return CGSize(width: 0.07, height: 0.137)
+            // Mirrors: a thin board (plus its yoke) as wide as the mirror.
+            case .mirror15:    return CGSize(width: 0.045, height: 0.018)
+            case .mirror25:    return CGSize(width: 0.06, height: 0.017)
+            case .mirror50:    return CGSize(width: 0.10, height: 0.018)
+            case .mirror100:   return CGSize(width: 0.17, height: 0.02)
             }
         }
 
@@ -316,6 +330,12 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .bigTungsten: return CGSize(width: 0.80, height: 1.00)   // 80 × 100 cm
             // Profile spot (ETC Source Four–style) from above, yoke included: 46 × 90 cm.
             case .profileSpot: return CGSize(width: 0.46, height: 0.90)
+            // Mirrors from above: as wide as the mirror; the depth is the board plus the
+            // yoke and stand behind it.
+            case .mirror15:    return CGSize(width: 0.15, height: 0.06)
+            case .mirror25:    return CGSize(width: 0.25, height: 0.07)
+            case .mirror50:    return CGSize(width: 0.50, height: 0.09)
+            case .mirror100:   return CGSize(width: 1.00, height: 0.12)
             // Frames from above: a thin bar as wide as the frame (metric names), with
             // a small stand/frame depth.
             case .frame4:      return CGSize(width: 1.20, height: 0.10)
@@ -359,6 +379,9 @@ struct Furniture: Identifiable, Codable, Equatable {
 
         /// Diffusion / silk frames (4'/8'/12'/20').
         var isFrame: Bool { self == .frame4 || self == .frame8 || self == .frame12 || self == .frame20 }
+
+        /// Mirrors on a stand (15/25/50/100 cm).
+        var isMirror: Bool { self == .mirror15 || self == .mirror25 || self == .mirror50 || self == .mirror100 }
 
         /// Lighting truss (a straight span; length is set by the user).
         var isTruss: Bool { self == .truss }
@@ -461,7 +484,7 @@ struct Furniture: Identifiable, Codable, Equatable {
 
         /// Pieces that resize along their long axis only, keeping a fixed cross-section
         /// (tubes and the bounce board).
-        var resizeWidthOnly: Bool { isTube || self == .bounce || isFrame }
+        var resizeWidthOnly: Bool { isTube || self == .bounce || isFrame || isMirror }
 
         /// The original Small/Medium/Big Light kinds are now superseded by the COBs;
         /// kept for decoding old maps, but no longer shown in the menu.
@@ -478,7 +501,8 @@ struct Furniture: Identifiable, Codable, Equatable {
                  .smallHMI, .mediumHMI, .bigHMI,
                  .smallTungsten, .mediumTungsten, .bigTungsten,
                  .frame4, .frame8, .frame12, .frame20, .truss,
-                 .smallCOB, .mediumCOB, .bigCOB, .profileSpot:
+                 .smallCOB, .mediumCOB, .bigCOB, .profileSpot,
+                 .mirror15, .mirror25, .mirror50, .mirror100:
                 return true
             default:
                 return false
