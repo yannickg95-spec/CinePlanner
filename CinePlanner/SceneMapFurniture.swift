@@ -132,6 +132,31 @@ private func drawFurnitureCushions(_ rect: CGRect, count: Int, into ctx: inout G
     }
 }
 
+/// A reflector hood's outline from above: from the collar (`baseHalf`, at `baseY`)
+/// flaring out to the front mouth (`frontHalf`, at `frontY`), with each side bent
+/// slightly outward near the lamp — like a real reflector's curved bowl (and the
+/// mounted softbox), rather than a straight-sided trapezium. The control point sits
+/// between the straight side and the mouth's width, so the side flares early and runs
+/// straighter to the front, but never gets wider than the mouth.
+private func reflectorHoodPath(centerX cx: CGFloat, frontY: CGFloat, baseY: CGFloat,
+                               frontHalf: CGFloat, baseHalf: CGFloat) -> Path {
+    let bend: CGFloat = 0.3       // how far from the collar (along the side) it bends
+    let strength: CGFloat = 0.5   // 0 = straight side, 1 = flares straight out to the mouth
+    func control(side: CGFloat) -> CGPoint {
+        let y = baseY + (frontY - baseY) * bend
+        let lineX = baseHalf + (frontHalf - baseHalf) * bend
+        let half = lineX + (frontHalf - lineX) * strength
+        return CGPoint(x: cx + side * half, y: y)
+    }
+    var hood = Path()
+    hood.move(to: CGPoint(x: cx - baseHalf, y: baseY))
+    hood.addQuadCurve(to: CGPoint(x: cx - frontHalf, y: frontY), control: control(side: -1))
+    hood.addLine(to: CGPoint(x: cx + frontHalf, y: frontY))
+    hood.addQuadCurve(to: CGPoint(x: cx + baseHalf, y: baseY), control: control(side: 1))
+    hood.closeSubpath()
+    return hood
+}
+
 /// Aputure STORM-style point-source monolight from directly above (used for both the
 /// 700x and the 80C): a rounded-square body carried between two short yoke arms with
 /// round tilt knobs, a ProLock collar on the front edge, and a reflector that tapers
@@ -172,13 +197,9 @@ private func drawStormMonolight(_ rect: CGRect, reflectorDepth: CGFloat = 0.44,
     let bodyH = bodyY1 - bodyY0
 
     if showReflector {
-        // Reflector.
-        var hood = Path()
-        hood.move(to: CGPoint(x: X(mid - frontHalf), y: Y(0)))
-        hood.addLine(to: CGPoint(x: X(mid + frontHalf), y: Y(0)))
-        hood.addLine(to: CGPoint(x: X(mid + baseHalf), y: Y(reflDepth)))
-        hood.addLine(to: CGPoint(x: X(mid - baseHalf), y: Y(reflDepth)))
-        hood.closeSubpath()
+        // Reflector, its sides curving out from the collar.
+        let hood = reflectorHoodPath(centerX: X(mid), frontY: Y(0), baseY: Y(reflDepth),
+                                     frontHalf: frontHalf * rect.width, baseHalf: baseHalf * rect.width)
         ctx.fill(hood, with: deepFill)
         ctx.stroke(hood, with: stroke, lineWidth: lw)
     }
@@ -265,12 +286,8 @@ private func drawStormXT52(_ rect: CGRect, showReflector: Bool = true,
 
     if showReflector {
         // Reflector hood (30 cm mouth, 20 cm collar, 20 cm long on a 79.4 cm piece).
-        var hood = Path()
-        hood.move(to: CGPoint(x: X(0.217), y: Y(0.000)))
-        hood.addLine(to: CGPoint(x: X(0.783), y: Y(0.000)))
-        hood.addLine(to: CGPoint(x: X(0.689), y: Y(0.252)))
-        hood.addLine(to: CGPoint(x: X(0.311), y: Y(0.252)))
-        hood.closeSubpath()
+        let hood = reflectorHoodPath(centerX: X(0.5), frontY: Y(0.000), baseY: Y(0.252),
+                                     frontHalf: 0.283 * rect.width, baseHalf: 0.189 * rect.width)
         ctx.fill(hood, with: deepFill)
         ctx.stroke(hood, with: stroke, lineWidth: lw)
     }
