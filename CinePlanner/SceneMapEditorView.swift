@@ -674,6 +674,7 @@ struct SceneMapEditorView: View {
                         Button(Furniture.Kind.frame20.displayName) { addFurniture(.frame20) }
                     }
                     Button("Truss") { beginAddTruss() }
+                    Button(Furniture.Kind.profileSpot.displayName) { addFurniture(.profileSpot) }
                     ForEach(Furniture.Kind.allCases.filter {
                         $0.isLight && !$0.isCOB && !$0.isLegacyLight
                             && $0 != .tube && $0 != .shortTube
@@ -685,6 +686,7 @@ struct SceneMapEditorView: View {
                             && $0 != .truss
                             && $0 != .bounce
                             && $0 != .par
+                            && $0 != .profileSpot
                     }, id: \.self) { kind in
                         Button(kind.displayName) { addFurniture(kind) }
                     }

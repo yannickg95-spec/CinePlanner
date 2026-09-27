@@ -386,6 +386,66 @@ private func drawHMILight(_ rect: CGRect, into ctx: inout GraphicsContext,
     ctx.stroke(bars, with: stroke, style: StrokeStyle(lineWidth: unit * 0.03, lineCap: .round))
 }
 
+/// Theatre profile (ellipsoidal) spot from directly above, after the ETC Source Four:
+/// the colour-frame slot at the front, a long lens barrel, the gate with its shutter
+/// handles sticking out both sides, the reflector housing carried between the yoke
+/// arms (with their knobs), and the lamp cap at the back. Front = up at 0°, so rotating
+/// the piece aims it. Kept to the silhouette (little interior detail), and entirely
+/// inside `rect`, outlines included, so nothing is clipped at the piece's edges.
+private func drawProfileSpot(_ rect: CGRect, into ctx: inout GraphicsContext,
+                             fill: GraphicsContext.Shading, deepFill: GraphicsContext.Shading,
+                             stroke: GraphicsContext.Shading, lineWidth lw: CGFloat) {
+    let w = rect.width, h = rect.height, cx = rect.midX
+    func X(_ off: CGFloat) -> CGFloat { cx + off * w }   // off = fraction from centre
+    func Y(_ f: CGFloat) -> CGFloat { rect.minY + f * h }
+    func band(_ half: CGFloat, _ y0: CGFloat, _ y1: CGFloat) -> CGRect {
+        CGRect(x: X(-half), y: Y(y0), width: half * 2 * w, height: (y1 - y0) * h)
+    }
+    let unit = min(w, h)
+    func draw(_ p: Path, _ shade: GraphicsContext.Shading = fill) {
+        ctx.fill(p, with: shade)
+        ctx.stroke(p, with: stroke, lineWidth: lw)
+    }
+
+    // Yoke arms beside the housing (drawn first, so the housing sits between them).
+    for s: CGFloat in [-1, 1] {
+        let arm = CGRect(x: s < 0 ? X(-0.475) : X(0.405), y: Y(0.55), width: 0.07 * w, height: 0.24 * h)
+        draw(Path(roundedRect: arm, cornerRadius: unit * 0.03))
+    }
+    // Lamp cap at the back.
+    draw(Path(roundedRect: band(0.15, 0.89, 0.995), cornerRadius: unit * 0.05))
+    // Reflector housing: flares out from the gate, widest behind the yoke, then tapers
+    // to the lamp cap.
+    var body = Path()
+    body.move(to: CGPoint(x: X(-0.27), y: Y(0.535)))
+    body.addLine(to: CGPoint(x: X(0.27), y: Y(0.535)))
+    body.addCurve(to: CGPoint(x: X(0.25), y: Y(0.905)),
+                  control1: CGPoint(x: X(0.42), y: Y(0.62)), control2: CGPoint(x: X(0.40), y: Y(0.84)))
+    body.addLine(to: CGPoint(x: X(-0.25), y: Y(0.905)))
+    body.addCurve(to: CGPoint(x: X(-0.27), y: Y(0.535)),
+                  control1: CGPoint(x: X(-0.40), y: Y(0.84)), control2: CGPoint(x: X(-0.42), y: Y(0.62)))
+    body.closeSubpath()
+    draw(body)
+    // Yoke knobs on the arms.
+    for s: CGFloat in [-1, 1] {
+        let r = unit * 0.05, c = CGPoint(x: X(s * 0.44), y: Y(0.67))
+        draw(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)))
+    }
+    // Shutter handles, two per side at staggered planes.
+    for (y0, y1) in [(CGFloat(0.452), CGFloat(0.472)), (CGFloat(0.502), CGFloat(0.522))] {
+        for s: CGFloat in [-1, 1] {
+            let tab = CGRect(x: s < 0 ? X(-0.39) : X(0.23), y: Y(y0), width: 0.16 * w, height: (y1 - y0) * h)
+            draw(Path(roundedRect: tab, cornerRadius: unit * 0.015))
+        }
+    }
+    // The gate between lens and housing.
+    draw(Path(roundedRect: band(0.25, 0.44, 0.54), cornerRadius: unit * 0.02))
+    // Lens barrel.
+    draw(Path(roundedRect: band(0.205, 0.04, 0.445), cornerRadius: unit * 0.015))
+    // Colour-frame slot at the very front, a touch wider than the barrel.
+    draw(Path(roundedRect: band(0.25, 0.005, 0.055), cornerRadius: unit * 0.012), deepFill)
+}
+
 /// A softbox mounted on a light's front, seen from above: a diffuser flaring from a
 /// base that meets the light's front (`baseWidth`) out to the wider diffusion opening
 /// (`openingWidth`) over `backY − frontY`, with a diffusion line across the opening.
@@ -602,6 +662,10 @@ private func drawFurniture(_ kind: Furniture.Kind, in rect: CGRect, into ctx: in
             fins.addLine(to: CGPoint(x: fx, y: finBottom))
         }
         ctx.stroke(fins, with: strokeC, style: StrokeStyle(lineWidth: min(w, h) * 0.03, lineCap: .round))
+
+    case .profileSpot:
+        drawProfileSpot(rect, into: &ctx, fill: fillC, deepFill: deepFillC,
+                        stroke: strokeC, lineWidth: lw)
 
     case .lightBall:
         // China ball / space light from above: a sphere with a concentric ring

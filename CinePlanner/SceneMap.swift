@@ -214,6 +214,8 @@ struct Furniture: Identifiable, Codable, Equatable {
         case smallCOB = "Small COB"
         case mediumCOB = "Medium COB"
         case bigCOB = "Big COB"
+        // Theatre profile (ellipsoidal) spot.
+        case profileSpot = "Profile Spot"
 
         /// Name shown in menus. Kept separate from `rawValue` (which is the stable
         /// storage key) so a piece can be renamed without breaking old saved maps.
@@ -271,6 +273,8 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallCOB:    return CGSize(width: 0.056, height: 0.101)
             case .mediumCOB:   return CGSize(width: 0.064, height: 0.101)
             case .bigCOB:      return CGSize(width: 0.073, height: 0.109)
+            // Profile spot: long and narrow, ~0.51 : 1 like its real footprint.
+            case .profileSpot: return CGSize(width: 0.07, height: 0.137)
             }
         }
 
@@ -310,6 +314,8 @@ struct Furniture: Identifiable, Codable, Equatable {
             case .smallTungsten: return CGSize(width: 0.19, height: 0.22)  // 19 × 22 cm
             case .mediumTungsten: return CGSize(width: 0.46, height: 0.52) // 46 × 52 cm
             case .bigTungsten: return CGSize(width: 0.80, height: 1.00)   // 80 × 100 cm
+            // Profile spot (ETC Source Four–style) from above, yoke included: 46 × 90 cm.
+            case .profileSpot: return CGSize(width: 0.46, height: 0.90)
             // Frames from above: a thin bar as wide as the frame (metric names), with
             // a small stand/frame depth.
             case .frame4:      return CGSize(width: 1.20, height: 0.10)
@@ -447,7 +453,7 @@ struct Furniture: Identifiable, Codable, Equatable {
 
         /// Pieces whose width:height ratio is locked while resizing, so they can only
         /// scale uniformly and never be stretched.
-        var lockAspectRatio: Bool { isCOB || isHMI || isTungsten || isPanel }
+        var lockAspectRatio: Bool { isCOB || isHMI || isTungsten || isPanel || self == .profileSpot }
 
         /// LED tubes (long/short): only their length resizes; the cross-section
         /// (physical width) stays fixed, and can be swapped via the "modifier".
@@ -472,7 +478,7 @@ struct Furniture: Identifiable, Codable, Equatable {
                  .smallHMI, .mediumHMI, .bigHMI,
                  .smallTungsten, .mediumTungsten, .bigTungsten,
                  .frame4, .frame8, .frame12, .frame20, .truss,
-                 .smallCOB, .mediumCOB, .bigCOB:
+                 .smallCOB, .mediumCOB, .bigCOB, .profileSpot:
                 return true
             default:
                 return false
