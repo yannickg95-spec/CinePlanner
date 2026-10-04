@@ -4,6 +4,21 @@
 <dict>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>CinePlanner Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.yannickgiraud.cineplanner.project</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
@@ -17,14 +32,14 @@
 				<string>public.content</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>CineStager Project</string>
+			<string>CinePlanner Project</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.yannickgiraud.cinestager2.project</string>
+			<string>com.yannickgiraud.cineplanner.project</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
-					<string>cinestagerproject</string>
+					<string>cineplan</string>
 				</array>
 			</dict>
 		</dict>

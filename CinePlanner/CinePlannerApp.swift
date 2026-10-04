@@ -205,6 +205,9 @@ struct CinePlannerApp: App {
                     .task { SettingsSync.shared.start() }
             }
             .environmentObject(access)
+            // Open `.cineplan` files in the window that's already there, rather than
+            // a new one per file.
+            .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
             // The app is designed for light mode only — never follow the system into
             // dark mode, on any platform.
             .preferredColorScheme(.light)

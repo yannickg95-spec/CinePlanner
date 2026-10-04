@@ -58,6 +58,14 @@ struct GitHubPublishSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                // Unreleased productions are often under NDA: say plainly that the page
+                // isn't private, so nobody publishes what they shouldn't.
+                Label("The page is public: anyone with the link can open it, and its repository is listed on your GitHub profile. Search engines are asked not to index it.",
+                      systemImage: "eye")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)

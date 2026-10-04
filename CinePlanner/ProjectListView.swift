@@ -10,11 +10,12 @@ import SwiftData
 import UniformTypeIdentifiers
 import os
 
-/// The `.cineplan` content type, shared by the import/export file pickers.
+/// The `.cineplan` content type, shared by the import/export file pickers. Declared
+/// in the Info.plist (with the app as its owner), so Finder, Files and AirDrop know
+/// a `.cineplan` file belongs to CinePlanner and open it here.
 extension UTType {
-    static var cineplanProject: UTType {
-        UTType(filenameExtension: ProjectArchive.fileExtension) ?? .data
-    }
+    static let cineplanProject = UTType(exportedAs: "com.yannickgiraud.cineplanner.project",
+                                        conformingTo: .data)
 }
 
 /// A `.cineplan` archive as a `FileDocument`, so export uses the cross-platform
@@ -135,6 +136,18 @@ struct ProjectListView: View {
                 if case .success(let urls) = result, let url = urls.first {
                     importProject(from: url)
                 }
+            }
+            // A `.cineplan` opened from outside the app: double-clicked in Finder,
+            // "Open in CinePlanner" from Files, an AirDrop or a mail attachment.
+            .onOpenURL { url in
+                guard url.isFileURL, url.pathExtension.lowercased() == ProjectArchive.fileExtension else { return }
+                importProject(from: url)
+                #if os(iOS)
+                // A file is read in place where it lives (Files), but some routes (mail,
+                // AirDrop) hand over a copy in the app's Inbox — drop that copy once it's
+                // imported. Never the user's original.
+                if url.path.contains("/Documents/Inbox/") { try? FileManager.default.removeItem(at: url) }
+                #endif
             }
             .sheet(isPresented: $showingRestoreSheet) {
                 RestoreBackupSheet()

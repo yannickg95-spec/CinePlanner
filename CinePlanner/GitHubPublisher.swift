@@ -22,6 +22,7 @@ enum GitHubError: LocalizedError {
     case pagesBuildFailed
     case fileTooLarge(name: String, bytes: Int)
     case cannotDeleteRepo(scopes: String?)
+    case notCinePlannerRepo(name: String)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ enum GitHubError: LocalizedError {
             let mb = Double(bytes) / 1_048_576
             let limit = Double(GitHubPublisher.maxUploadBytes) / 1_048_576
             return String(format: "“%@” is %.0f MB, over the %.0f MB a publish can carry even after compression. Trim or shorten that video, then publish again.", name, mb, limit)
+        case .notCinePlannerRepo(let name):
+            return "“\(name)” wasn't created by CinePlanner, so it wasn't deleted. Remove it on GitHub if you really want it gone."
         case .cannotDeleteRepo(let scopes):
             let have = (scopes?.isEmpty ?? true) ? "none" : scopes!
             return "This GitHub token can't delete repositories — its permissions are: \(have). It needs “delete_repo”. Tokens are shared across all your projects, so open the publish window, tap “Change Token”, and create a new one from the pre-filled link (it now requests delete_repo)."
@@ -162,6 +165,10 @@ enum GitHubPublisher {
         var id: String { fullName }
     }
 
+    /// The description CinePlanner stamps on every repository it creates. It marks a
+    /// repo as CinePlanner's own: only those are listed for, and allowed to be, deleted.
+    static let repoDescription = "Published from CinePlanner"
+
     /// Lists the CinePlanner-published repositories in the user's account, newest
     /// first. Filtered by the description CinePlanner stamps on repos it creates,
     /// so the list can never offer to delete an unrelated repository.
@@ -183,7 +190,7 @@ enum GitHubPublisher {
             guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                   !arr.isEmpty else { break }
             for r in arr {
-                guard (r["description"] as? String) == "Published from CinePlanner",
+                guard (r["description"] as? String) == repoDescription,
                       let fullName = r["full_name"] as? String,
                       let name = r["name"] as? String,
                       let htmlURL = r["html_url"] as? String,
@@ -203,13 +210,15 @@ enum GitHubPublisher {
 
     /// Permanently deletes a repository by full name ("owner/repo"). Tolerates a
     /// 404 (already gone). Throws `.cannotDeleteRepo` when the token lacks the
-    /// delete_repo scope. The caller clears any `Project.publishedRepoFullName`
-    /// that pointed at this repo.
+    /// delete_repo scope, and `.notCinePlannerRepo` for a repository CinePlanner
+    /// didn't create. The caller clears any `Project.publishedRepoFullName` that
+    /// pointed at this repo.
     static func deleteRepo(fullName: String) async throws {
         guard let token = token else { throw GitHubError.notAuthenticated }
         guard let slash = fullName.firstIndex(of: "/") else { return }
         let owner = String(fullName[..<slash])
         let name = String(fullName[fullName.index(after: slash)...])
+        try await requireCinePlannerRepo(owner: owner, name: name, token: token)
         let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
         guard (200..<300).contains(http.statusCode) || http.statusCode == 404 else {
             if http.statusCode == 403 {
@@ -228,6 +237,7 @@ enum GitHubPublisher {
         guard let slash = repoFullName.firstIndex(of: "/") else { return }
         let owner = String(repoFullName[..<slash])
         let name = String(repoFullName[repoFullName.index(after: slash)...])
+        try await requireCinePlannerRepo(owner: owner, name: name, token: token)
 
         let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "DELETE", token: token))
         guard (200..<300).contains(http.statusCode) || http.statusCode == 404 else {
@@ -247,6 +257,22 @@ enum GitHubPublisher {
         /// True when the Pages build finished within our wait; false means it's
         /// still building and the link will go live shortly.
         let isLive: Bool
+    }
+
+    /// The token can delete any of the user's repositories, so before deleting one,
+    /// confirm it carries CinePlanner's stamp — a wrong or stale saved name must never
+    /// remove someone's unrelated repository. A repo that's already gone passes (the
+    /// delete then tolerates the 404).
+    private static func requireCinePlannerRepo(owner: String, name: String, token: String) async throws {
+        let (data, http) = try await rawSend(request("repos/\(owner)/\(name)", method: "GET", token: token))
+        if http.statusCode == 404 { return }
+        guard (200..<300).contains(http.statusCode) else {
+            throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard (json?["description"] as? String) == repoDescription else {
+            throw GitHubError.notCinePlannerRepo(name: "\(owner)/\(name)")
+        }
     }
 
     /// Builds files from `siteDirectory`, commits them to the project's repo
@@ -349,7 +375,7 @@ enum GitHubPublisher {
                 "name": name,
                 "private": false,
                 "auto_init": true,
-                "description": "Published from CinePlanner",
+                "description": repoDescription,
             ])
             let (data, http) = try await rawSend(request)
             if (200..<300).contains(http.statusCode) { return name }
