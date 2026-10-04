@@ -42,7 +42,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		8C46A16730165D7500A99C96 /* CinePlanner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CinePlanner.entitlements"; sourceTree = "<group>"; };
+		8C46A16730165D7500A99C96 /* CinePlanner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CinePlanner.entitlements; sourceTree = "<group>"; };
 		8C819A8A2EF043DF009E48CD /* CinePlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OnSetWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEADBEEFDEADBEEFDEAD0101 /* CinePlannerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CinePlannerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -431,7 +431,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "CinePlanner.entitlements";
+				CODE_SIGN_ENTITLEMENTS = CinePlanner.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 65W863L6A3;
@@ -484,7 +484,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "CinePlanner.entitlements";
+				CODE_SIGN_ENTITLEMENTS = CinePlanner.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 65W863L6A3;
