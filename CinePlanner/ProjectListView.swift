@@ -46,6 +46,7 @@ struct ProjectListView: View {
     @State private var showingManageRepos = false
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
+    @State private var showingUnlock = false
     @EnvironmentObject private var access: AppAccess
     @State private var restoringPurchase = false
     @State private var restoreMessage: String?
@@ -115,8 +116,11 @@ struct ProjectListView: View {
             .overlay(alignment: .top) { TrialBanner() }
             .navigationTitle("CinePlanner")
             .navigationDestination(for: Project.self) { project in
-                ProjectEditorView(project: project)
+                // The editor — or, after the trial, the read-only viewer.
+                ProjectDestination(project: project)
             }
+            // Read-only after the trial: making or importing a project offers the unlock.
+            .sheet(isPresented: $showingUnlock) { PaywallView(dismissable: true) }
             .sheet(isPresented: $showingNewProjectSheet) {
                 NewProjectSheet(isPresented: $showingNewProjectSheet) { projectName, isSeries, scriptURL in
                     createProject(named: projectName, isSeries: isSeries, scriptURL: scriptURL)
@@ -219,7 +223,14 @@ struct ProjectListView: View {
 
     /// Presents the system file picker to choose a .cineplan file to import.
     private func importProject() {
+        if access.isReadOnly { showingUnlock = true; return }
         showingProjectImporter = true
+    }
+
+    /// Opens the new-project sheet — or, read-only after the trial, the unlock.
+    private func newProject() {
+        if access.isReadOnly { showingUnlock = true; return }
+        showingNewProjectSheet = true
     }
 
     /// Restores a previous "CinePlanner — Full Version" purchase on this device.
@@ -241,6 +252,7 @@ struct ProjectListView: View {
     /// Reads a chosen .cineplan file and adds its project (with fresh ids).
     @MainActor
     private func importProject(from url: URL) {
+        if access.isReadOnly { showingUnlock = true; return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
@@ -425,7 +437,7 @@ struct ProjectListView: View {
     private var addProjectCard: some View {
         VStack(spacing: 0) {
             Button {
-                showingNewProjectSheet = true
+                newProject()
             } label: {
                 addCardHalf(icon: "plus", title: "New Project")
             }
@@ -493,7 +505,7 @@ struct ProjectListView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                showingNewProjectSheet = true
+                newProject()
             } label: {
                 Label("New Project", systemImage: "plus")
                     .padding(.horizontal, 8)
@@ -559,6 +571,7 @@ struct ProjectListView: View {
 
 struct ProjectCardView: View {
     @Bindable var project: Project
+    @EnvironmentObject private var access: AppAccess
     @State private var showingEditSheet = false
     @State private var showingDeleteAlert = false
     @State private var showingSeriesToFilmBlocked = false
@@ -569,6 +582,20 @@ struct ProjectCardView: View {
 
     private var shotCount: Int {
         project.scenes.reduce(0) { $0 + $1.shots.count }
+    }
+
+    /// The card's actions. Read-only after the trial, only exporting is left.
+    private var cardMenuItems: [ChipMenuItem] {
+        let export = ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() }
+        guard !access.isReadOnly else { return [export] }
+        return [
+            ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
+            ChipMenuItem(title: project.isSeries ? "Change to Film" : "Change to Series",
+                         systemImage: project.isSeries ? "film" : "tv") { toggleProjectType() },
+            export,
+            .divider,
+            ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
+        ]
     }
 
     private var subtitle: String {
@@ -595,14 +622,7 @@ struct ProjectCardView: View {
                 Spacer(minLength: 0)
 
                 // Same actions as the right-click menu, always visible.
-                ChipMenu(items: [
-                    ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
-                    ChipMenuItem(title: project.isSeries ? "Change to Film" : "Change to Series",
-                                 systemImage: project.isSeries ? "film" : "tv") { toggleProjectType() },
-                    ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() },
-                    .divider,
-                    ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
-                ], width: 210) {
+                ChipMenu(items: cardMenuItems, width: 210) {
                     Image(systemName: "ellipsis")
                         .font(.body)
                         .foregroundStyle(.secondary)

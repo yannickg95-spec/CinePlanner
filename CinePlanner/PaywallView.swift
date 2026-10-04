@@ -37,18 +37,27 @@ struct RootGateView<Content: View>: View {
     }
 }
 
-/// A tappable capsule shown on the projects page while the trial runs.
+/// A tappable capsule shown on the projects page while the trial runs — and once
+/// it has ended, saying the projects are read-only.
 struct TrialBanner: View {
     @EnvironmentObject private var access: AppAccess
     @State private var showPaywall = false
 
+    private var message: String? {
+        switch access.state {
+        case .trial(let days): return days == 1 ? "Last day of your free trial" : "\(days) days left in your free trial"
+        case .expired: return "Free trial ended · Projects are read-only"
+        default: return nil
+        }
+    }
+
     var body: some View {
         Group {
-            if case .trial(let days) = access.state {
+            if let message {
                 Button { showPaywall = true } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                        Text(days == 1 ? "Last day of your free trial" : "\(days) days left in your free trial")
+                        Image(systemName: access.isReadOnly ? "lock" : "sparkles")
+                        Text(message)
                             .fontWeight(.medium)
                         Text("· Unlock")
                             .fontWeight(.semibold)
@@ -235,10 +244,10 @@ struct PaywallView: View {
         if isTrialOffer {
             return "Use every feature free for \(trialDays) days. When the trial ends, opening and editing your projects requires the full version — \(pricePhrase). Your projects stay safely in iCloud either way."
         }
-        if dismissable {
-            return "Unlock the full version now and keep planning without limits."
+        if access.isReadOnly {
+            return "Your free trial has ended. Your projects can still be viewed and exported; unlock the full version to edit them again."
         }
-        return "Your free trial has ended. Unlock the full version to keep working on your projects."
+        return "Unlock the full version now and keep planning without limits."
     }
 
     private var footnote: String {

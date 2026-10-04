@@ -92,6 +92,9 @@ struct CinePlannerApp: App {
     init() {
         guard !Self.isRunningTests else { return }
 
+        // After the trial the store becomes read-only (see ReadOnlyGate).
+        MainActor.assumeIsolated { ReadOnlyGate.mainContext = sharedModelContainer.mainContext }
+
         // Enable undo/redo (⌘Z / ⇧⌘Z) for model edits. Capped so a long editing
         // session's history can't grow without bound.
         let undo = UndoManager()

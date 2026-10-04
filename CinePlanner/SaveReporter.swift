@@ -17,6 +17,11 @@ import os
 extension ModelContext {
     /// Saves, making a failure visible instead of swallowing it.
     func saveReporting(file: StaticString = #fileID, line: UInt = #line) {
+        // Read-only after the trial: keep nothing (see ReadOnlyGate).
+        if ReadOnlyGate.isActive {
+            if hasChanges { rollback() }
+            return
+        }
         do {
             try save()
         } catch {
