@@ -137,16 +137,18 @@ extension ProjectExporter {
                 return
             }
 
-            do {
-                try self.writeWebExport(filmName: filmName,
-                                        episodeName: episodeName,
-                                        versionName: versionName,
-                                        scenes: scenes,
-                                        to: destination)
-                self.showSuccessNotification(fileURL: destination, format: .htmlWithMedia)
-            } catch {
-                Log.export.error("❌ [EXPORT] HTML export failed: \(error)")
-                self.showErrorAlert(error: error)
+            Task {
+                do {
+                    try await self.writeWebExport(filmName: filmName,
+                                                  episodeName: episodeName,
+                                                  versionName: versionName,
+                                                  scenes: scenes,
+                                                  to: destination)
+                    self.showSuccessNotification(fileURL: destination, format: .htmlWithMedia)
+                } catch {
+                    Log.export.error("❌ [EXPORT] HTML export failed: \(error)")
+                    self.showErrorAlert(error: error)
+                }
             }
         }
     }
@@ -551,21 +553,21 @@ extension ProjectExporter {
     /// separately is how a .html ends up containing a zip — so `makeURL` is handed
     /// the extension rather than being asked to guess it.
     func writeWebExport(filmName: String, episodeName: String?, versionName: String?,
-                        url makeURL: (_ fileExtension: String) throws -> URL) throws -> URL {
+                        url makeURL: (_ fileExtension: String) throws -> URL) async throws -> URL {
         let scenes = snapshotScenesForMedia()
         let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
         let destination = try makeURL(hasVideo ? "zip" : "html")
-        try writeWebExport(filmName: filmName, episodeName: episodeName,
-                           versionName: versionName, scenes: scenes, to: destination)
+        try await writeWebExport(filmName: filmName, episodeName: episodeName,
+                                 versionName: versionName, scenes: scenes, to: destination)
         return destination
     }
 
     private func writeWebExport(filmName: String, episodeName: String?, versionName: String?,
-                                scenes: [MediaScene], to destination: URL) throws {
+                                scenes: [MediaScene], to destination: URL) async throws {
         let hasVideo = scenes.contains { $0.shots.contains { $0.references.contains { $0.videoData != nil || $0.mapVideoData != nil } } }
         if hasVideo {
-            try writeHTMLBundle(filmName: filmName, episodeName: episodeName, versionName: versionName,
-                                scenes: scenes, to: destination)
+            try await writeHTMLBundle(filmName: filmName, episodeName: episodeName, versionName: versionName,
+                                      scenes: scenes, to: destination)
         } else {
             // Photos are already data URIs, so the page stands alone.
             var rendered: [String: RenderedMedia] = [:]
@@ -724,7 +726,7 @@ extension ProjectExporter {
             }
             let file = "\(mediaSubdir)/\(name).\(outExt)"
             try outData.write(to: staging.appendingPathComponent(file))
-            let poster = try Self.posterFrame(fromVideoData: outData, ext: outExt)
+            let poster = try await Self.posterFrame(fromVideoData: outData, ext: outExt)
                 .map { try writeImage($0, name: "\(name)_poster") }
             return (file, poster)
         }
@@ -843,7 +845,7 @@ extension ProjectExporter {
 
     /// Writes "<name>.html" + media/ into a temp folder and zips it to `destination`.
     private func writeHTMLBundle(filmName: String, episodeName: String?, versionName: String?,
-                                 scenes: [MediaScene], to destination: URL) throws {
+                                 scenes: [MediaScene], to destination: URL) async throws {
         let fm = FileManager.default
         // Unique parent temp dir containing a nicely-named bundle folder, so the
         // unzipped result is "<Film> - Shot List/" rather than a random UUID.
@@ -862,18 +864,18 @@ extension ProjectExporter {
         for scene in scenes {
             for shot in scene.shots {
                 for reference in shot.references {
-                    func writeVideo(_ data: Data, ext: String, suffix: String) throws -> (String, String?) {
+                    func writeVideo(_ data: Data, ext: String, suffix: String) async throws -> (String, String?) {
                         let name = "media/shot_\(shot.slug)_\(reference.index)_\(suffix).\(ext)"
                         try data.write(to: staging.appendingPathComponent(name))
-                        return (name, Self.posterFrame(fromVideoData: data, ext: ext).map { Self.dataURI($0) })
+                        return (name, await Self.posterFrame(fromVideoData: data, ext: ext).map { Self.dataURI($0) })
                     }
                     var videoPath: String?, posterURI: String?
                     if let data = reference.videoData {
-                        (videoPath, posterURI) = try writeVideo(data, ext: reference.videoExtension, suffix: "video")
+                        (videoPath, posterURI) = try await writeVideo(data, ext: reference.videoExtension, suffix: "video")
                     }
                     var mapVideoPath: String?, mapPosterURI: String?
                     if let mData = reference.mapVideoData {
-                        (mapVideoPath, mapPosterURI) = try writeVideo(mData, ext: reference.mapVideoExtension, suffix: "map")
+                        (mapVideoPath, mapPosterURI) = try await writeVideo(mData, ext: reference.mapVideoExtension, suffix: "map")
                     }
                     rendered[Self.mediaKey(shot.slug, reference.index)] = RenderedMedia(
                         photoURI: reference.photoData.map { Self.dataURI($0) },
@@ -974,7 +976,7 @@ extension ProjectExporter {
     }
 
     /// Extracts a poster frame (~0.5s in) from a video, as JPEG.
-    private static func posterFrame(fromVideoData data: Data, ext: String) -> Data? {
+    private static func posterFrame(fromVideoData data: Data, ext: String) async -> Data? {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("poster_\(UUID().uuidString).\(ext)")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -988,9 +990,9 @@ extension ProjectExporter {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
-        let cg = (try? generator.copyCGImage(at: CMTime(seconds: 0.5, preferredTimescale: 600), actualTime: nil))
-            ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
-        guard let cg else { return nil }
+        var frame = try? await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
+        if frame == nil { frame = try? await generator.image(at: .zero).image }
+        guard let cg = frame else { return nil }
 
         return PlatformImage.fromCGImage(cg, size: CGSize(width: cg.width, height: cg.height))
             .jpegRepresentation(quality: 0.8)

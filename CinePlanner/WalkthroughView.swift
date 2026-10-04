@@ -466,7 +466,7 @@ private struct WKCharacterMarker: View {
     }
 }
 
-private struct MapGrid: Shape {
+nonisolated private struct MapGrid: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let step: CGFloat = 30

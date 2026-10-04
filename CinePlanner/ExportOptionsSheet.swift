@@ -266,14 +266,16 @@ struct ExportOptionsSheet: View {
         }
     }
 
-    private func detailRow(_ label: String, _ value: String, set: @escaping (String) -> Void) -> some View {
+    private func detailRow(_ label: String, _ value: String, set: @escaping @MainActor (String) -> Void) -> some View {
         HStack(spacing: 10) {
             Text(label)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(width: 150, alignment: .leading)
             if editingDetails {
-                TextField(label, text: Binding(get: { value }, set: set))
+                TextField(label, text: Binding(get: { value }, set: { newValue in
+                    MainActor.assumeIsolated { set(newValue) }
+                }))
                     .textFieldStyle(.roundedBorder)
             } else {
                 Text(value.isEmpty ? "—" : value)

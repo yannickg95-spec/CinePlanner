@@ -13,7 +13,7 @@ import Foundation
 import SwiftUI
 
 /// One placed item on the map.
-struct MapElement: Identifiable, Codable, Equatable {
+nonisolated struct MapElement: Identifiable, Codable, Equatable {
     enum Kind: String, Codable, CaseIterable {
         case character
         case camera
@@ -52,9 +52,14 @@ struct MapElement: Identifiable, Codable, Equatable {
     /// auto — the shot's own CineStager sensor when it has one, else Super-35.
     /// An explicit value (S16/S35/LF or the CineStager camera) overrides that.
     var fovBasis: FOVBasis? = nil
+    /// When this item was last changed (seconds since 1970), stamped on save. Lets two
+    /// devices' versions of the map be merged item by item (see SceneMapMerge); nil
+    /// on maps saved before it existed.
+    var editedAt: Double? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, x, y, rotation, label, labelHidden, labelOffset, shotUID, worldX, worldZ, colorHex, focalLengthMM, sensorWidthMM, fovBasis
+        case editedAt
     }
 
     init(kind: Kind, x: Double, y: Double) {
@@ -79,6 +84,7 @@ struct MapElement: Identifiable, Codable, Equatable {
         focalLengthMM = try c.decodeIfPresent(Double.self, forKey: .focalLengthMM) ?? 35
         sensorWidthMM = try c.decodeIfPresent(Double.self, forKey: .sensorWidthMM) ?? 24.89
         fovBasis = try c.decodeIfPresent(FOVBasis.self, forKey: .fovBasis)
+        editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt)
     }
 
     /// Horizontal field of view in degrees, from focal length + sensor width.
@@ -92,7 +98,7 @@ struct MapElement: Identifiable, Codable, Equatable {
 /// use a standard horizontal sensor width; `.cineStager` uses each shot's own
 /// sensor width imported from CineStager (falling back to Super-35 for shots
 /// without it).
-enum FOVBasis: String, Codable, CaseIterable {
+nonisolated enum FOVBasis: String, Codable, CaseIterable {
     case super16, super35, largeFormat, cineStager
 
     /// Fixed horizontal sensor width (mm), or nil for `.cineStager` (per-shot).
@@ -120,15 +126,17 @@ enum FOVBasis: String, Codable, CaseIterable {
 
 /// A movement arrow between two markers (e.g. an actor or camera moving from
 /// one position to another during the shot).
-struct MapArrow: Identifiable, Codable, Equatable {
+nonisolated struct MapArrow: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var fromID: UUID
     var toID: UUID
     /// Optional bend points (normalized 0…1) the arrow routes through, in order
     /// from `fromID` to `toID`.
     var pivots: [CGPoint] = []
+    /// Last change, for merging (see `MapElement.editedAt`).
+    var editedAt: Double? = nil
 
-    enum CodingKeys: String, CodingKey { case id, fromID, toID, pivots }
+    enum CodingKeys: String, CodingKey { case id, fromID, toID, pivots, editedAt }
 
     init(id: UUID = UUID(), fromID: UUID, toID: UUID, pivots: [CGPoint] = []) {
         self.id = id; self.fromID = fromID; self.toID = toID; self.pivots = pivots
@@ -141,20 +149,23 @@ struct MapArrow: Identifiable, Codable, Equatable {
         fromID = try c.decode(UUID.self, forKey: .fromID)
         toID = try c.decode(UUID.self, forKey: .toID)
         pivots = try c.decodeIfPresent([CGPoint].self, forKey: .pivots) ?? []
+        editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt)
     }
 }
 
 /// A free text annotation placed on the map (normalized position, upright and a
 /// constant on-screen size like the marker labels).
-struct MapText: Identifiable, Codable, Equatable {
+nonisolated struct MapText: Identifiable, Codable, Equatable {
     var id = UUID()
     var x: Double            // normalized centre
     var y: Double
     var string: String = ""
     var colorHex: String = "#1A1A1A"
     var fontSize: Double = 15
+    /// Last change, for merging (see `MapElement.editedAt`).
+    var editedAt: Double? = nil
 
-    enum CodingKeys: String, CodingKey { case id, x, y, string, colorHex, fontSize }
+    enum CodingKeys: String, CodingKey { case id, x, y, string, colorHex, fontSize, editedAt }
 
     init(id: UUID = UUID(), x: Double, y: Double, string: String = "",
          colorHex: String = "#1A1A1A", fontSize: Double = 15) {
@@ -170,11 +181,12 @@ struct MapText: Identifiable, Codable, Equatable {
         string = try c.decodeIfPresent(String.self, forKey: .string) ?? ""
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#1A1A1A"
         fontSize = try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 15
+        editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt)
     }
 }
 
 /// A piece of furniture placed on the map (top-down).
-struct Furniture: Identifiable, Codable, Equatable {
+nonisolated struct Furniture: Identifiable, Codable, Equatable {
     enum Kind: String, Codable, CaseIterable {
         case table = "Table"
         case roundTable = "Round Table"
@@ -528,8 +540,10 @@ struct Furniture: Identifiable, Codable, Equatable {
     /// Light only: a softbox is mounted on the front. Drawn as part of the light (one
     /// piece), so the light and softbox select, drag and rotate together.
     var hasSoftbox: Bool = false
+    /// Last change, for merging (see `MapElement.editedAt`).
+    var editedAt: Double? = nil
 
-    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset, hasModifier, hasSoftbox }
+    enum CodingKeys: String, CodingKey { case id, kind, x, y, width, height, rotation, colorHex, label, labelOffset, hasModifier, hasSoftbox, editedAt }
 
     init(kind: Kind, x: Double, y: Double, width: Double, height: Double) {
         self.kind = kind; self.x = x; self.y = y; self.width = width; self.height = height
@@ -549,11 +563,12 @@ struct Furniture: Identifiable, Codable, Equatable {
         labelOffset = try c.decodeIfPresent(CGSize.self, forKey: .labelOffset) ?? .zero
         hasModifier = try c.decodeIfPresent(Bool.self, forKey: .hasModifier) ?? false
         hasSoftbox = try c.decodeIfPresent(Bool.self, forKey: .hasSoftbox) ?? false
+        editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt)
     }
 }
 
 /// The whole scene map document.
-struct SceneMapDoc: Codable, Equatable {
+nonisolated struct SceneMapDoc: Codable, Equatable {
     var elements: [MapElement] = []
     var arrows: [MapArrow] = []
     var furniture: [Furniture] = []
@@ -568,23 +583,39 @@ struct SceneMapDoc: Codable, Equatable {
     var showLights = true
 
     /// When this map was last edited (seconds since 1970; 0 = unknown / older map).
-    /// The whole map syncs as one field, so when two devices' versions meet, the newer
-    /// edit wins instead of whichever device happened to save last.
+    /// The items carry their own stamps for merging two devices' copies (see
+    /// SceneMapMerge); this one dates the copy as a whole.
     var editedAt: Double = 0
+
+    /// Items removed from the map: id (uuidString) → when. Kept for a while so a merge
+    /// with another device's older copy doesn't bring them back (see SceneMapMerge).
+    var removed: [String: Double] = [:]
+    /// When a layer's visibility was last toggled, so a merge keeps the latest toggle.
+    var layersEditedAt: Double? = nil
 
     var isEmpty: Bool { elements.isEmpty && arrows.isEmpty && furniture.isEmpty && texts.isEmpty }
 
-    /// Same map content, ignoring when it was edited.
+    /// Same map as it looks: ignores when things were edited and what was removed.
     func sameContent(as other: SceneMapDoc) -> Bool {
-        var a = self, b = other
-        a.editedAt = 0; b.editedAt = 0
-        return a == b
+        withoutEditHistory == other.withoutEditHistory
+    }
+
+    private var withoutEditHistory: SceneMapDoc {
+        var doc = self
+        doc.editedAt = 0
+        doc.removed = [:]
+        doc.layersEditedAt = nil
+        for i in doc.elements.indices { doc.elements[i].editedAt = nil }
+        for i in doc.arrows.indices { doc.arrows[i].editedAt = nil }
+        for i in doc.furniture.indices { doc.furniture[i].editedAt = nil }
+        for i in doc.texts.indices { doc.texts[i].editedAt = nil }
+        return doc
     }
 
     enum CodingKeys: String, CodingKey {
         case elements, arrows, furniture, texts
         case showCharacters, showCameras, showBackground, showFurniture, showLights
-        case editedAt
+        case editedAt, removed, layersEditedAt
     }
 
     init() {}
@@ -603,6 +634,8 @@ struct SceneMapDoc: Codable, Equatable {
         showFurniture = try c.decodeIfPresent(Bool.self, forKey: .showFurniture) ?? true
         showLights = try c.decodeIfPresent(Bool.self, forKey: .showLights) ?? true
         editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt) ?? 0
+        removed = try c.decodeIfPresent([String: Double].self, forKey: .removed) ?? [:]
+        layersEditedAt = try c.decodeIfPresent(Double.self, forKey: .layersEditedAt)
     }
 
     // MARK: - JSON round-tripping (stored on Scene.sceneMapJSON)
@@ -618,9 +651,10 @@ struct SceneMapDoc: Codable, Equatable {
     /// Encoded string, or nil when the map is empty (so an untouched scene
     /// stores nothing). "Empty" means no elements *and* no arrows *and* no
     /// furniture — keying only on elements silently dropped a map that had just
-    /// furniture (or just arrows), so it never persisted.
+    /// furniture (or just arrows), so it never persisted. A cleared map still keeps
+    /// its list of removed items, so the clearing reaches the other devices.
     var jsonString: String? {
-        guard !isEmpty else { return nil }
+        guard !isEmpty || !removed.isEmpty else { return nil }
         guard let data = try? JSONEncoder().encode(self) else { return nil }
         return String(data: data, encoding: .utf8)
     }
@@ -628,7 +662,7 @@ struct SceneMapDoc: Codable, Equatable {
 
 // MARK: - Geometry helpers
 
-enum MapGeometry {
+nonisolated enum MapGeometry {
     /// A point at `radius` from `center`, `angleDeg` measured clockwise from up.
     static func point(from center: CGPoint, angleDeg: Double, radius: Double) -> CGPoint {
         let r = angleDeg * .pi / 180

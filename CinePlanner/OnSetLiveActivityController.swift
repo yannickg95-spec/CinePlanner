@@ -85,12 +85,15 @@ final class OnSetLiveActivityController {
     private func endExisting() {
         guard let activity else { return }
         self.activity = nil
-        Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        // ActivityKit's Activity is safe to drive from any thread.
+        nonisolated(unsafe) let ending = activity
+        Task { await ending.end(nil, dismissalPolicy: .immediate) }
     }
 
     private func push(versionUID: String, dayUID: String) {
         guard let activity, let state = makeState(versionUID: versionUID, dayUID: dayUID) else { return }
-        Task { await activity.update(.init(state: state, staleDate: nil)) }
+        nonisolated(unsafe) let running = activity
+        Task { await running.update(.init(state: state, staleDate: nil)) }
     }
 
     // MARK: - Step (from the Live Activity buttons)

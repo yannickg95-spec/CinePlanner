@@ -9,7 +9,7 @@
 
 import Foundation
 
-enum SolarPosition {
+nonisolated enum SolarPosition {
     /// Sun altitude and azimuth for an instant and location.
     /// - Returns: `altitude` in degrees above the horizon (negative = below), and
     ///   `azimuth` in degrees from North, clockwise (N=0, E=90, S=180, W=270).
@@ -95,7 +95,7 @@ enum SolarPosition {
 }
 
 /// Per-scene settings for the sun-direction overlay, stored as JSON on the scene.
-struct SunSettings: Codable, Equatable {
+nonisolated struct SunSettings: Codable, Equatable {
     var enabled: Bool = false
     var address: String = ""
     var latitude: Double? = nil

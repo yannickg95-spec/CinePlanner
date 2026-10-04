@@ -71,8 +71,8 @@ struct ProjectExporter {
             let versionName = version?.name
             let episodeName = version?.episode?.project?.isSeries == true ? version?.episode?.title : nil
             let baseName = webExportBaseName(filmName)
-            return try writeWebExport(filmName: filmName, episodeName: episodeName,
-                                      versionName: versionName) { temp("\(baseName).\($0)") }
+            return try await writeWebExport(filmName: filmName, episodeName: episodeName,
+                                            versionName: versionName) { temp("\(baseName).\($0)") }
         }
     }
 
@@ -91,15 +91,8 @@ struct ProjectExporter {
         // CRITICAL: Extract ALL data from SwiftData models BEFORE opening save panel
         // This prevents SwiftData threading violations
         Log.export.debug("🔵 [EXPORT] About to generate content from SwiftData...")
-        let content: String
-        do {
-            content = generateFullTextContent()
-            Log.export.debug("✅ [EXPORT] Content generated successfully (\(content.count) characters)")
-        } catch {
-            Log.export.error("❌ [EXPORT] Error generating content: \(error)")
-            showErrorAlert(error: error)
-            return
-        }
+        let content = generateFullTextContent()
+        Log.export.debug("✅ [EXPORT] Content generated successfully (\(content.count) characters)")
         
         // Show save panel on main thread
         Log.export.debug("🔵 [EXPORT] Preparing save panel...")
@@ -218,9 +211,9 @@ struct ProjectExporter {
                 try data.write(to: url)
 
             case .htmlWithMedia:
-                let webURL = try writeWebExport(filmName: project.filmName,
-                                                episodeName: episodeName,
-                                                versionName: version?.name) {
+                let webURL = try await writeWebExport(filmName: project.filmName,
+                                                      episodeName: episodeName,
+                                                      versionName: version?.name) {
                     folder.appendingPathComponent("\(project.filmName) - Shot List.\($0)")
                 }
                 written.append(webURL)

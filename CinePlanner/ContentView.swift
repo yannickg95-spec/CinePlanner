@@ -404,7 +404,8 @@ struct SceneListView: View {
             
             Log.app.debug("📦 Moving shot \(shot.displayNumber) from scene \(source.sceneNumber) to scene \(targetScene.sceneNumber)")
             
-            // Remove from source scene
+            // Remove from source scene (its map camera and schedule strips included)
+            source.forgetShot(uid: shot.uid)
             if let index = source.shots.firstIndex(where: { $0.id == shot.id }) {
                 source.shots.remove(at: index)
             }
@@ -967,7 +968,7 @@ struct ShotListView: View {
     private func deleteShots(at offsets: IndexSet) {
         let shotsToDelete = offsets.map { sortedShots[$0] }
         for shot in shotsToDelete {
-            scene.removeSceneMapMarkers(forShotUID: shot.uid)
+            scene.forgetShot(uid: shot.uid)
             if let index = scene.shots.firstIndex(where: { $0 === shot }) {
                 scene.shots.remove(at: index)
             }

@@ -345,7 +345,7 @@ private struct CoveragePreview: View {
     /// is the page's, so overlaid bars land at the right margin. Starts at the
     /// first scene heading on the page, trimming the top margin and page number,
     /// so the preview opens on scene content rather than blank space.
-    static func renderStrip(pdfData: Data, pageIndex: Int) -> PlatformImage? {
+    nonisolated static func renderStrip(pdfData: Data, pageIndex: Int) -> PlatformImage? {
         guard let doc = PDFDocument(data: pdfData), doc.pageCount > 0 else { return nil }
         let idx = min(max(0, pageIndex), doc.pageCount - 1)
         guard let page = doc.page(at: idx) else { return nil }
@@ -375,7 +375,7 @@ private struct CoveragePreview: View {
 
     /// The top y (y-up) of the first scene heading on the page, or the first real
     /// text line when no heading is found — skipping a lone page number at the top.
-    private static func contentTopY(on page: PDFPage) -> CGFloat? {
+    nonisolated private static func contentTopY(on page: PDFPage) -> CGFloat? {
         guard let whole = page.selection(for: page.bounds(for: .mediaBox)) else { return nil }
         let lines = whole.selectionsByLine().compactMap { line -> (top: CGFloat, text: String)? in
             let text = line.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -389,11 +389,11 @@ private struct CoveragePreview: View {
         return lines.first(where: { !isPageNumber($0.text) })?.top ?? lines.first?.top
     }
 
-    private static func isSceneHeading(_ line: String) -> Bool {
+    nonisolated private static func isSceneHeading(_ line: String) -> Bool {
         line.uppercased().range(of: "(?<![A-Z])(INT|EXT|I/E)(?![A-Z])", options: .regularExpression) != nil
     }
 
-    private static func isPageNumber(_ line: String) -> Bool {
+    nonisolated private static func isPageNumber(_ line: String) -> Bool {
         line.range(of: "^[0-9]{1,4}\\.?$", options: .regularExpression) != nil
     }
 }

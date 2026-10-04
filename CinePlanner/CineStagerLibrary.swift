@@ -105,20 +105,37 @@ final class CineStagerLibrary: ObservableObject {
             let query = NSMetadataQuery()
             query.searchScopes = [documents]
             query.predicate = NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, "*")
-            var finished = false
-            var observer: NSObjectProtocol?
-            func finish() {
-                guard !finished else { return }
-                finished = true
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                query.stop()
-                continuation.resume()
-            }
-            observer = NotificationCenter.default.addObserver(
+            let gather = MetadataGather(query: query, continuation: continuation)
+            gather.observer = NotificationCenter.default.addObserver(
                 forName: .NSMetadataQueryDidFinishGathering, object: query, queue: .main
-            ) { _ in finish() }
+            ) { _ in MainActor.assumeIsolated { gather.finish() } }
             query.start()
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { finish() }
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
+                gather.finish()
+            }
+        }
+    }
+
+    /// One metadata gather: ends it (once) on whichever comes first, the query's
+    /// first result or the timeout.
+    private final class MetadataGather {
+        let query: NSMetadataQuery
+        let continuation: CheckedContinuation<Void, Never>
+        var observer: NSObjectProtocol?
+        private var finished = false
+
+        init(query: NSMetadataQuery, continuation: CheckedContinuation<Void, Never>) {
+            self.query = query
+            self.continuation = continuation
+        }
+
+        func finish() {
+            guard !finished else { return }
+            finished = true
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            query.stop()
+            continuation.resume()
         }
     }
 

@@ -311,7 +311,8 @@ struct SceneMapEditorView: View {
                 return
             }
             let incoming = SceneMapDoc.load(from: newValue)
-            guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty) else { return }
+            // An empty map that lists removals is a clear, not a stale value.
+            guard incoming != doc, !(incoming.isEmpty && !doc.isEmpty && incoming.removed.isEmpty) else { return }
             doc = incoming
             selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
             furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
@@ -1943,7 +1944,6 @@ struct SceneMapEditorView: View {
     /// same top-right corner — the two never show together, since a satellite map
     /// reframes and only a plain image aligns. Hidden while the tool is running; the
     /// align panel carries its own way out.
-    @ViewBuilder
     /// Whether the EDIT/ADJUST chrome should currently be offered.
     private var hasMapChromeButtons: Bool {
         guard !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil, !scaleMeasureActive else { return false }
@@ -3897,7 +3897,6 @@ struct SceneMapEditorView: View {
             return
         }
         let coordinate = new.center
-        let meters = new.meters
         let ratio = old.sizeRatio(to: new)   // normalized sizes scale by this to keep real size
         // A facing is stored against the image, so turning the image has to swing it
         // back by the same amount or every marker ends up pointing somewhere else.
@@ -3929,7 +3928,7 @@ struct SceneMapEditorView: View {
         scene.recordSatelliteCapture(new)
         if let label { scene.sceneMapLocation = label }
         backgroundImage = PlatformImage(data: data)
-        scene.sceneMapJSON = doc.jsonString
+        doc = scene.storeSceneMap(doc)
         scene.sceneFloorPlanJSON = floorPlan.jsonString
         // Keep the sun anchored to the (possibly re-centred) location, and to the
         // way the map now lies.
@@ -3942,7 +3941,6 @@ struct SceneMapEditorView: View {
 
     private func setMapBackground(_ data: Data, framing: SatelliteFraming, label: String?) {
         let coordinate = framing.center
-        let meters = framing.meters
         isDrawing = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
@@ -3963,8 +3961,9 @@ struct SceneMapEditorView: View {
         if let label { sun.address = label }
         saveSun()
         // Fill the accurate timezone (for sunrise/sunset) in the background.
-        CLGeocoder().reverseGeocodeLocation(CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) { placemarks, _ in
-            if let tz = placemarks?.first?.timeZone {
+        Task {
+            let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            if let tz = try? await CLGeocoder().reverseGeocodeLocation(location).first?.timeZone {
                 sun.timeZoneID = tz.identifier
                 saveSun()
             }
@@ -4027,7 +4026,7 @@ struct SceneMapEditorView: View {
         floorPlan = plan
         doc.furniture = furniture
         scene.sceneFloorPlanJSON = other.sceneFloorPlanJSON
-        scene.sceneMapJSON = doc.jsonString
+        doc = scene.storeSceneMap(doc)
         scene.sceneMapLocation = other.sceneMapLocation
         scene.modelContext?.saveReporting()
     }
@@ -4439,9 +4438,8 @@ struct SceneMapEditorView: View {
         recordCommit()
         let stored = SceneMapDoc.load(from: storeScene()?.sceneMapJSON ?? scene.sceneMapJSON)
         guard !doc.sameContent(as: stored) else { return }
-        doc.editedAt = Date().timeIntervalSince1970
         writeWithoutGlobalUndo {
-            scene.sceneMapJSON = doc.jsonString
+            doc = scene.storeSceneMap(doc)   // stamps what changed, for merging
             saveContext()
         }
     }
@@ -4458,27 +4456,33 @@ struct SceneMapEditorView: View {
     }
 
     /// Brings the open editor up to date with the store after an iCloud import (or on
-    /// opening): shows a newer map or floor plan from another device. When two versions
-    /// of the map meet, the newer edit wins — if ours is newer (the other device saved
-    /// an older copy over it), ours is written back so it wins in iCloud too.
+    /// opening): shows another device's map changes and floor plan. When the two copies
+    /// of the map differ they're merged item by item (SceneMapMerge) — and if ours holds
+    /// changes the store lacks (the other device saved over them), the merge is written
+    /// back so it reaches iCloud too.
     private func reloadFromStoreIfNewer() {
         guard let fresh = storeScene() else { return }
 
         let incoming = SceneMapDoc.load(from: fresh.sceneMapJSON)
         if !incoming.sameContent(as: doc) {
-            if incoming.editedAt >= doc.editedAt {
+            let merged = SceneMapMerge.merge(doc, incoming)
+            let showsOtherChanges = !merged.sameContent(as: doc)
+            if SceneMapMerge.addsTo(incoming, merged) {
+                doc = merged
+                writeWithoutGlobalUndo {
+                    doc = scene.storeSceneMap(doc)
+                    saveContext()
+                }
+            } else {
                 doc = incoming
-                selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
-                furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
                 // Keep the UI context's copy in step with the store.
                 if scene.sceneMapJSON != fresh.sceneMapJSON { scene.sceneMapJSON = fresh.sceneMapJSON }
-                // Another device's edit: undo must never take it back.
-                resetHistory()
-            } else {
-                // Our edit is newer than what's in the store: put it back.
-                scene.sceneMapJSON = doc.jsonString
-                saveContext()
+                SceneMapShadow.save(incoming, for: scene.uid)
             }
+            selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
+            furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
+            // Another device's edit: undo must never take it back.
+            if showsOtherChanges { resetHistory() }
         }
 
         // The floor plan: take the store's (unless we're mid-drawing it).
@@ -5069,8 +5073,9 @@ struct SceneMapEditorView: View {
     private func pruneOrphanedShotCameras() {
         // If the whole map was just cleared from under us (e.g. "Clear Scene"),
         // don't resurrect the stale in-memory doc — reset it to match.
-        if scene.sceneMapJSON == nil {
-            if !doc.isEmpty { doc = SceneMapDoc(); selectedIDs = []; furnitureSelectedIDs = [] }
+        let stored = SceneMapDoc.load(from: scene.sceneMapJSON)
+        if stored.isEmpty && (scene.sceneMapJSON == nil || !stored.removed.isEmpty) {
+            if !doc.isEmpty { doc = stored; selectedIDs = []; furnitureSelectedIDs = [] }
             return
         }
         let shotUIDs = Set(scene.shots.map(\.uid))
@@ -5315,7 +5320,7 @@ private struct CameraShotPopover: View {
 
 /// A smooth Catmull-Rom curve through the given points (used for movement
 /// arrows so their bends at pivots are rounded, not sharp).
-func smoothPolyline(_ pts: [CGPoint]) -> Path {
+nonisolated func smoothPolyline(_ pts: [CGPoint]) -> Path {
     var path = Path()
     guard pts.count >= 2 else { return path }
     guard pts.count > 2 else {
@@ -5336,7 +5341,7 @@ func smoothPolyline(_ pts: [CGPoint]) -> Path {
 
 /// A thick hit region along an arrow's smooth path (canvas points), for
 /// clicking the arrow to add pivots or delete it.
-struct ArrowHitShape: Shape {
+nonisolated struct ArrowHitShape: Shape {
     var points: [CGPoint]
     func path(in rect: CGRect) -> Path {
         guard points.count >= 2 else { return Path() }

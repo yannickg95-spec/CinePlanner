@@ -32,6 +32,7 @@ final class CloudSyncMonitor: ObservableObject {
         let event = NotificationCenter.default.addObserver(
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
             object: nil, queue: .main) { [weak self] note in
+            nonisolated(unsafe) let note = note   // delivered on the main queue
             MainActor.assumeIsolated { self?.handle(note) }
         }
         observers.append(event)
@@ -44,7 +45,7 @@ final class CloudSyncMonitor: ObservableObject {
         observers.append(identity)
     }
 
-    deinit {
+    isolated deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 

@@ -592,7 +592,10 @@ enum ProjectArchive {
                     for en in d.entries {
                         guard let old = en.sceneUID, let scene = scenesByArchiveUID[old] else { continue }
                         let entry = ScheduleEntry(scene: scene, sortOrder: en.sortOrder, note: en.note)
-                        entry.selectedShotUIDs = en.selectedShotUIDs.compactMap { shotUIDs[$0] }
+                        // Empty means "the whole scene", so a choice of only deleted shots
+                        // stays a (matchless) choice instead of becoming every shot.
+                        let chosen = en.selectedShotUIDs.compactMap { shotUIDs[$0] }
+                        entry.selectedShotUIDs = chosen.isEmpty ? en.selectedShotUIDs : chosen
                         entry.shotShootOrderUIDs = en.shotShootOrderUIDs.compactMap { shotUIDs[$0] }
                         entry.day = day
                     }

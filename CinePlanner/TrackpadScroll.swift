@@ -140,7 +140,7 @@ struct TrackpadScrollCatcher: NSViewRepresentable {
             if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
         }
 
-        deinit { removeMonitor() }
+        isolated deinit { removeMonitor() }
     }
 }
 #endif

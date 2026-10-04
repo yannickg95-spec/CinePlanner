@@ -202,7 +202,7 @@ extension Image {
 
 // MARK: - Image encoding / decoding
 
-extension PlatformImage {
+nonisolated extension PlatformImage {
     /// Decodes an image from data, cross-platform.
     static func fromData(_ data: Data) -> PlatformImage? {
         PlatformImage(data: data)
@@ -347,7 +347,7 @@ extension Color {
 
 // MARK: - Graphics drawing (cross-platform)
 
-enum PlatformGraphics {
+nonisolated enum PlatformGraphics {
     /// Makes `context` the current graphics context for the duration of `body`,
     /// so `NSAttributedString`/`NSString` drawing routes into it. AppKit uses
     /// `NSGraphicsContext.current`; UIKit uses `UIGraphicsPushContext`.

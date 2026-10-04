@@ -85,7 +85,7 @@ enum SceneMapMarkerImport {
 
         guard changed else { return false }
         assignSceneCharacters(&doc, scene: scene)
-        scene.sceneMapJSON = doc.jsonString
+        scene.storeSceneMap(doc)
         scene.modelContext?.saveReporting()
         return true
     }

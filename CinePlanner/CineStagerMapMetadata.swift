@@ -18,7 +18,7 @@
 import Foundation
 import ImageIO
 
-enum CineStagerMapMetadata {
+nonisolated enum CineStagerMapMetadata {
     /// A normalized marker position (0…1 from the top-left of the map image),
     /// with an optional facing (degrees, 0 = up, clockwise positive).
     struct Marker: Equatable {

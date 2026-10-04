@@ -14,7 +14,7 @@ import os
 /// in the Info.plist (with the app as its owner), so Finder, Files and AirDrop know
 /// a `.cineplan` file belongs to CinePlanner and open it here.
 extension UTType {
-    static let cineplanProject = UTType(exportedAs: "com.yannickgiraud.cineplanner.project",
+    nonisolated static let cineplanProject = UTType(exportedAs: "com.yannickgiraud.cineplanner.project",
                                         conformingTo: .data)
 }
 

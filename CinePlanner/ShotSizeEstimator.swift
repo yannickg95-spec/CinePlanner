@@ -14,7 +14,7 @@ import Vision
 import CoreGraphics
 import ImageIO
 
-enum ShotSizeEstimator {
+nonisolated enum ShotSizeEstimator {
 
     // Assumptions for the geometric estimate. Coarse buckets tolerate the slack.
     private static let subjectHeightM = 1.75      // a standing person
@@ -141,7 +141,7 @@ enum ShotSizeEstimator {
 /// Three Shot / Group Shot — from on-device Vision (no network). Returns nil
 /// when no person is found, so callers only ever pre-fill an empty Type the
 /// user can override.
-enum ShotTypeEstimator {
+nonisolated enum ShotTypeEstimator {
 
     /// Maps the number of people detected in the image to a shot type.
     static func estimate(from imageData: Data) -> ShotTypeCategory? {

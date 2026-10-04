@@ -1614,9 +1614,11 @@ struct PDFViewerWithCoverageRepresentable {
             object: pdfView,
             queue: .main
         ) { [weak coordinator = coordinator] _ in
-            overlayView.requestRedraw()
-            if let page = pdfView.currentPage, let idx = pdfView.document?.index(for: page) {
-                coordinator?.onPageChange?(idx)
+            MainActor.assumeIsolated {   // delivered on the main queue
+                overlayView.requestRedraw()
+                if let page = pdfView.currentPage, let idx = pdfView.document?.index(for: page) {
+                    coordinator?.onPageChange?(idx)
+                }
             }
         }
         
@@ -1631,13 +1633,13 @@ struct PDFViewerWithCoverageRepresentable {
                 object: scrollView.contentView,
                 queue: .main
             ) { _ in
-                overlayView.requestRedraw()
+                MainActor.assumeIsolated { overlayView.requestRedraw() }
             }
         }
         #else
         if let scrollView = pdfView.firstScrollView {
             coordinator.scrollOffsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak overlayView] _, _ in
-                overlayView?.requestRedraw()
+                MainActor.assumeIsolated { overlayView?.requestRedraw() }   // scrolling happens on main
             }
         }
         #endif
@@ -1648,7 +1650,7 @@ struct PDFViewerWithCoverageRepresentable {
             object: pdfView,
             queue: .main
         ) { _ in
-            overlayView.requestRedraw()
+            MainActor.assumeIsolated { overlayView.requestRedraw() }
         }
         
         // Listen for selection mode notifications
@@ -1750,10 +1752,12 @@ struct PDFViewerWithCoverageRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                guard let self = self,
-                      let shot = notification.userInfo?["shot"] as? Shot else { return }
-                
-                self.enterSelectionMode(for: shot)
+                nonisolated(unsafe) let notification = notification   // posted and delivered on main
+                MainActor.assumeIsolated {
+                    guard let self = self,
+                          let shot = notification.userInfo?["shot"] as? Shot else { return }
+                    self.enterSelectionMode(for: shot)
+                }
             }
             // No continuous redraw timer: the overlay repaints on scroll (macOS: the
             // NSScrollView bounds observer; iOS: the scroll-view contentOffset KVO in
@@ -1776,18 +1780,18 @@ struct PDFViewerWithCoverageRepresentable {
             // Done/Cancel in the card drive the same capture/cancel as before.
             captureObserver = NotificationCenter.default.addObserver(
                 forName: .captureScriptSelection, object: nil, queue: .main) { [weak self] _ in
-                self?.captureSelection()
+                MainActor.assumeIsolated { self?.captureSelection() }
             }
             cancelObserver = NotificationCenter.default.addObserver(
                 forName: .cancelScriptSelection, object: nil, queue: .main) { [weak self] _ in
-                self?.cancelSelection()
+                MainActor.assumeIsolated { self?.cancelSelection() }
             }
 
             if pdfView != nil { startTrackingSelection() }
         }
         
         func startTrackingSelection() {
-            guard let pdfView = pdfView else { return }
+            guard pdfView != nil else { return }
             
             // Monitor selection changes
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -1910,7 +1914,7 @@ struct PDFViewerWithCoverageRepresentable {
             }
         }
         
-        deinit {
+        isolated deinit {
             displayTimer?.invalidate()
             displayTimer = nil
             scrollOffsetObservation?.invalidate()

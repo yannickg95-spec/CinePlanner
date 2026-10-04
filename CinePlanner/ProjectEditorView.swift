@@ -2033,6 +2033,7 @@ struct ProjectEditorView: View {
 
         modelContext.destructiveDelete {
             for scene in scenes {
+                scene.forgetCoverageAliases()
                 if let index = project.scenes.firstIndex(where: { $0 === scene }) {
                     project.scenes.remove(at: index)
                 }
@@ -2065,7 +2066,7 @@ struct ProjectEditorView: View {
 
         modelContext.destructiveDelete {
             for shot in shots {
-                shot.scene?.removeSceneMapMarkers(forShotUID: shot.uid)
+                shot.scene?.forgetShot(uid: shot.uid)
                 if let scene = shot.scene, let index = scene.shots.firstIndex(where: { $0 === shot }) {
                     scene.shots.remove(at: index)
                 }

@@ -33,7 +33,9 @@ struct CinePlannerApp: App {
     /// nor crash on a missing iCloud entitlement in an unsigned build.
     static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
-    var sharedModelContainer: ModelContainer = {
+    // SwiftUI creates the App on the main thread; saying so lets the setup below
+    // call the main-actor helpers (backups, migrations) directly.
+    var sharedModelContainer: ModelContainer = MainActor.assumeIsolated {
         let schema = Schema(versionedSchema: SchemaV1.self)
         if CinePlannerApp.isRunningTests {
             let memory = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
@@ -56,7 +58,7 @@ struct CinePlannerApp: App {
         func open() throws -> ModelContainer {
             try ModelContainer(for: schema, migrationPlan: CinePlannerMigrationPlan.self, configurations: [config])
         }
-        func finish(_ container: ModelContainer) -> ModelContainer {
+        @MainActor func finish(_ container: ModelContainer) -> ModelContainer {
             StoreBackup.recordStoreURL(container)
             Self.backfillUIDsIfNeeded(container)
             Self.migrateLegacyGitHubReposIfNeeded(container)
@@ -87,7 +89,7 @@ struct CinePlannerApp: App {
             // 3. Even a fresh store won't open — the environment itself is broken.
             fatalError("Could not open or recover the data store: \(error)")
         }
-    }()
+    }
 
     init() {
         guard !Self.isRunningTests else { return }
@@ -115,6 +117,11 @@ struct CinePlannerApp: App {
         // Keep the UI's context in step with iCloud imports (see SyncRefresher) — set
         // up before anything saves, so the main context's saves carry its author tag.
         MainActor.assumeIsolated { SyncRefresher.shared.start(container: sharedModelContainer) }
+        // Old-style shot media in projects that haven't been opened since (once iCloud
+        // has caught up), so those fields can be retired.
+        LegacyMediaSweep.start(container: sharedModelContainer)
+        // Local copies of scene maps too old to merge with (see SceneMapMerge).
+        Task.detached(priority: .background) { SceneMapShadow.pruneExpired() }
 
         // Flush pending edits every few seconds, so CloudKit exports them while the
         // user works instead of only when SwiftData's autosave gets round to it.

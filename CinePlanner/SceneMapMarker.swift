@@ -521,7 +521,7 @@ struct MapMarkerView: View {
 }
 
 /// A simple upward-pointing triangle, used for a character's facing arrow.
-struct Triangle: Shape {
+nonisolated struct Triangle: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))
@@ -541,9 +541,9 @@ struct Triangle: Shape {
 /// so they're comfortably tappable with a finger on iPad. Zero on macOS, where a
 /// precise cursor makes the tight targets fine (and keeps behaviour unchanged).
 #if os(iOS)
-let sceneMapHandleSlop: CGFloat = 12
+nonisolated let sceneMapHandleSlop: CGFloat = 12
 #else
-let sceneMapHandleSlop: CGFloat = 0
+nonisolated let sceneMapHandleSlop: CGFloat = 0
 #endif
 
 func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,

@@ -11,11 +11,12 @@
 import Foundation
 import ImageIO
 
-enum ThumbnailCache {
+nonisolated enum ThumbnailCache {
     /// Long edge of a card thumbnail: sharp at a card's size on a Retina screen.
     static let cardPixels = 1400
 
-    private static let cache: NSCache<NSString, PlatformImage> = {
+    // NSCache is thread-safe, so sharing it across threads is fine.
+    nonisolated(unsafe) private static let cache: NSCache<NSString, PlatformImage> = {
         let cache = NSCache<NSString, PlatformImage>()
         cache.totalCostLimit = 128 * 1_048_576   // decoded bytes
         return cache

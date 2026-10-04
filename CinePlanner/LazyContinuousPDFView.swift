@@ -253,7 +253,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             UIDevice.current.userInterfaceIdiom == .pad && hasPointer
         }
 
-        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+        isolated deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
@@ -324,10 +324,11 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             let width = cv.bounds.width
             let size = CGSize(width: width, height: (width * pageAspect).rounded())
             let scale = cv.traitCollection.displayScale
-            renderQueue.async { [weak self, weak cv] in
-                guard let self, let page = self.document?.page(at: index) else { return }
-                let image = Self.render(page: page, size: size, scale: scale)
-                self.renderCache.setObject(image, forKey: NSNumber(value: index))
+            guard let page = document?.page(at: index) else { return }
+            let job = PageRenderJob(page: page, cache: renderCache)
+            renderQueue.async { [weak cv] in
+                let image = Self.render(page: job.page, size: size, scale: scale)
+                job.cache.setObject(image, forKey: NSNumber(value: index))
                 DispatchQueue.main.async {
                     guard let cv,
                           let visible = cv.cellForItem(at: IndexPath(item: index, section: 0)) as? PageCell
@@ -380,7 +381,15 @@ struct LazyContinuousPDFView: UIViewRepresentable {
             cv.setContentOffset(CGPoint(x: 0, y: min(max(0, itemOriginY + offsetInCell), maxOffset)), animated: false)
         }
 
-        static func render(page: PDFPage, size: CGSize, scale: CGFloat) -> UIImage {
+        /// Hands a page and the cache to the render queue. PDFKit draws a page off
+        /// the main thread fine while nothing edits the document, and NSCache is
+        /// thread-safe — hence the unchecked Sendable.
+        nonisolated struct PageRenderJob: @unchecked Sendable {
+            let page: PDFPage
+            let cache: NSCache<NSNumber, UIImage>
+        }
+
+        nonisolated static func render(page: PDFPage, size: CGSize, scale: CGFloat) -> UIImage {
             let bounds = page.bounds(for: .cropBox)
             let format = UIGraphicsImageRendererFormat.default()
             format.scale = scale
@@ -402,21 +411,25 @@ struct LazyContinuousPDFView: UIViewRepresentable {
 
         func registerSelectionObservers() {
             let nc = NotificationCenter.default
+            // All delivered on the main queue.
             observers.append(nc.addObserver(forName: .startScriptTextSelection, object: nil, queue: .main) { [weak self] note in
-                guard let self, let shot = note.userInfo?["shot"] as? Shot else { return }
-                self.beginMarking(shot: shot)
+                nonisolated(unsafe) let note = note   // posted and delivered on main
+                MainActor.assumeIsolated {
+                    guard let self, let shot = note.userInfo?["shot"] as? Shot else { return }
+                    self.beginMarking(shot: shot)
+                }
             })
             observers.append(nc.addObserver(forName: .captureScriptSelection, object: nil, queue: .main) { [weak self] _ in
-                self?.advanceOrCapture()
+                MainActor.assumeIsolated { self?.advanceOrCapture() }
             })
             observers.append(nc.addObserver(forName: .cancelScriptSelection, object: nil, queue: .main) { [weak self] _ in
-                self?.endMarking()
+                MainActor.assumeIsolated { self?.endMarking() }
             })
             observers.append(nc.addObserver(forName: .GCMouseDidConnect, object: nil, queue: .main) { [weak self] _ in
-                self?.hasPointer = true
+                MainActor.assumeIsolated { self?.hasPointer = true }
             })
             observers.append(nc.addObserver(forName: .GCMouseDidDisconnect, object: nil, queue: .main) { [weak self] _ in
-                self?.hasPointer = !GCMouse.mice().isEmpty
+                MainActor.assumeIsolated { self?.hasPointer = !GCMouse.mice().isEmpty }
             })
         }
 
@@ -441,7 +454,7 @@ struct LazyContinuousPDFView: UIViewRepresentable {
                 overlay.isHidden = false
                 if let sv = marking.firstMarkingScrollView {
                     markingScrollObs = sv.observe(\.contentOffset, options: [.new]) { [weak overlay] _, _ in
-                        overlay?.requestRedraw()
+                        MainActor.assumeIsolated { overlay?.requestRedraw() }   // scrolling happens on main
                     }
                 }
             }

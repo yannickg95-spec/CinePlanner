@@ -20,7 +20,7 @@ import CoreLocation
 
 /// A satellite capture: a square of world `meters` across, centred on `center`,
 /// rendered north-up. Marker positions are stored normalized (0…1) within it.
-struct SatelliteFraming: Equatable {
+nonisolated struct SatelliteFraming: Equatable {
     let center: CLLocationCoordinate2D
     let meters: Double
     /// Compass direction that points up in the capture, in degrees clockwise from

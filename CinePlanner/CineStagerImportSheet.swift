@@ -579,7 +579,7 @@ struct CineStagerImportSheet: View {
         }
 
         assignSceneCharacters(to: &doc, scene: scene)
-        scene.sceneMapJSON = doc.jsonString
+        scene.storeSceneMap(doc)
 
         // The one time we zoom the background out to keep markers in the map: if a
         // camera/mannequin lands beyond the room's edge, fit the placement to them

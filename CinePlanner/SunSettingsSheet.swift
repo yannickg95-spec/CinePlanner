@@ -125,10 +125,17 @@ struct SunSettingsSheet: View {
         guard !query.isEmpty else { return }
         geocoding = true
         geocodeError = nil
-        CLGeocoder().geocodeAddressString(query) { placemarks, error in
-            geocoding = false
-            guard let placemark = placemarks?.first, let loc = placemark.location else {
+        Task {
+            defer { geocoding = false }
+            let placemarks: [CLPlacemark]
+            do {
+                placemarks = try await CLGeocoder().geocodeAddressString(query)
+            } catch {
                 geocodeError = Self.geocodeMessage(for: error, query: query)
+                return
+            }
+            guard let placemark = placemarks.first, let loc = placemark.location else {
+                geocodeError = Self.geocodeMessage(for: nil, query: query)
                 return
             }
             settings.latitude = loc.coordinate.latitude

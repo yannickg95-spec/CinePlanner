@@ -23,14 +23,15 @@ final class OnSetActivityBridge {
 }
 
 struct OnSetStepIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Step Setup"
-    static var isDiscoverable: Bool = false
+    static let title: LocalizedStringResource = "Step Setup"
+    static let isDiscoverable: Bool = false
 
     @Parameter(title: "Forward") var forward: Bool
 
     init() {}
     init(forward: Bool) { self.forward = forward }
 
+    @MainActor   // the bridge lives on the main actor, like the store it updates
     func perform() async throws -> some IntentResult {
         OnSetActivityBridge.shared.handler?(forward)
         return .result()

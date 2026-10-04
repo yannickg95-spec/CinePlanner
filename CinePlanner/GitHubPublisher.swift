@@ -110,7 +110,7 @@ enum GitHubPublisher {
     /// The true ceiling sits somewhere above this and below 88.5 MB, so raising it
     /// is a measurement, not a guess — publish a file of the new size to a
     /// throwaway repo first and check it is accepted.
-    static let maxUploadBytes = 50 * 1_024 * 1_024
+    nonisolated static let maxUploadBytes = 50 * 1_024 * 1_024
 
     // MARK: - Token (Keychain)
 
@@ -399,23 +399,33 @@ enum GitHubPublisher {
             throw GitHubError.badResponse
         }
 
-        // A blob per file, uploaded concurrently — a big win when there are videos.
-        // Blobs are content-addressed, so order doesn't matter; we collect
-        // (path, sha) as each finishes and report progress.
+        // A blob per file, a few at a time — a big win over one by one when there are
+        // videos. Not all at once: every upload then shares one connection, and one
+        // whose body hasn't started within ~10 s is cut off by GitHub with a 400
+        // ("malformed request"), which a project with many clips ran into. Blobs are
+        // content-addressed, so order doesn't matter (biggest first, so the page
+        // doesn't trail at the end); we collect (path, sha) as each finishes.
         let total = files.count
         onProgress(.uploading(done: 0, total: total))
+        let queue = files.sorted { $0.value.count > $1.value.count }
+        var next = 0
         var tree: [[String: Any]] = []
         try await withThrowingTaskGroup(of: (String, String).self) { group in
-            for (path, data) in files {
+            func startNext() {
+                guard next < queue.count else { return }
+                let (path, data) = queue[next]
+                next += 1
                 group.addTask {
                     (path, try await uploadBlob(repoPath: repoPath, data: data, token: token))
                 }
             }
+            for _ in 0..<maxConcurrentUploads { startNext() }
             var done = 0
             for try await (path, sha) in group {
                 done += 1
                 onProgress(.uploading(done: done, total: total))
                 tree.append(["path": path, "mode": "100644", "type": "blob", "sha": sha])
+                startNext()
             }
         }
 
@@ -441,14 +451,19 @@ enum GitHubPublisher {
         _ = try await sendRaw(refReq)
     }
 
-    /// Uploads one file's bytes as a base64 blob, returning its SHA.
+    /// How many blobs upload at once (see `commitFiles`).
+    private static let maxConcurrentUploads = 4
+
+    /// Uploads one file's bytes as a base64 blob, returning its SHA. A 400 here is
+    /// GitHub cutting off an upload that stalled, so it's retried like a dropped
+    /// connection — creating the same blob twice is harmless.
     private static func uploadBlob(repoPath: String, data: Data, token: String) async throws -> String {
         var request = post("\(repoPath)/git/blobs", token: token)
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "content": data.base64EncodedString(),
             "encoding": "base64",
         ])
-        let blob = try await sendJSON(request)
+        let blob = try await sendJSON(request, retryingStalls: true)
         guard let sha = blob["sha"] as? String else { throw GitHubError.badResponse }
         return sha
     }
@@ -551,14 +566,16 @@ enum GitHubPublisher {
     /// blob), and mobile networks drop connections — a single blip shouldn't abort a
     /// whole publish. The requests here are safe to repeat: extra unreferenced
     /// blobs/trees/commits are garbage-collected, and only the final ref move counts.
-    private static func rawSend(_ request: URLRequest, attempts: Int = 4) async throws -> (Data, HTTPURLResponse) {
+    private static func rawSend(_ request: URLRequest, attempts: Int = 4,
+                                retryingStalls: Bool = false) async throws -> (Data, HTTPURLResponse) {
         var lastError: Error?
+        let retried = retryingStalls ? [400, 502, 503, 504] : [502, 503, 504]
         for attempt in 0..<attempts {
             let isLast = attempt == attempts - 1
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { throw GitHubError.badResponse }
-                if [502, 503, 504].contains(http.statusCode), !isLast {
+                if retried.contains(http.statusCode), !isLast {
                     try? await Task.sleep(nanoseconds: retryDelay(attempt))
                     continue
                 }
@@ -589,16 +606,16 @@ enum GitHubPublisher {
 
     /// Like `rawSend`, but throws on any non-2xx status.
     @discardableResult
-    private static func sendRaw(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, http) = try await rawSend(request)
+    private static func sendRaw(_ request: URLRequest, retryingStalls: Bool = false) async throws -> (Data, HTTPURLResponse) {
+        let (data, http) = try await rawSend(request, retryingStalls: retryingStalls)
         guard (200..<300).contains(http.statusCode) else {
             throw GitHubError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return (data, http)
     }
 
-    private static func sendJSON(_ request: URLRequest) async throws -> [String: Any] {
-        let (data, _) = try await sendRaw(request)
+    private static func sendJSON(_ request: URLRequest, retryingStalls: Bool = false) async throws -> [String: Any] {
+        let (data, _) = try await sendRaw(request, retryingStalls: retryingStalls)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw GitHubError.badResponse
         }

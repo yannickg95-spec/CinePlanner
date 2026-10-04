@@ -21,7 +21,7 @@ import SceneKit
 import SceneKit.ModelIO
 import ModelIO
 
-enum ModelTopDownRenderer {
+nonisolated enum ModelTopDownRenderer {
 
     /// Top-down orthographic unlit image of the model at `url`, fitted to a
     /// square. Backface culling hides the ceiling (dollhouse view). Returns nil if
@@ -40,7 +40,6 @@ enum ModelTopDownRenderer {
         let center = SCNVector3((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2)
         let width = b.max.x - b.min.x
         let depth = b.max.z - b.min.z
-        let height = b.max.y - b.min.y
         let half = max(width, depth) / 2 * (1 + SCNScalar(margin))
         guard half > 0 else { return nil }
 

@@ -13,7 +13,7 @@ import ActivityKit
 import Foundation
 
 /// One setup (shot) on the day, in shoot order.
-struct OnSetSetup: Codable, Hashable {
+nonisolated struct OnSetSetup: Codable, Hashable {
     var num: String     // display number, e.g. "1.2"
     var scene: String   // "Scene 1"
     var name: String    // nickname, or "" when unset
@@ -21,8 +21,8 @@ struct OnSetSetup: Codable, Hashable {
     var done: Bool
 }
 
-struct OnSetActivityAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
+nonisolated struct OnSetActivityAttributes: ActivityAttributes {
+    public nonisolated struct ContentState: Codable, Hashable {
         var projectName: String
         var dayLabel: String        // "Day 1"
         var dayUID: String          // which day, so the step buttons can resolve it
@@ -36,7 +36,7 @@ struct OnSetActivityAttributes: ActivityAttributes {
 
 // MARK: - Derived values (shared by the widget UI and the app)
 
-extension OnSetActivityAttributes.ContentState {
+nonisolated extension OnSetActivityAttributes.ContentState {
     var doneCount: Int { setups.filter { $0.done }.count }
     var total: Int { setups.count }
 

@@ -103,7 +103,7 @@ private struct FurnitureGlyph: View {
 
 /// A `size` rectangle centred in the frame and turned by `degrees` — the hit shape for
 /// a furniture glyph that draws its own rotation.
-private struct RotatedRectShape: Shape {
+nonisolated private struct RotatedRectShape: Shape {
     var size: CGSize
     var degrees: Double
     func path(in rect: CGRect) -> Path {

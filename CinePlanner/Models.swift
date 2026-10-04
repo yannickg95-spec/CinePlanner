@@ -638,7 +638,7 @@ extension Scene {
         return copy
     }
 }
-enum ShotSize: String, Codable, CaseIterable {
+nonisolated enum ShotSize: String, Codable, CaseIterable {
     case none = ""
     case extremeCloseUp = "XCU"
     case closeUp = "CU"
@@ -770,7 +770,7 @@ enum ShotType: String, Codable, CaseIterable {
 // A grip has no separate short form, so a custom grip needs no derivation — it's
 // read directly via Shot.gripName. Size and type below do have short forms.
 
-enum ShotTypeCategory: String, Codable, CaseIterable {
+nonisolated enum ShotTypeCategory: String, Codable, CaseIterable {
     case none = ""
     case single = "Single"
     case overTheShoulder = "Over The Shoulder"
@@ -1194,7 +1194,10 @@ final class Shot {
             .joined(separator: " · ")
     }
     
-    // Store photo data as Data
+    // Retired: the fixed photo / video / map slots from before multiple references
+    // per shot. Converted into a ShotReference (`migrateReferencesIfNeeded`, and for
+    // every shot by `LegacyMediaSweep`); to be dropped from the model in a later
+    // version, with the photo1… / photo2… details below.
     @Attribute(.externalStorage)
     var photo1Data: Data?
 
@@ -1726,7 +1729,36 @@ extension Scene {
         guard doc.elements.count != before else { return }
         let ids = Set(doc.elements.map(\.id))
         doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
-        sceneMapJSON = doc.jsonString
+        storeSceneMap(doc)
+    }
+
+    /// Lets go of a shot that's leaving this scene (deleted, or moved to another
+    /// scene): its camera on the map, and its place in this scene's schedule strips.
+    /// Done by the device making the change, not as a sweep — during an iCloud import
+    /// a shot can briefly be missing without being gone.
+    func forgetShot(uid: String) {
+        removeSceneMapMarkers(forShotUID: uid)
+        for entry in scheduleEntriesStore ?? [] {
+            entry.shotShootOrderUIDs.removeAll { $0 == uid }
+            // An empty choice means "the whole scene", so a strip whose only chosen
+            // shot goes keeps that (now unmatched) choice rather than growing to all.
+            if entry.selectedShotUIDs.contains(uid), entry.selectedShotUIDs.count > 1 {
+                entry.selectedShotUIDs.removeAll { $0 == uid }
+            }
+        }
+    }
+
+    /// Before this scene is deleted: takes it out of the coverage of the other scenes'
+    /// shots, which list the scenes their coverage runs into.
+    func forgetCoverageAliases() {
+        let scenes = scriptVersion?.scenes ?? project?.scenes ?? []
+        for other in scenes where other !== self {
+            for shot in other.shots {
+                guard var uids = shot.coverageSceneUIDs, uids.contains(uid) else { continue }
+                uids.removeAll { $0 == uid }
+                shot.coverageSceneUIDs = uids.isEmpty ? nil : uids
+            }
+        }
     }
 
     /// Wipes the whole scene map — markers, arrows, drawn floor plan, and the
@@ -1734,7 +1766,7 @@ extension Scene {
     /// Map", but works directly on the model so callers outside the editor (e.g.
     /// "Clear Scene") can use it.
     func clearSceneMap() {
-        sceneMapJSON = nil
+        storeSceneMap(SceneMapDoc())   // records the removals, so the clear syncs
         sceneFloorPlanJSON = nil
         sceneMapBackgroundData = nil
         sceneMapBackgroundIsSatellite = false

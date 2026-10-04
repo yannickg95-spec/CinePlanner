@@ -294,13 +294,17 @@ struct MapBackgroundSheet: View {
         guard !query.isEmpty else { return }
         geocoding = true
         errorMessage = nil
-        CLGeocoder().geocodeAddressString(query) { placemarks, error in
-            geocoding = false
-            if let loc = placemarks?.first?.location {
-                recenter = loc.coordinate
-                return
+        Task {
+            defer { geocoding = false }
+            do {
+                if let loc = try await CLGeocoder().geocodeAddressString(query).first?.location {
+                    recenter = loc.coordinate
+                    return
+                }
+                errorMessage = Self.geocodeMessage(for: nil, query: query)
+            } catch {
+                errorMessage = Self.geocodeMessage(for: error, query: query)
             }
-            errorMessage = Self.geocodeMessage(for: error, query: query)
         }
     }
 

@@ -19,7 +19,9 @@
 //  store's history — our own saves are tagged with `localAuthor`), the objects it
 //  changed are re-fetched in the main context — with their parents, and in full for
 //  the parents of deleted objects — and `generation` is bumped so the views keyed on
-//  it redraw with the refreshed values.
+//  it redraw with the refreshed values. Scene maps the import changed are first merged
+//  with this device's own changes (SceneMapSync), which a whole-field import would
+//  otherwise overwrite.
 //
 
 import Foundation
@@ -81,6 +83,7 @@ final class SyncRefresher {
             .flatMap(\.changes)
         guard !remoteChanges.isEmpty else { return }
         Self.refresh(remoteChanges, in: container.mainContext)
+        SceneMapSync.reconcile(sceneIDs: Self.changedScenes(in: remoteChanges), in: container.mainContext)
         generation &+= 1
     }
 
@@ -147,6 +150,22 @@ final class SyncRefresher {
         if !deleted.isDisjoint(with: ["ShootingDay", "Scene"]) { refetchAll(ScriptVersion.self) }
         if !deleted.isDisjoint(with: ["Scene", "ScriptVersion", "Episode"]) { refetchAll(Project.self) }
         if deleted.contains("ScriptVersion") { refetchAll(Episode.self) }
+    }
+
+    /// The scenes that were inserted or changed (their maps may need merging).
+    static func changedScenes(in changes: [HistoryChange]) -> Set<PersistentIdentifier> {
+        var ids: Set<PersistentIdentifier> = []
+        for change in changes {
+            switch change {
+            case .insert(let insert) where insert.changedPersistentIdentifier.entityName == "Scene":
+                ids.insert(insert.changedPersistentIdentifier)
+            case .update(let update) where update.changedPersistentIdentifier.entityName == "Scene":
+                ids.insert(update.changedPersistentIdentifier)
+            default:
+                break
+            }
+        }
+        return ids
     }
 
     /// Re-fetches every model type in the main context — the fallback when the
