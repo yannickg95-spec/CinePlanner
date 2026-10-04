@@ -23,7 +23,7 @@
 			containerPortal = 8C819A822EF043DF009E48CD /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 8C819A892EF043DF009E48CD;
-			remoteInfo = "CineStager 2";
+			remoteInfo = CinePlanner;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -42,7 +42,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		8C46A16730165D7500A99C96 /* CineStager 2.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CineStager 2.entitlements"; sourceTree = "<group>"; };
+		8C46A16730165D7500A99C96 /* CinePlanner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CinePlanner.entitlements"; sourceTree = "<group>"; };
 		8C819A8A2EF043DF009E48CD /* CinePlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CinePlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEADBEEFDEADBEEFDEAD0002 /* OnSetWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OnSetWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEADBEEFDEADBEEFDEAD0101 /* CinePlannerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CinePlannerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -112,7 +112,7 @@
 		8C819A812EF043DF009E48CD = {
 			isa = PBXGroup;
 			children = (
-				8C46A16730165D7500A99C96 /* CineStager 2.entitlements */,
+				8C46A16730165D7500A99C96 /* CinePlanner.entitlements */,
 				8C819A8C2EF043DF009E48CD /* CinePlanner */,
 				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
 				DEADBEEFDEADBEEFDEAD0003 /* OnSetWidget */,
@@ -134,9 +134,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		8C819A892EF043DF009E48CD /* CineStager 2 */ = {
+		8C819A892EF043DF009E48CD /* CinePlanner */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8C819A952EF043E0009E48CD /* Build configuration list for PBXNativeTarget "CineStager 2" */;
+			buildConfigurationList = 8C819A952EF043E0009E48CD /* Build configuration list for PBXNativeTarget "CinePlanner" */;
 			buildPhases = (
 				8C819A862EF043DF009E48CD /* Sources */,
 				8C819A872EF043DF009E48CD /* Frameworks */,
@@ -152,10 +152,10 @@
 				8C819A8C2EF043DF009E48CD /* CinePlanner */,
 				DEADBEEFDEADBEEFDEAD0004 /* Shared */,
 			);
-			name = "CineStager 2";
+			name = CinePlanner;
 			packageProductDependencies = (
 			);
-			productName = "CineStager 2";
+			productName = CinePlanner;
 			productReference = 8C819A8A2EF043DF009E48CD /* CinePlanner.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -240,7 +240,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				8C819A892EF043DF009E48CD /* CineStager 2 */,
+				8C819A892EF043DF009E48CD /* CinePlanner */,
 				DEADBEEFDEADBEEFDEAD0001 /* OnSetWidgetExtension */,
 				DEADBEEFDEADBEEFDEAD0100 /* CinePlannerTests */,
 			);
@@ -304,7 +304,7 @@
 		};
 		DEADBEEFDEADBEEFDEAD0109 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 8C819A892EF043DF009E48CD /* CineStager 2 */;
+			target = 8C819A892EF043DF009E48CD /* CinePlanner */;
 			targetProxy = DEADBEEFDEADBEEFDEAD010A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -431,7 +431,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "CinePlanner.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 65W863L6A3;
@@ -441,7 +441,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "CineStager-2-Info.plist";
+				INFOPLIST_FILE = "CinePlanner-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = CinePlanner;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -461,10 +461,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2";
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.YannickGiraud.CinePlanner;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=xros*]" = com.YannickGiraud.CinePlanner;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlanner;
 				PRODUCT_NAME = CinePlanner;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -486,7 +483,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = CinePlanner;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "CineStager 2.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "CinePlanner.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 65W863L6A3;
@@ -496,7 +493,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "CineStager-2-Info.plist";
+				INFOPLIST_FILE = "CinePlanner-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = CinePlanner;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -516,10 +513,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2";
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.YannickGiraud.CinePlanner;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=xros*]" = com.YannickGiraud.CinePlanner;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlanner;
 				PRODUCT_NAME = CinePlanner;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -552,8 +546,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2.OnSetWidget";
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner.OnSetWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlanner.OnSetWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -581,8 +574,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "YannickGiraud.CineStager-2.OnSetWidget";
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.YannickGiraud.CinePlanner.OnSetWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.YannickGiraud.CinePlanner.OnSetWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -654,7 +646,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		8C819A952EF043E0009E48CD /* Build configuration list for PBXNativeTarget "CineStager 2" */ = {
+		8C819A952EF043E0009E48CD /* Build configuration list for PBXNativeTarget "CinePlanner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				8C819A962EF043E0009E48CD /* Debug */,

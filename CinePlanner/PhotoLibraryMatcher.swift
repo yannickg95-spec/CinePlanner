@@ -1,6 +1,6 @@
 //
 //  PhotoLibraryMatcher.swift
-//  CineStager 2
+//  CinePlanner
 //
 //  Helper for finding matching photos in the user's photo library
 //

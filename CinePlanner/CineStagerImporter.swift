@@ -1,6 +1,6 @@
 //
 //  CineStagerImporter.swift
-//  CineStager 2
+//  CinePlanner
 //
 //  Created by Yannick Giraud on 15/12/2025.
 //

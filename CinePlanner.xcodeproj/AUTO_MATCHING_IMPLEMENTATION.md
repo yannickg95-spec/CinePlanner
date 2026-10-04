@@ -2,7 +2,7 @@
 
 ## Overview
 
-CineStager 2 now automatically finds and loads matching Top Down Map View photos when you add a Shot photo, using Capture ID metadata and intelligent same-day filtering.
+CinePlanner now automatically finds and loads matching Top Down Map View photos when you add a Shot photo, using Capture ID metadata and intelligent same-day filtering.
 
 ## How It Works
 

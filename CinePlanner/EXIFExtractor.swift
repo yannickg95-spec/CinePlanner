@@ -1,6 +1,6 @@
 //
 //  EXIFExtractor.swift
-//  CineStager 2
+//  CinePlanner
 //
 //  Created by Yannick Giraud on 16/12/2025.
 //

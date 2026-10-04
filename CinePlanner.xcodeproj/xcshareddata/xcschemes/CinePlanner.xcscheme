@@ -17,7 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8C819A892EF043DF009E48CD"
                BuildableName = "CinePlanner.app"
-               BlueprintName = "CineStager 2"
+               BlueprintName = "CinePlanner"
                ReferencedContainer = "container:CinePlanner.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -58,7 +58,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8C819A892EF043DF009E48CD"
             BuildableName = "CinePlanner.app"
-            BlueprintName = "CineStager 2"
+            BlueprintName = "CinePlanner"
             ReferencedContainer = "container:CinePlanner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -78,7 +78,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8C819A892EF043DF009E48CD"
             BuildableName = "CinePlanner.app"
-            BlueprintName = "CineStager 2"
+            BlueprintName = "CinePlanner"
             ReferencedContainer = "container:CinePlanner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
