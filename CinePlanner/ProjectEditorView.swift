@@ -126,7 +126,7 @@ struct ProjectEditorView: View {
         guard let scene = sceneBeingMarked else { return }
         let offset = selectedVersion?.pdfPageOffset ?? project.resolvedPDFPageOffset
         scene.scriptPageNumber = max(1, pageIndex - offset + 1)
-        try? modelContext.save()
+        modelContext.saveReporting()
     }
     
     var body: some View {
@@ -258,7 +258,7 @@ struct ProjectEditorView: View {
             project.lastOpenedDate = Date()
             // Save right away rather than leave the project dirty until the next flush:
             // a dirty object isn't refreshed by an iCloud import (see SyncRefresher).
-            try? modelContext.save()
+            modelContext.saveReporting()
 
             // The script split is seeded where its width is derived (in the
             // editor columns' GeometryReader), so nothing to do here.
@@ -651,7 +651,7 @@ struct ProjectEditorView: View {
         }
         .alert("Copy Shots from a Previous Version?", isPresented: $showCopyShotsPrompt) {
             Button("Copy Shots…") {
-                try? modelContext.save() // stable IDs before matching
+                modelContext.saveReporting() // stable IDs before matching
                 showTransferSheet = true
             }
             Button("Not Now", role: .cancel) { }
@@ -1050,7 +1050,7 @@ struct ProjectEditorView: View {
             selectedScenes: $selectedScenes,
             canImportShots: !otherVersionsWithShots.isEmpty,
             onEditScene: { sceneToEdit = $0 },
-            onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
+            onImportShots: { modelContext.saveReporting(); sceneForShotImport = $0 },
             onDeleteScenes: { pendingSceneDeletion = $0 },
             onSceneAdded: { scene in if hasScriptPDF { sceneBeingMarked = scene } },
             onSelectScene: selectsInPlace ? { _ in } : nil
@@ -1301,7 +1301,7 @@ struct ProjectEditorView: View {
                 selectedScenes: $selectedScenes,
                 canImportShots: !otherVersionsWithShots.isEmpty,
                 onEditScene: { sceneToEdit = $0 },
-                onImportShots: { try? modelContext.save(); sceneForShotImport = $0 },
+                onImportShots: { modelContext.saveReporting(); sceneForShotImport = $0 },
                 onDeleteScenes: { pendingSceneDeletion = $0 },
                 onSceneAdded: { scene in
                     // With a script loaded, let the user place the scene's page by
@@ -1472,7 +1472,7 @@ struct ProjectEditorView: View {
     private func deleteScriptFromEditor() {
         selectedVersion?.pdfData = nil
         project.scriptPDFData = nil
-        try? modelContext.save()
+        modelContext.saveReporting()
         scriptReloadToken += 1
     }
 
@@ -1706,7 +1706,7 @@ struct ProjectEditorView: View {
     private var actionButtons: some View {
         if selectedScenes.count == 1, let scene = selectedScene, !otherVersionsWithShots.isEmpty {
             Button {
-                try? modelContext.save() // stable IDs before matching
+                modelContext.saveReporting() // stable IDs before matching
                 sceneForShotImport = scene
             } label: {
                 Label("Import Shots…", systemImage: "square.and.arrow.down.on.square")

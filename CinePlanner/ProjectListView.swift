@@ -744,7 +744,7 @@ struct ProjectCardView: View {
                 episode.title = "Episode 1"
             }
         }
-        try? modelContext.save()
+        modelContext.saveReporting()
     }
 }
 

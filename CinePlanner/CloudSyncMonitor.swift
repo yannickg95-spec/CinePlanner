@@ -61,7 +61,7 @@ final class CloudSyncMonitor: ObservableObject {
         if status == .error {
             status = active.isEmpty ? (lastSynced == nil ? .connected : .synced) : .syncing
         }
-        if context.hasChanges { try? context.save() }
+        if context.hasChanges { context.saveReporting() }
     }
 
     private func refreshAccount() {

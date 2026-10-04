@@ -353,7 +353,7 @@ struct CineStagerImportSheet: View {
                 await fill(reference, from: cs)
                 let cleanData = cs.hasMap ? await library.data(at: library.cleanMapURL(for: cs)) : nil
                 await populateSceneMap(for: reference, from: cs, cleanData: cleanData, replaceBackground: false)
-                try? reference.modelContext?.save()
+                reference.modelContext?.saveReporting()
             }
             isImporting = false
             dismiss()
@@ -365,7 +365,7 @@ struct CineStagerImportSheet: View {
     private func finishImport(_ ref: ShotReference, from cs: CineStagerShot,
                               cleanData: Data?, replaceBackground: Bool) async {
         await populateSceneMap(for: ref, from: cs, cleanData: cleanData, replaceBackground: replaceBackground)
-        try? ref.modelContext?.save()
+        ref.modelContext?.saveReporting()
         isImporting = false
         mapConflict = nil
         dismiss()
@@ -376,12 +376,13 @@ struct CineStagerImportSheet: View {
     private func fill(_ ref: ShotReference, from cs: CineStagerShot) async {
         if let media = await library.data(at: library.imageURL(for: cs)) {
             if cs.isVideo {
-                ref.videoData = media
                 let ext = (cs.fileName as NSString).pathExtension.lowercased()
-                ref.videoExtension = ext.isEmpty ? "mp4" : ext
-                ref.imageData = nil
+                ReferenceMediaLoader.setVideo(media, fileExtension: ext.isEmpty ? "mp4" : ext, into: ref)
             } else {
-                ref.imageData = media
+                // Planning size, metadata kept. (CineStager's own maps are left as-is:
+                // they're already bounded, and are matched byte-for-byte to the scene
+                // background to recognise a location.)
+                ref.imageData = MediaOptimizer.optimizedImage(media)
                 ref.videoData = nil
                 ref.videoExtension = nil
             }

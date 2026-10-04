@@ -888,7 +888,7 @@ struct ShootingScheduleView: View {
         if doSave { save() }
     }
 
-    private func save() { try? context.save() }
+    private func save() { context.saveReporting() }
 }
 
 // MARK: - Day date chip

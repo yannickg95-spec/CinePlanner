@@ -372,7 +372,7 @@ struct OnSetModeView: View {
     }
 
     private func save() {
-        try? modelContext.save()
+        modelContext.saveReporting()
         #if os(iOS)
         OnSetLiveActivityController.shared.update()
         #endif
@@ -409,7 +409,7 @@ private struct OnSetShotRow: View {
             }
         }
         .sheet(isPresented: $showFramingSheet) {
-            if let framing = framingImage {
+            if let framing = framingImage {   // full image, decoded only when opened
                 FramingViewerSheet(image: framing, title: "Shot \(shot.displayNumber)")
             }
         }
@@ -419,7 +419,7 @@ private struct OnSetShotRow: View {
     /// the shot has a reference still; opens it in the popup viewer.
     @ViewBuilder
     private var refPill: some View {
-        if framingImage != nil {
+        if hasFramingImage {
             Button { showFramingSheet = true } label: {
                 Text("REF")
                     .font(.system(size: 10.5, weight: .bold)).kerning(0.3)
@@ -527,6 +527,12 @@ private struct OnSetShotRow: View {
 
     private var hasNick: Bool { !trimmed(shot.nickname).isEmpty }
     private func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// Whether there's a still to preview — checked without decoding it, since every
+    /// row asks on every redraw.
+    private var hasFramingImage: Bool {
+        shot.orderedReferences.contains { $0.imageData != nil } || shot.photo1Data != nil
+    }
 
     /// The framing reference to preview: the first reference with an image, else
     /// the legacy shot photo. Nil when the shot has no still.

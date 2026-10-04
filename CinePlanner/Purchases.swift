@@ -38,6 +38,26 @@ enum Purchases {
     /// submitting that build — otherwise grandfathering will be wrong.
     static let firstFreeBuild = 6              // iOS: CFBundleVersion of the first free build
     static let firstFreeShortVersion = "2.0"  // macOS: CFBundleShortVersionString of it
+
+    /// Whether an account's first download (`AppTransaction.originalAppVersion`) came
+    /// before the app went free — i.e. it was bought. A plain number is an iOS build
+    /// number; anything else is a macOS dotted version ("1.5").
+    static func isPreFreeDownload(originalAppVersion original: String) -> Bool {
+        if let build = Int(original) { return build < firstFreeBuild }
+        return isVersion(original, olderThan: firstFreeShortVersion)
+    }
+
+    /// Numeric dotted-version compare ("1.5" < "1.6" < "1.10" < "2.0").
+    static func isVersion(_ lhs: String, olderThan rhs: String) -> Bool {
+        let a = lhs.split(separator: ".").map { Int($0) ?? 0 }
+        let b = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0
+            let y = i < b.count ? b[i] : 0
+            if x != y { return x < y }
+        }
+        return false
+    }
 }
 
 // MARK: - Synced Keychain (same pattern as GHKeychain, shared across the user's devices)
@@ -121,7 +141,13 @@ enum TrialClock {
         if let trustedNow { effectiveNow = max(effectiveNow, trustedNow) }
         store(effectiveNow, highWaterAccount)
 
-        let remaining = Purchases.trialDuration - effectiveNow.timeIntervalSince(start)
+        return status(start: start, now: effectiveNow)
+    }
+
+    /// The trial's state at `now` for a trial that started at `start`: active for
+    /// `trialDuration`, with the days left rounded up (so the last day reads "1").
+    static func status(start: Date, now: Date) -> Status {
+        let remaining = Purchases.trialDuration - now.timeIntervalSince(start)
         let active = remaining > 0
         let days = active ? max(1, Int(ceil(remaining / 86_400))) : 0
         return Status(isActive: active, daysRemaining: days)

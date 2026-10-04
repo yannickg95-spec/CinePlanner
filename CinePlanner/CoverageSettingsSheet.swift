@@ -231,7 +231,7 @@ struct CoverageSettingsSheet: View {
             }
             Spacer()
             Button("Done") {
-                try? project.modelContext?.save()
+                project.modelContext?.saveReporting()
                 dismiss()
             }
             .buttonStyle(.borderedProminent)

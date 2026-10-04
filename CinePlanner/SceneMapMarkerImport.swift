@@ -43,7 +43,7 @@ enum SceneMapMarkerImport {
             scene.sceneMapMetersWide = span > 0 ? span : nil
             scene.sceneMapCameraSizeMeters = (reference.mapCameraPhysicalWidth ?? 0) > 0
                 ? reference.mapCameraPhysicalWidth! / 100 : nil
-            try? scene.modelContext?.save()
+            scene.modelContext?.saveReporting()
         }
         _ = addMissing(markers, shot: shot, to: scene)
     }
@@ -86,7 +86,7 @@ enum SceneMapMarkerImport {
         guard changed else { return false }
         assignSceneCharacters(&doc, scene: scene)
         scene.sceneMapJSON = doc.jsonString
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         return true
     }
 

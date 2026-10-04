@@ -27,8 +27,19 @@ struct CinePlannerApp: App {
     /// edits could sit unsynced for the whole editing session.
     static let flushInterval: Duration = .seconds(5)
 
+    /// True when the app is only the host for the unit tests. It then stays inert:
+    /// an empty in-memory store, no iCloud, no backups, no sync, no paywall and an
+    /// empty window — so a test run can never touch (or sync) the user's real data,
+    /// nor crash on a missing iCloud entitlement in an unsigned build.
+    static let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(versionedSchema: SchemaV1.self)
+        if CinePlannerApp.isRunningTests {
+            let memory = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
+            do { return try ModelContainer(for: schema, configurations: [memory]) }
+            catch { fatalError("Could not create the in-memory test store: \(error)") }
+        }
         // Sync the store across the user's Macs via CloudKit. An explicit private
         // container (not .automatic) because the entitlement also lists CineStager's
         // CloudDocuments container — .automatic could pick the wrong one. The models
@@ -79,6 +90,8 @@ struct CinePlannerApp: App {
     }()
 
     init() {
+        guard !Self.isRunningTests else { return }
+
         // Enable undo/redo (⌘Z / ⇧⌘Z) for model edits. Capped so a long editing
         // session's history can't grow without bound.
         let undo = UndoManager()
@@ -107,7 +120,7 @@ struct CinePlannerApp: App {
         Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.flushInterval)
-                if context.hasChanges { try? context.save() }
+                if context.hasChanges { context.saveReporting() }
             }
         }
     }
@@ -115,7 +128,7 @@ struct CinePlannerApp: App {
     /// Saves any pending edits right away (used when the app leaves the foreground).
     private func flushPendingChanges() {
         let context = sharedModelContainer.mainContext
-        if context.hasChanges { try? context.save() }
+        if context.hasChanges { context.saveReporting() }
     }
 
     private static func setRecoveryMessage(_ message: String) {
@@ -138,7 +151,7 @@ struct CinePlannerApp: App {
         if let objs = try? context.fetch(FetchDescriptor<Scene>()) { objs.forEach { $0.uid = UUID().uuidString } }
         if let objs = try? context.fetch(FetchDescriptor<Shot>()) { objs.forEach { $0.uid = UUID().uuidString } }
         if let objs = try? context.fetch(FetchDescriptor<ShotReference>()) { objs.forEach { $0.uid = UUID().uuidString } }
-        try? context.save()
+        context.saveReporting()
 
         UserDefaults.standard.set(true, forKey: key)
     }
@@ -160,7 +173,7 @@ struct CinePlannerApp: App {
                 changed = true
             }
         }
-        if changed { try? context.save() }
+        if changed { context.saveReporting() }
     }
 
     /// Camera and format used to be two separate fields; they're now one combined
@@ -177,7 +190,7 @@ struct CinePlannerApp: App {
                 shot.camera = Shot.combinedCamera(shot.camera, shot.format)
                 shot.format = ""
             }
-            try? context.save()
+            context.saveReporting()
         }
         UserDefaults.standard.set(true, forKey: key)
     }
@@ -196,21 +209,25 @@ struct CinePlannerApp: App {
 
     var body: some SwiftUI.Scene {
         WindowGroup {
-            RootGateView {
-                ProjectListView()
-                    #if os(macOS)
-                    .frame(minWidth: 1100, minHeight: 700)
-                    #endif
-                    .task { registerForCloudKitPush() }
-                    .task { SettingsSync.shared.start() }
+            if Self.isRunningTests {
+                Color.clear   // test host: nothing to show, nothing to start
+            } else {
+                RootGateView {
+                    ProjectListView()
+                        #if os(macOS)
+                        .frame(minWidth: 1100, minHeight: 700)
+                        #endif
+                        .task { registerForCloudKitPush() }
+                        .task { SettingsSync.shared.start() }
+                }
+                .environmentObject(access)
+                // Open `.cineplan` files in the window that's already there, rather
+                // than a new one per file.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+                // The app is designed for light mode only — never follow the system
+                // into dark mode, on any platform.
+                .preferredColorScheme(.light)
             }
-            .environmentObject(access)
-            // Open `.cineplan` files in the window that's already there, rather than
-            // a new one per file.
-            .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
-            // The app is designed for light mode only — never follow the system into
-            // dark mode, on any platform.
-            .preferredColorScheme(.light)
         }
         .modelContainer(sharedModelContainer)
         // Save the moment the app goes inactive/background, so the last edits reach

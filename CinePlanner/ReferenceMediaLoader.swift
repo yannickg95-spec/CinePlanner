@@ -16,8 +16,10 @@ enum ReferenceMediaLoader {
 
     /// Populates a reference from picked image bytes.
     @MainActor
-    static func loadImage(_ data: Data, into reference: ShotReference) {
-        let metadata = EXIFExtractor.extractMetadata(from: data)
+    static func loadImage(_ picked: Data, into reference: ShotReference) {
+        let metadata = EXIFExtractor.extractMetadata(from: picked)
+        // Stored at planning size (metadata kept), not as the full-resolution original.
+        let data = MediaOptimizer.optimizedImage(picked)
         reference.imageData = data
         reference.videoData = nil          // a reference holds one or the other
         reference.videoExtension = nil
@@ -89,11 +91,41 @@ enum ReferenceMediaLoader {
 
         let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
         if let type, type.conforms(to: .movie) || type.conforms(to: .video) {
-            reference.imageData = nil       // a reference holds one or the other
-            reference.videoData = data
-            reference.videoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+            setVideo(data, fileExtension: url.pathExtension, into: reference)
         } else {
             loadImage(data, into: reference)
+        }
+    }
+
+    /// Stores a reference video (clearing any image) and shrinks it to 1080p in the
+    /// background — the original shows meanwhile.
+    @MainActor
+    static func setVideo(_ data: Data, fileExtension ext: String, into reference: ShotReference) {
+        let ext = ext.isEmpty ? "mov" : ext.lowercased()
+        reference.imageData = nil       // a reference holds one or the other
+        reference.videoData = data
+        reference.videoExtension = ext
+        let originalSize = data.count
+        MediaOptimizer.shrinkVideoLater(data, fileExtension: ext) { smaller, newExt in
+            // Only if the video wasn't replaced or removed in the meantime.
+            guard reference.videoData?.count == originalSize else { return }
+            reference.videoData = smaller
+            reference.videoExtension = newExt
+        }
+    }
+
+    /// Stores a top-down map video (clearing any map image), shrunk the same way.
+    @MainActor
+    static func setMapVideo(_ data: Data, fileExtension ext: String, into reference: ShotReference) {
+        let ext = ext.isEmpty ? "mov" : ext.lowercased()
+        reference.mapData = nil          // the map is an image or a video, not both
+        reference.mapVideoData = data
+        reference.mapVideoExtension = ext
+        let originalSize = data.count
+        MediaOptimizer.shrinkVideoLater(data, fileExtension: ext) { smaller, newExt in
+            guard reference.mapVideoData?.count == originalSize else { return }
+            reference.mapVideoData = smaller
+            reference.mapVideoExtension = newExt
         }
     }
 }

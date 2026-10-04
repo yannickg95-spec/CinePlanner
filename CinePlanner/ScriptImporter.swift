@@ -22,21 +22,28 @@ struct ScriptImportResult {
 
 struct ScriptImporter {
 
-    /// Imports scenes from a PDF screenplay into a specific script version.
-    /// Runs on the main actor because it mutates SwiftData models.
-    @MainActor
-    static func importScenes(from url: URL, into version: ScriptVersion, project: Project) async throws -> ScriptImportResult {
+    /// The text side of an import — the PDF's text, page mapping and parsed scenes —
+    /// worked out without touching any models, so it can run off the main actor.
+    struct ParsedScript: Sendable {
+        let pdfData: Data?
+        let lines: [String]
+        let scenes: [SceneInfo]
+        let skippedLines: [ScreenplayParser.SkippedLine]
+        /// Characters cued in each scene (same order as `scenes`).
+        let sceneCharacters: [[String]]
+        let characterNames: [String]
+        /// No usable text (an image-only PDF, or undecodable glyphs).
+        let textExtractionFailed: Bool
+    }
+
+    /// Reads and parses a screenplay PDF. Pure text work: safe on a background thread.
+    nonisolated static func parseScript(at url: URL) throws -> ParsedScript {
         guard let pdfDocument = PDFDocument(url: url) else {
             Log.script.error("❌ Failed to create PDFDocument from URL")
             throw ScriptImportError.invalidPDF
         }
-
         Log.script.debug("✅ PDF loaded successfully with \(pdfDocument.pageCount) pages")
-
-        // Store PDF data in the version for later viewing
-        if let pdfData = try? Data(contentsOf: url) {
-            version.pdfData = pdfData
-        }
+        let pdfData = try? Data(contentsOf: url)
 
         // Extract text from all pages with page mapping
         var fullText = ""
@@ -69,15 +76,46 @@ struct ScriptImporter {
 
         if hasNoText || replacementRatio > 0.2 {
             Log.script.notice("⚠️ PDF text extraction failed (empty: \(hasNoText), replacement ratio: \(Int(replacementRatio * 100))%)")
-            throw ScriptImportError.textExtractionFailed
+            return ParsedScript(pdfData: pdfData, lines: [], scenes: [], skippedLines: [],
+                                sceneCharacters: [], characterNames: [], textExtractionFailed: true)
         }
 
         // Parse scenes from the text
         let lines = fullText.components(separatedBy: .newlines)
         let parseResult = ScreenplayParser.parse(lines: lines, lineToPageMap: lineToPageMap)
         let scenes = parseResult.scenes
-
         Log.script.debug("🎬 Found \(scenes.count) scenes (\(parseResult.skippedLines.count) candidate lines skipped)")
+
+        // Characters cued between each scene's heading and the next scene's — used to
+        // auto-label the scene map's mannequins on CineStager import.
+        let sceneCharacters = scenes.indices.map { index in
+            let nextSceneLine = (index + 1 < scenes.count) ? scenes[index + 1].lineNumber : lines.count
+            return ScreenplayParser.charactersIn(lines: lines, from: scenes[index].lineNumber, to: nextSceneLine)
+        }
+
+        return ParsedScript(pdfData: pdfData, lines: lines, scenes: scenes,
+                            skippedLines: parseResult.skippedLines,
+                            sceneCharacters: sceneCharacters,
+                            characterNames: ScreenplayParser.extractCharacters(lines: lines),
+                            textExtractionFailed: false)
+    }
+
+    /// Imports scenes from a PDF screenplay into a specific script version. The PDF
+    /// is read and parsed on a background thread (a long script used to freeze the
+    /// app); only creating the scenes runs on the main actor, since it touches models.
+    @MainActor
+    static func importScenes(from url: URL, into version: ScriptVersion, project: Project) async throws -> ScriptImportResult {
+        let parsed = try await Task.detached(priority: .userInitiated) {
+            try parseScript(at: url)
+        }.value
+
+        // Store PDF data in the version for later viewing — even when no text could
+        // be read, so the script can still be shown.
+        if let pdfData = parsed.pdfData {
+            version.pdfData = pdfData
+        }
+        if parsed.textExtractionFailed { throw ScriptImportError.textExtractionFailed }
+        let scenes = parsed.scenes
 
         // Separate this version's existing scenes into those with shots and those without
         let scenesWithShots = version.scenes.filter { !$0.shots.isEmpty }
@@ -127,11 +165,7 @@ struct ScriptImporter {
             scene.scriptPageNumber = (sceneInfo.pageNumber - firstScenePDFPage) + 1
             scene.scriptLineNumber = sceneInfo.lineNumber
 
-            // Characters cued between this scene's heading and the next scene's —
-            // used to auto-label the scene map's mannequins on CineStager import.
-            let nextSceneLine = (index + 1 < scenes.count) ? scenes[index + 1].lineNumber : lines.count
-            scene.sceneCharacterNames = ScreenplayParser.charactersIn(
-                lines: lines, from: sceneInfo.lineNumber, to: nextSceneLine)
+            scene.sceneCharacterNames = parsed.sceneCharacters[index]
 
             // Legacy: older builds read the PDF page offset from the first scene
             if index == 0 {
@@ -154,22 +188,22 @@ struct ScriptImporter {
 
         // Detect characters and register any new ones (each gets its own color),
         // used for the scene map's mannequin markers.
-        let characterNames = ScreenplayParser.extractCharacters(lines: lines)
+        let characterNames = parsed.characterNames
         project.addScriptCharacters(named: characterNames)
         Log.script.debug("👥 Detected \(characterNames.count) character\(characterNames.count == 1 ? "" : "s"): \(characterNames.joined(separator: ", "))")
 
         // Persist now so the new scenes get permanent, stable persistentModelIDs.
         // Otherwise a later autosave flips their temporary IDs to permanent ones,
         // which breaks the ID-keyed scene matching in the shot-transfer window.
-        try? project.modelContext?.save()
+        project.modelContext?.saveReporting()
 
         // Turn parser diagnostics into user-facing warnings (capped)
         var warnings: [String] = []
-        for skipped in parseResult.skippedLines.prefix(3) {
+        for skipped in parsed.skippedLines.prefix(3) {
             warnings.append("Line \(skipped.lineNumber): \(skipped.reason)")
         }
-        if parseResult.skippedLines.count > 3 {
-            warnings.append("…and \(parseResult.skippedLines.count - 3) more skipped lines (see console log)")
+        if parsed.skippedLines.count > 3 {
+            warnings.append("…and \(parsed.skippedLines.count - 3) more skipped lines (see console log)")
         }
 
         return ScriptImportResult(sceneCount: scenes.count, warnings: warnings)
@@ -179,12 +213,19 @@ struct ScriptImporter {
 // MARK: - Screenplay Parser
 
 /// Pure screenplay scene-heading parser. It has no PDF, model, or UI
-/// dependencies so the detection logic can be unit tested with plain strings.
-enum ScreenplayParser {
+/// dependencies so the detection logic can be unit tested with plain strings —
+/// and it's nonisolated, so an import can run it off the main actor.
+nonisolated enum ScreenplayParser {
+
+    /// A line that looked like a heading (it had INT/EXT) but was rejected.
+    struct SkippedLine: Sendable {
+        let lineNumber: Int
+        let reason: String
+    }
 
     struct ParseResult {
         var scenes: [SceneInfo] = []
-        var skippedLines: [(lineNumber: Int, reason: String)] = []
+        var skippedLines: [SkippedLine] = []
     }
 
     struct HeadingMatch {
@@ -359,7 +400,7 @@ enum ScreenplayParser {
 
             case .skipped(let reason):
                 Log.script.notice("  ⚠️ Line \(lineNumber) skipped — \(reason): '\(line.prefix(80))'")
-                result.skippedLines.append((lineNumber, reason))
+                result.skippedLines.append(SkippedLine(lineNumber: lineNumber, reason: reason))
 
             case .heading(var heading):
                 if heading.number != nil {
@@ -900,7 +941,7 @@ enum ScreenplayParser {
 
 // MARK: - Supporting Types
 
-struct SceneInfo {
+nonisolated struct SceneInfo: Sendable {
     let number: Int
     let suffix: String
     let name: String

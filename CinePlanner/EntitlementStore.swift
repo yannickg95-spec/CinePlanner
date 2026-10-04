@@ -139,13 +139,7 @@ final class EntitlementStore: ObservableObject {
         guard let result = try? await AppTransaction.shared,
               case .verified(let appTransaction) = result,
               appTransaction.environment == .production else { return false }
-        let original = appTransaction.originalAppVersion
-        if let build = Int(original) {
-            // iOS: originalAppVersion is the build number.
-            return build < Purchases.firstFreeBuild
-        }
-        // macOS: originalAppVersion is the short version string ("1.5").
-        return isOlderVersion(original, than: Purchases.firstFreeShortVersion)
+        return Purchases.isPreFreeDownload(originalAppVersion: appTransaction.originalAppVersion)
     }
 
     /// Apple's signed server time, used as a trusted reference for the trial clock.
@@ -153,17 +147,5 @@ final class EntitlementStore: ObservableObject {
         guard let result = try? await AppTransaction.shared,
               case .verified(let appTransaction) = result else { return nil }
         return appTransaction.signedDate
-    }
-
-    /// Numeric dotted-version compare ("1.5" < "1.6").
-    private static func isOlderVersion(_ lhs: String, than rhs: String) -> Bool {
-        let a = lhs.split(separator: ".").map { Int($0) ?? 0 }
-        let b = rhs.split(separator: ".").map { Int($0) ?? 0 }
-        for i in 0..<max(a.count, b.count) {
-            let x = i < a.count ? a[i] : 0
-            let y = i < b.count ? b[i] : 0
-            if x != y { return x < y }
-        }
-        return false
     }
 }

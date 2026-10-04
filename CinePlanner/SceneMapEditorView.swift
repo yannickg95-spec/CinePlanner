@@ -790,7 +790,7 @@ struct SceneMapEditorView: View {
 
     private func saveSun() {
         scene.sunSettings = sun
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Corrects a satellite capture whose recorded size predates the measured
@@ -800,7 +800,7 @@ struct SceneMapEditorView: View {
     private func calibrateSatelliteCapture() {
         guard !scene.sceneMapSatelliteCalibrated else { return }
         SatelliteCalibration.calibrate(scene)
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Re-reads the background's real-world scale into local state so markers
@@ -2299,7 +2299,7 @@ struct SceneMapEditorView: View {
 
     private func persistBackgroundTransform() {
         scene.sceneMapBackgroundTransform = bgTransform
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Drag = move, and only move. Scale and rotation are set from the panel
@@ -3898,7 +3898,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapCameraSizeMeters = nil       // no camera size → default 0.35 m
         scene.sceneMapBackgroundTransform = .init() // satellite: never manually placed
         backgroundImage = PlatformImage(data: data)
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
 
         // Seed the sun overlay from this location.
         sun.latitude = coordinate.latitude
@@ -3949,7 +3949,7 @@ struct SceneMapEditorView: View {
         // painstakingly aligned image comes across still aligned.
         scene.sceneMapBackgroundTransform = other.satelliteCapture == nil ? other.sceneMapBackgroundTransform : .init()
         backgroundImage = PlatformImage(data: data)
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Copies another scene's drawn floor plan — the walls and the furniture on them
@@ -3975,7 +3975,7 @@ struct SceneMapEditorView: View {
         scene.sceneFloorPlanJSON = other.sceneFloorPlanJSON
         scene.sceneMapJSON = doc.jsonString
         scene.sceneMapLocation = other.sceneMapLocation
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Sets (replacing any existing) the scene-map background from an image file.
@@ -3983,7 +3983,10 @@ struct SceneMapEditorView: View {
     private func setBackground(from url: URL) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url), let image = PlatformImage(data: data) else { return }
+        guard let picked = try? Data(contentsOf: url) else { return }
+        // A picked plan or photo is kept at map resolution, not as the full original.
+        let data = MediaOptimizer.optimizedImage(picked, maxPixels: MediaOptimizer.mapMaxPixels)
+        guard let image = PlatformImage(data: data) else { return }
         isDrawing = false
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
@@ -3993,7 +3996,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapCameraSizeMeters = nil
         scene.sceneMapBackgroundTransform = .init()  // a fresh image starts fitted
         backgroundImage = image
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// 3D file types offered by the model picker.
@@ -4036,7 +4039,7 @@ struct SceneMapEditorView: View {
                 scene.sceneMapCameraSizeMeters = nil
                 scene.sceneMapBackgroundTransform = .init()
                 backgroundImage = image
-                try? scene.modelContext?.save()
+                scene.modelContext?.saveReporting()
             }
         }
     }
@@ -4300,7 +4303,7 @@ struct SceneMapEditorView: View {
         drawTool = .wall
         chainLastVertex = nil
         isDrawing = true
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     /// Re-enters drawing on the EXISTING floor plan to add more walls, doors and
@@ -4353,7 +4356,7 @@ struct SceneMapEditorView: View {
         scene.sceneMapBackgroundTransform = .init()
         floorPlan = FloorPlan()
         scene.sceneFloorPlanJSON = nil
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
 
     private func toggleMeasurementLabels() {

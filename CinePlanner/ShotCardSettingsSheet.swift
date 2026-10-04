@@ -111,7 +111,7 @@ struct ShotCardSettingsSheet: View {
         let insertAt = order.firstIndex(of: target) ?? order.count
         order.insert(dragged, at: insertAt)
         project.shotSetupFieldOrder = order
-        try? project.modelContext?.save()
+        project.modelContext?.saveReporting()
         return true
     }
 
@@ -119,7 +119,7 @@ struct ShotCardSettingsSheet: View {
         var hidden = project.hiddenShotSetupFields
         if hidden.contains(field) { hidden.remove(field) } else { hidden.insert(field) }
         project.hiddenShotSetupFields = hidden
-        try? project.modelContext?.save()
+        project.modelContext?.saveReporting()
     }
 
     // MARK: - Camera Information: project default

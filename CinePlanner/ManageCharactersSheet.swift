@@ -118,6 +118,6 @@ struct ManageCharactersSheet: View {
         // unchanged (possibly outdated) list would overwrite another device's edits.
         guard cleaned != project.scriptCharacters else { return }
         project.scriptCharacters = cleaned
-        try? project.modelContext?.save()
+        project.modelContext?.saveReporting()
     }
 }

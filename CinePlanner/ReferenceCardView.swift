@@ -159,7 +159,7 @@ struct ReferenceCardView: View {
                     }
                 )
                 .frame(maxWidth: .infinity)
-            } else if let data = reference.imageData, let image = PlatformImage(data: data) {
+            } else if let data = reference.imageData, let image = ThumbnailCache.image(for: data) {
                 imageView(image, data: data, title: "Reference")
                 if reference.imageMetadata.hasContent {
                     MetadataView(metadata: reference.imageMetadata)
@@ -264,7 +264,7 @@ struct ReferenceCardView: View {
                     onDelete: { clearMap() }
                 )
                 .frame(maxWidth: .infinity)
-            } else if let data = reference.mapData, let image = PlatformImage(data: data) {
+            } else if let data = reference.mapData, let image = ThumbnailCache.image(for: data) {
                 imageView(image, data: data, title: "Top Down Map", isMap: true)
                 if !reference.mapMetadata.mapDisplayItems.isEmpty {
                     TopDownMetadataView(metadata: reference.mapMetadata)
@@ -320,7 +320,8 @@ struct ReferenceCardView: View {
             // own shapes; each image sits inside, scaled to fit.
             Button {
                 previewTitle = title
-                previewImage = image
+                // The card shows a thumbnail; the full view gets the real image.
+                previewImage = PlatformImage(data: data) ?? image
             } label: {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.black.opacity(0.04))
@@ -429,9 +430,7 @@ struct ReferenceCardView: View {
 
         let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
         if let type, type.conforms(to: .movie) || type.conforms(to: .video) {
-            reference.mapData = nil            // the map is an image or a video, not both
-            reference.mapVideoData = data
-            reference.mapVideoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+            ReferenceMediaLoader.setMapVideo(data, fileExtension: url.pathExtension, into: reference)
         } else {
             reference.mapVideoData = nil
             reference.mapVideoExtension = nil
@@ -440,7 +439,8 @@ struct ReferenceCardView: View {
     }
 
     private func loadMap(data: Data) {
-        reference.mapData = data
+        // Kept sharper than a reference photo (maps get zoomed into); metadata kept.
+        reference.mapData = MediaOptimizer.optimizedImage(data, maxPixels: MediaOptimizer.mapMaxPixels)
         guard let metadata = EXIFExtractor.extractMetadata(from: data) else { return }
         reference.mapCaptureID = metadata.captureID
         reference.mapCameraPhysicalWidth = metadata.cameraPhysicalWidth
@@ -460,9 +460,7 @@ struct ReferenceCardView: View {
 
         let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
         if let type, type.conforms(to: .movie) || type.conforms(to: .video) {
-            reference.imageData = nil          // a reference holds one or the other
-            reference.videoData = data
-            reference.videoExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension.lowercased()
+            ReferenceMediaLoader.setVideo(data, fileExtension: url.pathExtension, into: reference)
         } else {
             loadImage(data: data)              // sets imageData + extracts EXIF, clears video
         }

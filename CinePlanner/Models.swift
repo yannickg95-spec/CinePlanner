@@ -32,7 +32,7 @@ extension ModelContext {
             undoManager = undo
         }
         body()
-        try? save()
+        saveReporting()
     }
 }
 

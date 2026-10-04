@@ -17,7 +17,8 @@
 
 import os
 
-enum Log {
+// Nonisolated: `Logger` is thread-safe, and parsing/transcoding log from background work.
+nonisolated enum Log {
     private static let subsystem = "com.YannickGiraud.CinePlanner"
 
     /// Reading EXIF/TIFF/IPTC out of reference stills.
@@ -36,4 +37,6 @@ enum Log {
     static let backup = Logger(subsystem: subsystem, category: "backup")
     /// Everything else in the app shell.
     static let app = Logger(subsystem: subsystem, category: "app")
+    /// Scaling and transcoding imported photos and videos.
+    static let media = Logger(subsystem: subsystem, category: "media")
 }

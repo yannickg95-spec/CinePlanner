@@ -224,7 +224,7 @@ struct SceneListView: View {
     private func clearScene(_ scene: Scene) {
         scene.shots.removeAll()
         scene.clearSceneMap()
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         sceneToClear = nil
     }
     
@@ -368,7 +368,7 @@ struct SceneListView: View {
         for s in ordered[index...] {
             s.sceneNumber += 1
         }
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
     }
     
     private var totalShotsCount: Int {
@@ -467,7 +467,7 @@ struct SceneListView: View {
             oldScene.sortOrder = currentScenesCount + 1 + index
         }
 
-        try? project.modelContext?.save()
+        project.modelContext?.saveReporting()
         selectedScenes = [copy.uid]
     }
 
@@ -890,7 +890,7 @@ struct ShotListView: View {
         // scene — get permanent ids and a settled relationship before the detail
         // pane resolves the selection. Otherwise the very first shot can't be
         // opened until the scene is reselected.
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         selectedShots = [newShot.uid]
     }
 
@@ -916,7 +916,7 @@ struct ShotListView: View {
             created.append(newShot)
         }
         guard !created.isEmpty else { return }
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         selectedShots = Set(created.map { $0.uid })
     }
 
@@ -959,7 +959,7 @@ struct ShotListView: View {
         let reference = ShotReference(sortOrder: 0)
         reference.shot = newShot
         newShot.references.append(reference)
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         selectedShots = [newShot.uid]
         return reference
     }
@@ -999,7 +999,7 @@ struct ShotListView: View {
             ordered.append(copy)
         }
         for (index, s) in ordered.enumerated() { s.shotNumber = index + 1 }
-        try? scene.modelContext?.save()
+        scene.modelContext?.saveReporting()
         selectedShots = [copy.uid]
     }
     
@@ -1141,7 +1141,7 @@ private struct FilmStockRow: View {
                         item.shot?.scene?.enableSceneFilmTool(
                             gauge: item.filmGauge, fps: item.filmFPS, mode: item.filmMode,
                             context: item.modelContext)
-                        try? item.modelContext?.save()
+                        item.modelContext?.saveReporting()
                     } label: {
                         Label("Apply to all shots in scene", systemImage: "square.stack.3d.up")
                     }
@@ -1149,7 +1149,7 @@ private struct FilmStockRow: View {
                         Text("New shots inherit these settings")
                         Button {
                             item.shot?.scene?.sceneFilmToolEnabled = false
-                            try? item.modelContext?.save()
+                            item.modelContext?.saveReporting()
                         } label: {
                             Label("Stop applying to new shots", systemImage: "xmark.circle")
                         }
@@ -1499,7 +1499,7 @@ struct ShotDetailView: View {
         // from the start. Otherwise a later autosave flips it from temporary to
         // permanent, and if that happens while a file picker is open, the card
         // (keyed by that id) is rebuilt and the picker is torn down mid-use.
-        try? shotModelContext.save()
+        shotModelContext.saveReporting()
     }
 
     private func deleteReference(_ reference: ShotReference) {
@@ -1806,12 +1806,12 @@ struct ShotDetailView: View {
         if kind == "timeofday" { item.value = ShotCustomInfo.timeOfDayPresets.first ?? "" }
         item.shot = shot
         shotModelContext.insert(item)
-        try? shotModelContext.save()
+        shotModelContext.saveReporting()
     }
 
     private func deleteCustomInfo(_ item: ShotCustomInfo) {
         shotModelContext.delete(item)
-        try? shotModelContext.save()
+        shotModelContext.saveReporting()
     }
 
     private var scriptCoverageCard: some View {
@@ -2293,7 +2293,7 @@ struct PhotoSlot: View {
         VStack {
             ZStack(alignment: .topTrailing) {
                 PhotosPicker(selection: $selectedItem, matching: .images) {
-                    if let photoData, let image = loadImage(from: photoData) {
+                    if let photoData, let image = ThumbnailCache.image(for: photoData) {
                         #if os(macOS)
                         Image(nsImage: image)
                             .resizable()
@@ -2378,15 +2378,6 @@ struct PhotoSlot: View {
         }
     }
     
-    #if os(macOS)
-    private func loadImage(from data: Data) -> NSImage? {
-        NSImage(data: data)
-    }
-    #else
-    private func loadImage(from data: Data) -> UIImage? {
-        UIImage(data: data)
-    }
-    #endif
 }
 
 // MARK: - Reference Video Player

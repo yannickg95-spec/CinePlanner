@@ -29,8 +29,11 @@ struct RootGateView<Content: View>: View {
             .allowsHitTesting(!access.isLocked)
             .accessibilityHidden(access.isLocked)
             .overlay { if access.isLocked { PaywallView(dismissable: false) } }
+            // A failed save shows here, over everything (see SaveReporter).
+            .overlay(alignment: .top) { SaveFailureBanner() }
             .task { await access.start() }
             .animation(.easeInOut, value: access.state)
+            .animation(.easeInOut, value: SaveReporter.shared.message)
     }
 }
 

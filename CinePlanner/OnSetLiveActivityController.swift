@@ -107,7 +107,7 @@ final class OnSetLiveActivityController {
         } else {
             if let last = shots.last(where: { $0.isShot }) { last.isShot = false }
         }
-        try? ctx.save()
+        ctx.saveReporting()
         push(versionUID: versionUID, dayUID: dayUID)
     }
 
