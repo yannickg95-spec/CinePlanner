@@ -47,6 +47,7 @@ struct ProjectListView: View {
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
     @State private var showingUnlock = false
+    @State private var menuCommands = ProjectListCommands()
     @EnvironmentObject private var access: AppAccess
     @State private var restoringPurchase = false
     @State private var restoreMessage: String?
@@ -121,6 +122,14 @@ struct ProjectListView: View {
             }
             // Read-only after the trial: making or importing a project offers the unlock.
             .sheet(isPresented: $showingUnlock) { PaywallView(dismissable: true) }
+            // File ▸ New / Import and Help ▸ Walkthrough in the menu bar — one stable
+            // commands object, wired once (see AppCommands).
+            .onAppear {
+                menuCommands.newProject = newProject
+                menuCommands.importProject = importProject
+                menuCommands.showWalkthrough = { showingWalkthrough = true }
+            }
+            .focusedSceneValue(\.projectListCommands, menuCommands)
             .sheet(isPresented: $showingNewProjectSheet) {
                 NewProjectSheet(isPresented: $showingNewProjectSheet) { projectName, isSeries, scriptURL in
                     createProject(named: projectName, isSeries: isSeries, scriptURL: scriptURL)
@@ -223,12 +232,14 @@ struct ProjectListView: View {
 
     /// Presents the system file picker to choose a .cineplan file to import.
     private func importProject() {
+        guard !access.isLocked else { return }   // the trial offer is up (⌘O from the menu)
         if access.isReadOnly { showingUnlock = true; return }
         showingProjectImporter = true
     }
 
     /// Opens the new-project sheet — or, read-only after the trial, the unlock.
     private func newProject() {
+        guard !access.isLocked else { return }   // the trial offer is up (⌘N from the menu)
         if access.isReadOnly { showingUnlock = true; return }
         showingNewProjectSheet = true
     }

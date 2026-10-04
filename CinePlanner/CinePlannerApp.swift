@@ -241,15 +241,20 @@ struct CinePlannerApp: App {
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
         .defaultSize(width: 1440, height: 860)
         .commands {
-            // Route the standard Edit ▸ Undo/Redo (⌘Z / ⇧⌘Z) to SwiftData's
-            // context undo manager, so edits can be reversed.
-            CommandGroup(replacing: .undoRedo) {
-                Button("Undo") { sharedModelContainer.mainContext.undoManager?.undo() }
-                    .keyboardShortcut("z", modifiers: .command)
-                Button("Redo") { sharedModelContainer.mainContext.undoManager?.redo() }
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
-            }
+            // File, Edit (undo — the scene map's own history while it's on screen),
+            // View and Help; see AppCommands.
+            CinePlannerCommands(container: sharedModelContainer)
         }
+
+        #if os(macOS)
+        // CinePlanner ▸ Settings… (⌘,).
+        Settings {
+            SettingsView()
+                .environmentObject(access)
+                .preferredColorScheme(.light)
+        }
+        .modelContainer(sharedModelContainer)
+        #endif
     }
 }
 

@@ -227,6 +227,20 @@ struct SceneMapEditorView: View {
     /// A wall's endpoint positions captured at the start of a move drag.
     @State private var wallDragOrigin: (id: UUID, a: CGPoint, b: CGPoint)?
 
+    // Undo / redo of map edits (see "Undo" below).
+    @State private var history = EditHistory<MapHistoryState>() {
+        didSet {
+            undoCommands.canUndo = history.canUndo
+            undoCommands.canRedo = history.canRedo
+        }
+    }
+    /// One stable object for the menu bar's Undo / Redo (see AppCommands).
+    @State private var undoCommands = MapUndoCommands()
+    /// The map as last committed (persisted) — what the next edit is undone back to.
+    @State private var committedState: MapHistoryState?
+    /// Set while a change isn't the user's own edit (maintenance), so it isn't undoable.
+    @State private var suppressHistory = false
+
     init(scene: Scene, embedded: Bool = false) {
         self.scene = scene
         self.embedded = embedded
@@ -260,7 +274,14 @@ struct SceneMapEditorView: View {
         .frame(minWidth: embedded ? nil : 920, minHeight: embedded ? nil : 660)
         // Start from what's actually in the store: the UI context's copy of the scene
         // isn't refreshed when iCloud imports, so it can be older than the store.
-        .onAppear { sun = scene.sunSettings; reloadFromStoreIfNewer(); syncShotLabels(); pruneOrphanedShotCameras(); calibrateSatelliteCapture(); refreshMapScale() }
+        .onAppear {
+            sun = scene.sunSettings; reloadFromStoreIfNewer(); syncShotLabels(); pruneOrphanedShotCameras()
+            calibrateSatelliteCapture(); refreshMapScale(); resetHistory()
+            undoCommands.undo = undoMap
+            undoCommands.redo = redoMap
+        }
+        // ⌘Z / ⇧⌘Z (Edit menu) walk the map's own history while it's on screen.
+        .focusedSceneValue(\.mapUndoCommands, undoCommands)
         // Pick up another device's edits live: after each iCloud import, re-read this
         // scene from the store and show a newer map / floor plan.
         .onReceive(NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)) { note in
@@ -294,6 +315,7 @@ struct SceneMapEditorView: View {
             doc = incoming
             selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
             furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
+            resetHistory()   // changed from outside: not an undoable edit of ours
         }
         .onChange(of: scene.sceneMapBackgroundData) { _, newValue in
             backgroundImage = newValue.flatMap(PlatformImage.init(data:))
@@ -313,6 +335,7 @@ struct SceneMapEditorView: View {
             let incoming = FloorPlan.load(from: newValue)
             guard incoming != floorPlan, !(incoming.isEmpty && !floorPlan.isEmpty) else { return }
             floorPlan = incoming
+            resetHistory()
         }
         // Pick up sun settings changed from outside the editor — e.g. scheduling the
         // scene on a dated day carries that date into the sun seeker. Round-trip
@@ -488,7 +511,9 @@ struct SceneMapEditorView: View {
             addSegmentedGroup
             Spacer()
         }
-        .overlay(alignment: .leading) { trashButton.padding(.leading, 16) }
+        .overlay(alignment: .leading) {
+            HStack(spacing: 10) { trashButton; undoRedoGroup }.padding(.leading, 16)
+        }
         .overlay(alignment: .trailing) { sizeSunGroup.padding(.trailing, 16) }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -499,8 +524,8 @@ struct SceneMapEditorView: View {
     /// the row is pulled tight to the top so the map gets the most height.
     private var compactToolbar: some View {
         Group {
-            // On iPhone the clear-map button moves to the map's top-left corner
-            // (opposite ADJUST), so it never crowds this row — see
+            // On iPhone the clear-map and undo/redo buttons move to the map's
+            // top-left corner (opposite ADJUST), so they never crowd this row — see
             // `clearMapCornerButton`.
             if isPhoneLandscape {
                 HStack(spacing: 10) {
@@ -1969,27 +1994,56 @@ struct SceneMapEditorView: View {
         }
     }
 
-    /// iPhone only: the clear-map button in the map's top-LEFT corner (opposite
-    /// ADJUST), so it doesn't have to fit in the compact toolbar row. Shown only
-    /// when there's something to clear and no mode is running.
+    /// iPhone only: the clear-map button — and next to it undo/redo — in the map's
+    /// top-LEFT corner (opposite ADJUST), so they don't have to fit in the compact
+    /// toolbar row. Trash shows when there's something to clear, undo/redo when
+    /// there's something to undo or redo; neither while a mode is running.
     @ViewBuilder
     private func clearMapCornerButton() -> some View {
-        if isPhone, !mapIsEmpty, !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
-            Button(role: .destructive) { showingClearAllConfirm = true } label: {
-                Image(systemName: "trash")
+        let showTrash = !mapIsEmpty
+        let showUndo = history.canUndo || history.canRedo
+        if isPhone, showTrash || showUndo, !isBackgroundAdjustMode, !isReframeMode, !isDrawing, pendingMove == nil {
+            HStack(spacing: 8) {
+                if showTrash {
+                    Button(role: .destructive) { showingClearAllConfirm = true } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .modifier(MapCornerCapsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear Map — remove everything from the scene map")
+                    .accessibilityLabel("Clear map")
+                }
+                if showUndo {
+                    HStack(spacing: 0) {
+                        Button(action: undoMap) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .padding(.leading, 10).padding(.trailing, 7).padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                        }
+                        .disabled(!history.canUndo)
+                        .opacity(history.canUndo ? 1 : 0.35)
+                        .accessibilityLabel("Undo")
+                        Divider().frame(height: 14)
+                        Button(action: redoMap) {
+                            Image(systemName: "arrow.uturn.forward")
+                                .padding(.leading, 7).padding(.trailing, 10).padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                        }
+                        .disabled(!history.canRedo)
+                        .opacity(history.canRedo ? 1 : 0.35)
+                        .accessibilityLabel("Redo")
+                    }
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+                    .buttonStyle(.plain)
+                    .modifier(MapCornerCapsule())
+                }
             }
-            .buttonStyle(.plain)
             .padding(10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .help("Clear Map — remove everything from the scene map")
-            .accessibilityLabel("Clear map")
         }
     }
 
@@ -4365,13 +4419,16 @@ struct SceneMapEditorView: View {
     }
 
     private func persistFloorPlan() {
+        recordCommit()
         // Only write a real change. An unconditional write (e.g. on leaving the editor)
         // re-sent this device's possibly outdated copy and overwrote another device's
         // newer plan in iCloud.
         let stored = FloorPlan.load(from: storeScene()?.sceneFloorPlanJSON ?? scene.sceneFloorPlanJSON)
         guard floorPlan != stored else { return }
-        scene.sceneFloorPlanJSON = floorPlan.jsonString
-        saveContext()
+        writeWithoutGlobalUndo {
+            scene.sceneFloorPlanJSON = floorPlan.jsonString
+            saveContext()
+        }
     }
 
     private func persist() {
@@ -4379,11 +4436,14 @@ struct SceneMapEditorView: View {
         // UI context's copy, which iCloud imports don't refresh). An unconditional write
         // — `onDisappear` saved every time the map was left — re-sent this device's
         // stale copy and overwrote the other device's newer edits in iCloud.
+        recordCommit()
         let stored = SceneMapDoc.load(from: storeScene()?.sceneMapJSON ?? scene.sceneMapJSON)
         guard !doc.sameContent(as: stored) else { return }
         doc.editedAt = Date().timeIntervalSince1970
-        scene.sceneMapJSON = doc.jsonString
-        saveContext()
+        writeWithoutGlobalUndo {
+            scene.sceneMapJSON = doc.jsonString
+            saveContext()
+        }
     }
 
     /// This scene as it is in the store right now, read through a fresh context. The
@@ -4412,6 +4472,8 @@ struct SceneMapEditorView: View {
                 furnitureSelectedIDs = furnitureSelectedIDs.filter { id in doc.furniture.contains { $0.id == id } }
                 // Keep the UI context's copy in step with the store.
                 if scene.sceneMapJSON != fresh.sceneMapJSON { scene.sceneMapJSON = fresh.sceneMapJSON }
+                // Another device's edit: undo must never take it back.
+                resetHistory()
             } else {
                 // Our edit is newer than what's in the store: put it back.
                 scene.sceneMapJSON = doc.jsonString
@@ -4423,6 +4485,7 @@ struct SceneMapEditorView: View {
         let incomingPlan = FloorPlan.load(from: fresh.sceneFloorPlanJSON)
         if !isDrawing, incomingPlan != floorPlan {
             floorPlan = incomingPlan
+            resetHistory()
             if scene.sceneFloorPlanJSON != fresh.sceneFloorPlanJSON { scene.sceneFloorPlanJSON = fresh.sceneFloorPlanJSON }
         }
 
@@ -5020,7 +5083,7 @@ struct SceneMapEditorView: View {
         let ids = Set(doc.elements.map(\.id))
         doc.arrows.removeAll { !ids.contains($0.fromID) || !ids.contains($0.toID) }
         selectedIDs = selectedIDs.filter { id in doc.elements.contains { $0.id == id } }
-        persist()
+        withoutHistory { persist() }
     }
 
     /// Refresh stored labels of shot-linked cameras to their shot's current
@@ -5035,7 +5098,100 @@ struct SceneMapEditorView: View {
             doc.elements[index].label = shot.displayNumber
             changed = true
         }
-        if changed { persist() }
+        if changed { withoutHistory { persist() } }
+    }
+
+    // MARK: - Undo
+
+    /// Called as an edit is committed (every edit ends in `persist` /
+    /// `persistFloorPlan`, a drag only once it's released): the map as it was before
+    /// becomes the next undo step.
+    private func recordCommit() {
+        let current = MapHistoryState(doc: doc, floorPlan: floorPlan)
+        defer { committedState = current }
+        guard let previous = committedState, !previous.sameContent(as: current), !suppressHistory else { return }
+        history.record(previous)
+    }
+
+    /// Starts the history afresh from the map as it is now — on opening, and when the
+    /// map changed from outside (iCloud, a CineStager import), so undo never takes
+    /// back anything but this editor's own edits.
+    private func resetHistory() {
+        history.reset()
+        committedState = MapHistoryState(doc: doc, floorPlan: floorPlan)
+    }
+
+    /// Runs a change that isn't the user's own edit, without making it undoable.
+    private func withoutHistory(_ body: () -> Void) {
+        suppressHistory = true
+        body()
+        suppressHistory = false
+    }
+
+    private func undoMap() {
+        guard let previous = history.undo(from: MapHistoryState(doc: doc, floorPlan: floorPlan)) else { return }
+        restore(previous)
+    }
+
+    private func redoMap() {
+        guard let next = history.redo(from: MapHistoryState(doc: doc, floorPlan: floorPlan)) else { return }
+        restore(next)
+    }
+
+    /// Puts the map back to `state` and saves it (as a change of its own, so it syncs).
+    private func restore(_ state: MapHistoryState) {
+        doc = state.doc
+        floorPlan = state.floorPlan
+        committedState = state
+        // Selections and in-progress drawing may point at things that are gone.
+        selectedIDs = []
+        furnitureSelectedIDs = []
+        furnitureSelectedID = nil
+        arrowSelectedID = nil
+        wallSelectedID = nil
+        openingSelectedID = nil
+        chainLastVertex = nil
+        withoutHistory {
+            persist()
+            persistFloorPlan()
+            pruneOrphanedShotCameras()   // a restored camera whose shot is gone
+            syncShotLabels()
+        }
+    }
+
+    /// Writes map data without registering it with the app-wide (SwiftData) undo: the
+    /// map keeps its own history, and the two mustn't both replay the same change.
+    private func writeWithoutGlobalUndo(_ body: () -> Void) {
+        let context = scene.modelContext ?? modelContext
+        let undo = context.undoManager
+        context.undoManager = nil
+        body()
+        context.undoManager = undo
+    }
+
+    /// Undo / redo as a toolbar pill, for touch (and for anyone who prefers a click).
+    private var undoRedoGroup: some View {
+        HStack(spacing: 0) {
+            Button(action: undoMap) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: toolbarIconSize, weight: .medium))
+                    .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+            }
+            .disabled(!history.canUndo)
+            .help("Undo")
+            .accessibilityLabel("Undo")
+            segmentDivider
+            Button(action: redoMap) {
+                Image(systemName: "arrow.uturn.forward")
+                    .font(.system(size: toolbarIconSize, weight: .medium))
+                    .frame(width: toolbarCellWidth).frame(maxHeight: .infinity).contentShape(Rectangle())
+            }
+            .disabled(!history.canRedo)
+            .help("Redo")
+            .accessibilityLabel("Redo")
+        }
+        .buttonStyle(.borderless)
+        .modifier(SegmentedGroup(height: toolbarPillHeight))
     }
 }
 
@@ -5190,3 +5346,24 @@ struct ArrowHitShape: Shape {
     }
 }
 
+
+/// One step of the scene map's undo history: the map and its floor plan.
+private struct MapHistoryState: Equatable {
+    var doc: SceneMapDoc
+    var floorPlan: FloorPlan
+
+    /// Same map, ignoring the edit timestamp.
+    func sameContent(as other: MapHistoryState) -> Bool {
+        doc.sameContent(as: other.doc) && floorPlan == other.floorPlan
+    }
+}
+
+/// The floating capsule look of the iPhone map-corner buttons.
+private struct MapCornerCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 4, y: 1)
+    }
+}

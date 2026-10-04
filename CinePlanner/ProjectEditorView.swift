@@ -72,6 +72,8 @@ struct ProjectEditorView: View {
     @State private var scriptReloadToken = 0
     @State private var showExportSheet = false
     @State private var showPublishSheet = false
+    /// The menu bar's commands for this project (one stable object; see AppCommands).
+    @State private var menuCommands = ProjectEditorCommands()
     @State private var showingDeletePageConfirm = false
     @State private var isDeletingPage = false
     @State private var deletePageError: String?
@@ -131,6 +133,20 @@ struct ProjectEditorView: View {
     
     var body: some View {
         deletionAlerts(editorAlerts(editorSheets(coreView)))
+            .onAppear(perform: connectMenuCommands)
+            .focusedSceneValue(\.projectEditorCommands, menuCommands)
+    }
+
+    /// What this project offers the menu bar (File, View) — wired once into the one
+    /// stable commands object it publishes (see AppCommands).
+    private func connectMenuCommands() {
+        menuCommands.importScript = { requestScriptImport = true }
+        menuCommands.export = { showExportSheet = true }
+        menuCommands.publish = { showPublishSheet = true }
+        menuCommands.showShotDetails = { detailTab = .shot }
+        menuCommands.showSceneMap = { detailTab = .map }
+        menuCommands.showSchedule = { if selectedVersion != nil { showScheduleSheet = true } }
+        menuCommands.startOnSet = { if let version = selectedVersion { onSet.version = version } }
     }
 
     private var coreView: some View {
