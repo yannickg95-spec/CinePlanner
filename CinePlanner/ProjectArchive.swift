@@ -34,6 +34,17 @@ enum ProjectArchive {
         var episodes: [EpisodeDTO]
         var autoAddFilmTool: Bool?
         var scriptCharactersJSON: String?
+        // Optional so archives written before they were carried still decode.
+        var productionCompany: String?
+        var director: String?
+        var cinematographer: String?
+        var coveragePalette: String?
+        var coverageColorMode: String?
+        var shotSetupFieldOrder: String?
+        var hiddenShotSetupFields: String?
+        var defaultCamera: String?
+        var defaultFramelines: String?
+        var defaultLens: String?
     }
 
     private struct EpisodeDTO: Codable {
@@ -41,6 +52,8 @@ enum ProjectArchive {
         var title: String
         var createdDate: Date
         var versions: [VersionDTO]
+        var director: String?
+        var cinematographer: String?
     }
 
     private struct VersionDTO: Codable {
@@ -51,6 +64,25 @@ enum ProjectArchive {
         var pdfPageOffset: Int
         var coverageLineMargin: Double?
         var scenes: [SceneDTO]
+        var coverageLinesOnRight: Bool?
+        var shootingDays: [DayDTO]?
+    }
+
+    /// A shooting day. Its strips point at scenes and shots by their uid in the
+    /// archive, which import maps onto the freshly created objects.
+    private struct DayDTO: Codable {
+        var sortOrder: Int
+        var date: Date?
+        var notes: String
+        var entries: [EntryDTO]
+    }
+
+    private struct EntryDTO: Codable {
+        var sortOrder: Int
+        var note: String
+        var sceneUID: String?
+        var selectedShotUIDs: [String]
+        var shotShootOrderUIDs: [String]
     }
 
     private struct SceneDTO: Codable {
@@ -91,6 +123,14 @@ enum ProjectArchive {
         var sceneCharactersJSON: String?
         var sunSettingsJSON: String?
         var shots: [ShotDTO]
+        /// The scene's uid at export — only to resolve references (schedule strips,
+        /// coverage aliases); import gives the scene a fresh one.
+        var uid: String?
+        var sceneMapImportedMetersWide: Double?
+        var sceneFilmToolEnabled: Bool?
+        var sceneFilmGauge: String?
+        var sceneFilmFPS: Double?
+        var sceneFilmMode: String?
     }
 
     private struct ShotDTO: Codable {
@@ -117,6 +157,14 @@ enum ProjectArchive {
         var scriptCoverageSelections: [ScriptTextSelection]?
         var references: [ReferenceDTO]
         var customInfo: [CustomInfoDTO]?
+        /// The shot's uid at export — only to resolve schedule references.
+        var uid: String?
+        // On-set state.
+        var isShot: Bool?
+        var takeCount: Int?
+        var circledTake: Bool?
+        /// Archive uids of other scenes this shot's coverage runs into.
+        var coverageSceneUIDs: [String]?
     }
 
     private struct CustomInfoDTO: Codable {
@@ -162,6 +210,8 @@ enum ProjectArchive {
         var mapLocationWidth: Double?
         var mapLocationLength: Double?
         var mapLocationHeight: Double?
+        /// The marker-free CineStager map, kept for re-adding markers later.
+        var mapCleanData: Data?
     }
 
     // MARK: - Export
@@ -177,7 +227,9 @@ enum ProjectArchive {
                 episodeNumber: episode.episodeNumber,
                 title: episode.title,
                 createdDate: episode.createdDate,
-                versions: episode.orderedVersions.map(versionDTO)
+                versions: episode.orderedVersions.map(versionDTO),
+                director: episode.director,
+                cinematographer: episode.cinematographer
             )
         }
         let dto = ProjectDTO(
@@ -188,7 +240,17 @@ enum ProjectArchive {
             scriptSplitFraction: project.scriptSplitFraction,
             episodes: episodes,
             autoAddFilmTool: project.autoAddFilmTool,
-            scriptCharactersJSON: project.scriptCharactersJSON
+            scriptCharactersJSON: project.scriptCharactersJSON,
+            productionCompany: project.productionCompany,
+            director: project.director,
+            cinematographer: project.cinematographer,
+            coveragePalette: project.coveragePaletteRaw,
+            coverageColorMode: project.coverageColorModeRaw,
+            shotSetupFieldOrder: project.shotSetupFieldOrderRaw,
+            hiddenShotSetupFields: project.hiddenShotSetupFieldsRaw,
+            defaultCamera: project.defaultCamera,
+            defaultFramelines: project.defaultFramelines,
+            defaultLens: project.defaultLens
         )
         let doc = Doc(
             format: currentFormat,
@@ -210,7 +272,17 @@ enum ProjectArchive {
             pdfData: version.pdfData,
             pdfPageOffset: version.pdfPageOffset,
             coverageLineMargin: version.coverageLineMargin,
-            scenes: version.orderedScenes.map(sceneDTO)
+            scenes: version.orderedScenes.map(sceneDTO),
+            coverageLinesOnRight: version.coverageLinesOnRight,
+            shootingDays: version.orderedShootingDays.map { day in
+                DayDTO(sortOrder: day.sortOrder, date: day.date, notes: day.notes,
+                       entries: day.orderedEntries.map { entry in
+                           EntryDTO(sortOrder: entry.sortOrder, note: entry.note,
+                                    sceneUID: entry.scene?.uid,
+                                    selectedShotUIDs: entry.selectedShotUIDs,
+                                    shotShootOrderUIDs: entry.shotShootOrderUIDs)
+                       })
+            }
         )
     }
 
@@ -248,7 +320,13 @@ enum ProjectArchive {
             sceneFloorPlanJSON: scene.sceneFloorPlanJSON,
             sceneCharactersJSON: scene.sceneCharactersJSON,
             sunSettingsJSON: scene.sunSettingsJSON,
-            shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO)
+            shots: scene.shots.sorted { $0.shotNumber < $1.shotNumber }.map(shotDTO),
+            uid: scene.uid,
+            sceneMapImportedMetersWide: scene.sceneMapImportedMetersWide,
+            sceneFilmToolEnabled: scene.sceneFilmToolEnabled,
+            sceneFilmGauge: scene.sceneFilmGauge,
+            sceneFilmFPS: scene.sceneFilmFPS,
+            sceneFilmMode: scene.sceneFilmMode
         )
     }
 
@@ -281,7 +359,12 @@ enum ProjectArchive {
                 CustomInfoDTO(sortOrder: $0.sortOrder, kind: $0.kind, label: $0.label, value: $0.value,
                               filmGauge: $0.filmGauge, filmMode: $0.filmMode, filmAmount: $0.filmAmount,
                               filmFPS: $0.filmFPS)
-            }
+            },
+            uid: shot.uid,
+            isShot: shot.isShot,
+            takeCount: shot.takeCount,
+            circledTake: shot.circledTake,
+            coverageSceneUIDs: shot.coverageSceneUIDs
         )
     }
 
@@ -298,7 +381,8 @@ enum ProjectArchive {
             mapCaptureID: r.mapCaptureID, mapCameraPhysicalWidth: r.mapCameraPhysicalWidth,
             mapCameraPhysicalLength: r.mapCameraPhysicalLength, mapLocationModel: r.mapLocationModel,
             mapLocationWidth: r.mapLocationWidth, mapLocationLength: r.mapLocationLength,
-            mapLocationHeight: r.mapLocationHeight
+            mapLocationHeight: r.mapLocationHeight,
+            mapCleanData: r.mapCleanData
         )
     }
 
@@ -327,11 +411,29 @@ enum ProjectArchive {
         project.scriptSplitFraction = p.scriptSplitFraction
         project.autoAddFilmTool = p.autoAddFilmTool ?? false
         project.scriptCharactersJSON = p.scriptCharactersJSON
+        project.productionCompany = p.productionCompany ?? ""
+        project.director = p.director ?? ""
+        project.cinematographer = p.cinematographer ?? ""
+        if let v = p.coveragePalette { project.coveragePaletteRaw = v }
+        if let v = p.coverageColorMode { project.coverageColorModeRaw = v }
+        project.shotSetupFieldOrderRaw = p.shotSetupFieldOrder ?? ""
+        project.hiddenShotSetupFieldsRaw = p.hiddenShotSetupFields ?? ""
+        project.defaultCamera = p.defaultCamera ?? ""
+        project.defaultFramelines = p.defaultFramelines ?? ""
+        project.defaultLens = p.defaultLens ?? ""
         context.insert(project)
+
+        // Archive uid → the freshly created object's uid, to re-point references.
+        var sceneUIDs: [String: String] = [:]
+        var shotUIDs: [String: String] = [:]
+        // Coverage aliases are resolved once every scene exists.
+        var pendingCoverage: [(shot: Shot, archiveUIDs: [String])] = []
 
         for e in p.episodes {
             let episode = Episode(episodeNumber: e.episodeNumber, title: e.title, createdDate: e.createdDate)
             episode.project = project
+            episode.director = e.director ?? ""
+            episode.cinematographer = e.cinematographer ?? ""
 
             for v in e.versions {
                 let version = ScriptVersion(versionNumber: v.versionNumber, name: v.name, createdDate: v.createdDate)
@@ -339,6 +441,8 @@ enum ProjectArchive {
                 version.pdfData = v.pdfData
                 version.pdfPageOffset = v.pdfPageOffset
                 version.coverageLineMargin = v.coverageLineMargin ?? 0.15
+                version.coverageLinesOnRight = v.coverageLinesOnRight ?? false
+                var scenesByArchiveUID: [String: Scene] = [:]
 
                 for s in v.scenes {
                     let scene = Scene(sceneNumber: s.sceneNumber)
@@ -377,6 +481,15 @@ enum ProjectArchive {
                     scene.sceneFloorPlanJSON = s.sceneFloorPlanJSON
                     scene.sceneCharactersJSON = s.sceneCharactersJSON
                     scene.sunSettingsJSON = s.sunSettingsJSON
+                    scene.sceneMapImportedMetersWide = s.sceneMapImportedMetersWide
+                    scene.sceneFilmToolEnabled = s.sceneFilmToolEnabled ?? false
+                    if let v = s.sceneFilmGauge { scene.sceneFilmGauge = v }
+                    if let v = s.sceneFilmFPS { scene.sceneFilmFPS = v }
+                    if let v = s.sceneFilmMode { scene.sceneFilmMode = v }
+                    if let old = s.uid {
+                        sceneUIDs[old] = scene.uid
+                        scenesByArchiveUID[old] = scene
+                    }
 
                     for sh in s.shots {
                         let shot = Shot(shotNumber: sh.shotNumber, shotInformation: sh.shotInformation)
@@ -401,6 +514,13 @@ enum ProjectArchive {
                         shot.framelines = sh.framelines
                         shot.lensPreset = sh.lensPreset
                         shot.scriptCoverageSelections = sh.scriptCoverageSelections
+                        shot.isShot = sh.isShot ?? false
+                        shot.takeCount = sh.takeCount ?? 0
+                        shot.circledTake = sh.circledTake ?? false
+                        if let old = sh.uid { shotUIDs[old] = shot.uid }
+                        if let aliases = sh.coverageSceneUIDs, !aliases.isEmpty {
+                            pendingCoverage.append((shot, aliases))
+                        }
 
                         for r in sh.references {
                             let ref = ShotReference(sortOrder: r.sortOrder)
@@ -433,6 +553,7 @@ enum ProjectArchive {
                             ref.mapLocationWidth = r.mapLocationWidth
                             ref.mapLocationLength = r.mapLocationLength
                             ref.mapLocationHeight = r.mapLocationHeight
+                            ref.mapCleanData = r.mapCleanData
                         }
 
                         for c in sh.customInfo ?? [] {
@@ -445,8 +566,43 @@ enum ProjectArchive {
                             info.shot = shot
                         }
                     }
+
+                    // Camera markers are tied to their shot by uid, and the shots just
+                    // got new ones. Re-point them, or opening the map would treat them
+                    // as orphans and remove them. An archive from before shots carried
+                    // their uid can't be matched: those markers are kept as free
+                    // cameras (label intact) rather than lost.
+                    if let json = scene.sceneMapJSON {
+                        var doc = SceneMapDoc.load(from: json)
+                        var changed = false
+                        for i in doc.elements.indices {
+                            guard let old = doc.elements[i].shotUID else { continue }
+                            doc.elements[i].shotUID = shotUIDs[old]
+                            changed = true
+                        }
+                        if changed { scene.sceneMapJSON = doc.jsonString }
+                    }
+                }
+
+                // The schedule, its strips re-pointed at the new scenes and shots.
+                for d in v.shootingDays ?? [] {
+                    let day = ShootingDay(sortOrder: d.sortOrder, date: d.date)
+                    day.notes = d.notes
+                    day.scriptVersion = version
+                    for en in d.entries {
+                        guard let old = en.sceneUID, let scene = scenesByArchiveUID[old] else { continue }
+                        let entry = ScheduleEntry(scene: scene, sortOrder: en.sortOrder, note: en.note)
+                        entry.selectedShotUIDs = en.selectedShotUIDs.compactMap { shotUIDs[$0] }
+                        entry.shotShootOrderUIDs = en.shotShootOrderUIDs.compactMap { shotUIDs[$0] }
+                        entry.day = day
+                    }
                 }
             }
+        }
+
+        for (shot, aliases) in pendingCoverage {
+            let mapped = aliases.compactMap { sceneUIDs[$0] }
+            shot.coverageSceneUIDs = mapped.isEmpty ? nil : mapped
         }
 
         return project

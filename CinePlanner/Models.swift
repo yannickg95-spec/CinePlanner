@@ -602,6 +602,11 @@ extension Scene {
         copy.sceneMapCameraSizeMeters = sceneMapCameraSizeMeters
         copy.sceneMapShowCameraFOV = sceneMapShowCameraFOV
         copy.sceneMapViewableMarkerSize = sceneMapViewableMarkerSize
+        // How an image background is aligned under the markers.
+        copy.sceneMapBackgroundScale = sceneMapBackgroundScale
+        copy.sceneMapBackgroundOffsetX = sceneMapBackgroundOffsetX
+        copy.sceneMapBackgroundOffsetY = sceneMapBackgroundOffsetY
+        copy.sceneMapBackgroundRotation = sceneMapBackgroundRotation
         copy.sceneMapLocation = sceneMapLocation
         copy.sceneFilmToolEnabled = sceneFilmToolEnabled
         copy.sceneFilmGauge = sceneFilmGauge
@@ -962,6 +967,7 @@ final class ShotReference {
         copy.mapData = mapData
         copy.mapVideoData = mapVideoData
         copy.mapVideoExtension = mapVideoExtension
+        copy.mapCleanData = mapCleanData
         copy.note = note
         copy.cameraFamily = cameraFamily
         copy.cameraFormat = cameraFormat
