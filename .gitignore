@@ -14,3 +14,11 @@ xcuserdata/
 
 # Marketing copy, kept out of the code repo
 CinePlanner-Marketing-Brief.md
+
+# Local assets and test material, not part of the code
+CinePlanner Fonts/
+CinePlanner Screenshots/
+Defrost_Script.pdf
+
+# Claude Code's local preview config
+.claude/
