@@ -406,10 +406,20 @@ struct SharingLabView: View {
 
 // MARK: - Accepting a share link
 
+/// A share link opened: the lab's test zones go to the lab, projects to ProjectSync.
+@MainActor
+func acceptShare(_ metadata: CKShare.Metadata) {
+    if metadata.share.recordID.zoneID.zoneName.hasPrefix("CPLab-") {
+        Task { await SharingLab.shared.accept(metadata) }
+    } else {
+        Task { await ProjectSync.shared.accept(metadata) }
+    }
+}
+
 #if os(macOS)
 final class SharingLabAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
-        Task { await SharingLab.shared.accept(metadata) }
+        acceptShare(metadata)
     }
 
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
@@ -440,13 +450,11 @@ final class SharingLabAppDelegate: NSObject, UIApplicationDelegate {
 
 final class SharingLabSceneDelegate: NSObject, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-        if let metadata = connectionOptions.cloudKitShareMetadata {
-            Task { await SharingLab.shared.accept(metadata) }
-        }
+        if let metadata = connectionOptions.cloudKitShareMetadata { acceptShare(metadata) }
     }
 
     func windowScene(_ windowScene: UIWindowScene, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
-        Task { await SharingLab.shared.accept(metadata) }
+        acceptShare(metadata)
     }
 }
 #endif

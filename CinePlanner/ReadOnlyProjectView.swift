@@ -6,10 +6,12 @@
 //  control switched off, it's shown as the web shot list (the same page a publish
 //  produces — scenes, shots, references, maps, schedule, coverage), with a bar to
 //  unlock and an Export menu, so nobody's work is ever locked away. Nothing here can
-//  edit the project, and ReadOnlyGate keeps the store unchanged regardless.
+//  edit the project, and ReadOnlyGate keeps the store unchanged regardless. A project
+//  shared with us to view only opens here too, saying so instead of offering Pro.
 //
 //  `ProjectDestination` picks this or the editor, and switches on its own the
-//  moment the access changes — e.g. right after a purchase.
+//  moment the access changes — e.g. right after a purchase, or when the owner
+//  changes what we may do.
 //
 
 import SwiftUI
@@ -26,7 +28,7 @@ struct ProjectDestination: View {
 
     var body: some View {
         Group {
-            if access.isReadOnly {
+            if access.isReadOnly || !ProjectSync.shared.canEdit(project) {
                 ReadOnlyProjectView(project: project)
             } else {
                 ProjectEditorView(project: project)
@@ -84,21 +86,32 @@ struct ReadOnlyProjectView: View {
 
     // MARK: - Bar
 
+    /// Shared with us to view only — rather than read-only because the trial ended.
+    private var isViewOnlyShare: Bool { !ProjectSync.shared.canEdit(project) }
+
     private var readOnlyBar: some View {
         HStack(spacing: 12) {
-            Image(systemName: "lock.fill").foregroundStyle(.secondary)
+            Image(systemName: isViewOnlyShare ? "eye" : "lock.fill").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Read-only").font(.subheadline.weight(.semibold))
-                Text("Your free trial has ended. You can view and export this project.")
+                Text(isViewOnlyShare ? "View Only" : "Read-only").font(.subheadline.weight(.semibold))
+                Text(readOnlyReason)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Button("Unlock to Edit") { showPaywall = true }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            if !isViewOnlyShare {
+                Button("Unlock to Edit") { showPaywall = true }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var readOnlyReason: String {
+        guard isViewOnlyShare else { return "Your free trial has ended. You can view and export this project." }
+        let owner = ProjectSync.shared.shareInfo(for: project)?.ownerName
+        return "\(owner ?? "The owner") shared this project with you to view. You can export it; changes are up to the people who can edit."
     }
 
     // MARK: - Export

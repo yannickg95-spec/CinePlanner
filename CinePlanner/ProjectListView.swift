@@ -50,6 +50,8 @@ struct ProjectListView: View {
     #if DEBUG
     @State private var showingSharingLab = false
     #endif
+    /// The project whose sharing window is open (by uid: sharing moves it between stores).
+    @State private var sharingProjectUID: SharingTarget?
     @State private var showingManageRepos = false
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
@@ -132,6 +134,17 @@ struct ProjectListView: View {
             .onReceive(NotificationCenter.default.publisher(for: SharedProjectStore.didChange)) { _ in
                 refreshSharedProjects()
             }
+            // Sharing, asked for by a card or by the editor (which closes first: the
+            // project may move to the shared store underneath it).
+            .onReceive(NotificationCenter.default.publisher(for: ProjectSync.requestSharing)) { note in
+                guard let uid = note.object as? String else { return }
+                navigationPath = NavigationPath()
+                sharingProjectUID = SharingTarget(uid: uid)
+            }
+            .sheet(item: $sharingProjectUID, onDismiss: refreshSharedProjects) { target in
+                ProjectSharingSheet(projectUID: target.uid)
+            }
+            .overlay(alignment: .bottom) { SyncNoticeBanner() }
             .navigationDestination(for: Project.self) { project in
                 // The editor — or, after the trial, the read-only viewer.
                 ProjectDestination(project: project)
@@ -632,18 +645,40 @@ struct ProjectCardView: View {
         project.scenes.reduce(0) { $0 + $1.shots.count }
     }
 
-    /// The card's actions. Read-only after the trial, only exporting is left.
+    /// Shared with us (not ours): it can be left, not deleted.
+    private var isSharedWithUs: Bool {
+        _ = ProjectSync.shared.sharesGeneration
+        return ProjectSync.shared.shareInfo(for: project)?.isOwner == false
+    }
+
+    /// The card's actions. Read-only after the trial — or shared with us to view
+    /// only — exporting (and the sharing window) is left.
     private var cardMenuItems: [ChipMenuItem] {
         let export = ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() }
-        guard !access.isReadOnly else { return [export] }
+        guard !access.isReadOnly, ProjectSync.shared.canEdit(project) else { return [export] + sharingItems }
+        let remove = isSharedWithUs
+            ? ChipMenuItem(title: "Leave Shared Project…", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                NotificationCenter.default.post(name: ProjectSync.requestSharing, object: project.uid)
+            }
+            : ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true }
         return [
             ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
             ChipMenuItem(title: project.isSeries ? "Change to Film" : "Change to Series",
                          systemImage: project.isSeries ? "film" : "tv") { toggleProjectType() },
             export,
             .divider,
-            ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
-        ] + debugItems
+            remove,
+        ] + sharingItems + debugItems
+    }
+
+    /// Share… (the window explains Pro), or Sharing… once shared.
+    private var sharingItems: [ChipMenuItem] {
+        guard ProjectSharing.isEnabled else { return [] }
+        let share = ChipMenuItem(title: SharedProjectStore.contains(project) ? "Sharing…" : "Share…",
+                                 systemImage: "person.2") {
+            NotificationCenter.default.post(name: ProjectSync.requestSharing, object: project.uid)
+        }
+        return [.divider, share]
     }
 
     private var debugItems: [ChipMenuItem] {
@@ -663,8 +698,19 @@ struct ProjectCardView: View {
         }
         parts.append("\(project.scenes.count) scene\(project.scenes.count == 1 ? "" : "s")")
         parts.append("\(shotCount) shot\(shotCount == 1 ? "" : "s")")
-        if SharedProjectStore.contains(project) { parts.append("Shared") }
+        if SharedProjectStore.contains(project) { parts.append(sharingLabel) }
         return parts.joined(separator: " · ")
+    }
+
+    private var sharingLabel: String {
+        _ = ProjectSync.shared.sharesGeneration
+        guard let info = ProjectSync.shared.shareInfo(for: project) else { return "Shared" }
+        if !info.isOwner { return "Shared by \(info.ownerName ?? "someone")" }
+        switch info.participantCount {
+        case 0: return "Shared"
+        case 1: return "Shared with 1 person"
+        default: return "Shared with \(info.participantCount) people"
+        }
     }
 
     var body: some View {
@@ -747,7 +793,9 @@ struct ProjectCardView: View {
                 deleteProject()
             }
         } message: {
-            Text("This permanently deletes the project with all its episodes, scenes and shots. This cannot be undone.")
+            Text(SharedProjectStore.contains(project)
+                 ? "This permanently deletes the project with all its episodes, scenes and shots, and stops sharing it. The people it was shared with keep their own copy. This cannot be undone."
+                 : "This permanently deletes the project with all its episodes, scenes and shots. This cannot be undone.")
         }
         .alert("Can't switch to a film", isPresented: $showingSeriesToFilmBlocked) {
             Button("OK", role: .cancel) { }

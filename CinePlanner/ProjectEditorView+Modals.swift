@@ -38,6 +38,7 @@ extension ProjectEditorView {
                 ShootingScheduleView(project: project, version: version)
             }
         }
+        .sheet(isPresented: $showSharingSheet) { ProjectSharingSheet(projectUID: project.uid) }
         .sheet(isPresented: $showScriptMarginSheet) {
             CoverageSettingsSheet(project: project, version: selectedVersion,
                                   margin: $scriptCoverageMargin, onRight: $scriptCoverageOnRight)

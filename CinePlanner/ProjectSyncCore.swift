@@ -31,6 +31,31 @@ struct SyncBookkeeping: Codable {
     var pendingFields: [String: Set<String>] = [:]
     /// Zones of this account's own projects that exist on the server.
     var createdZones: Set<String> = []
+    /// Who a project is shared with or by: zone name → its share, as last seen.
+    var shares: [String: ShareInfo] = [:]
+
+    struct ShareInfo: Codable, Equatable {
+        var isOwner: Bool
+        var ownerName: String?
+        /// People who joined, besides the owner.
+        var participantCount: Int
+        var canEdit: Bool
+    }
+
+    init() {}
+
+    // Every field optional on reading, so a bookkeeping file from before a field
+    // existed still loads (instead of starting sync over).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        historyToken = try c.decodeIfPresent(DefaultHistoryToken.self, forKey: .historyToken)
+        userRecordName = try c.decodeIfPresent(String.self, forKey: .userRecordName)
+        sharedZoneOwners = try c.decodeIfPresent([String: String].self, forKey: .sharedZoneOwners) ?? [:]
+        records = try c.decodeIfPresent([String: RecordInfo].self, forKey: .records) ?? [:]
+        pendingFields = try c.decodeIfPresent([String: Set<String>].self, forKey: .pendingFields) ?? [:]
+        createdZones = try c.decodeIfPresent(Set<String>.self, forKey: .createdZones) ?? []
+        shares = try c.decodeIfPresent([String: ShareInfo].self, forKey: .shares) ?? [:]
+    }
 
     struct RecordInfo: Codable {
         var recordType: String

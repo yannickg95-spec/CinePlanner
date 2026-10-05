@@ -57,6 +57,14 @@ final class AppAccess: ObservableObject {
     /// exported, not edited.
     var isReadOnly: Bool { state == .expired }
 
+    /// Sharing projects is part of the full version (and the trial).
+    var canCollaborate: Bool {
+        switch state {
+        case .full, .trial: true
+        default: false
+        }
+    }
+
     /// Kick off transaction listening and compute the initial state.
     func start() async {
         if updatesTask == nil {

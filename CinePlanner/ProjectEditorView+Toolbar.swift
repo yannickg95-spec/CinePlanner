@@ -27,6 +27,7 @@ extension ProjectEditorView {
     /// toolbar items instead; see the `.toolbar` block.)
     var exportToolbarGroup: some View {
         HStack(spacing: 8) {
+            if ProjectSharing.isEnabled { sharingButton }
             onSetButton
             scheduleButton
             if let url = publishedURL {
@@ -68,6 +69,32 @@ extension ProjectEditorView {
         }
         .buttonStyle(.plain)
         .help("Export this shot list as PDF, text, or a web page with media")
+    }
+
+    /// Sharing. A shared project's window opens here; sharing one that isn't yet
+    /// moves it to the shared store, so the editor closes and the project list
+    /// takes over.
+    func openSharing() {
+        if SharedProjectStore.contains(project) {
+            showSharingSheet = true
+        } else {
+            NotificationCenter.default.post(name: ProjectSync.requestSharing, object: project.uid)
+        }
+    }
+
+    /// Matches the schedule/GitHub circles; filled while the project is shared.
+    var sharingButton: some View {
+        Button(action: openSharing) {
+            Image(systemName: SharedProjectStore.contains(project) ? "person.2.fill" : "person.2")
+                .accessibilityLabel("Sharing")
+                .font(.system(size: 14))
+                .foregroundStyle(SharedProjectStore.contains(project) ? Color.accentColor : .secondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(SharedProjectStore.contains(project) ? "Who this project is shared with" : "Share this project to work on it together")
     }
 
     /// Opens the shooting-schedule board for the selected version. Built to match

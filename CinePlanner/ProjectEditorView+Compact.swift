@@ -197,6 +197,7 @@ extension ProjectEditorView {
         // supply a real Menu that lists the same four actions.
         if isLandscapeSplit {
             HStack(spacing: 8) {
+                if ProjectSharing.isEnabled { sharingButton }
                 onSetButton
                 scheduleButton
                 gitHubHeaderButton
@@ -223,6 +224,12 @@ extension ProjectEditorView {
                 Label("Shooting Schedule", systemImage: "calendar")
             }
             .disabled(selectedVersion == nil)
+
+            if ProjectSharing.isEnabled {
+                Button(action: openSharing) {
+                    Label(SharedProjectStore.contains(project) ? "Sharing…" : "Share…", systemImage: "person.2")
+                }
+            }
 
             Divider()
 

@@ -214,6 +214,20 @@ final class ProjectSyncCoreTests: XCTestCase {
         XCTAssertEqual(shot.extraInfo, "Handheld")
     }
 
+    // MARK: Bookkeeping
+
+    func testOlderBookkeepingStillLoads() throws {
+        var book = SyncBookkeeping()
+        book.userRecordName = "_abc"
+        book.records["x"] = .init(recordType: "CP_Shot", zoneName: "Project-1")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(book)) as? [String: Any])
+        json["shares"] = nil                       // written before sharing info existed
+        let decoded = try JSONDecoder().decode(SyncBookkeeping.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded.userRecordName, "_abc")
+        XCTAssertEqual(decoded.records["x"]?.zoneName, "Project-1")
+        XCTAssertTrue(decoded.shares.isEmpty)
+    }
+
     // MARK: Zones that go away
 
     func testWhenSharingStopsOurCopyStaysInTheRegularStore() throws {

@@ -30,6 +30,7 @@ struct ProjectEditorView: View {
     @State var isLandscapeSplit = false
     /// The shooting-schedule board sheet.
     @State var showScheduleSheet = false
+    @State var showSharingSheet = false
     /// On-Set Mode — a full-window viewing mode, driven from the app root.
     @Environment(OnSetController.self) var onSet
 
@@ -219,6 +220,10 @@ struct ProjectEditorView: View {
             // touching segmented pair — so only our own circle backgrounds show.
             #if os(macOS)
             if #available(macOS 26.0, *) {
+                if ProjectSharing.isEnabled {
+                    ToolbarItem(placement: .primaryAction) { sharingButton }
+                        .sharedBackgroundVisibility(.hidden)
+                }
                 ToolbarItem(placement: .primaryAction) { onSetButton }
                     .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .primaryAction) { scheduleButton }
@@ -230,6 +235,9 @@ struct ProjectEditorView: View {
                 ToolbarItem(placement: .primaryAction) { exportButton }
                     .sharedBackgroundVisibility(.hidden)
             } else {
+                if ProjectSharing.isEnabled {
+                    ToolbarItem(placement: .primaryAction) { sharingButton }
+                }
                 ToolbarItem(placement: .primaryAction) { onSetButton }
                 ToolbarItem(placement: .primaryAction) { scheduleButton }
                 if let url = publishedURL {
