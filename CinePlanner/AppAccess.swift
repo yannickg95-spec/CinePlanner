@@ -21,8 +21,15 @@ import SwiftData
 @MainActor
 enum ReadOnlyGate {
     static weak var mainContext: ModelContext?
+    /// The shared projects' store, once it's open (see SharedProjectStore).
+    static weak var sharedContext: ModelContext? {
+        didSet { sharedContext?.autosaveEnabled = !isActive }
+    }
     static var isActive = false {
-        didSet { mainContext?.autosaveEnabled = !isActive }
+        didSet {
+            mainContext?.autosaveEnabled = !isActive
+            sharedContext?.autosaveEnabled = !isActive
+        }
     }
 }
 

@@ -34,14 +34,35 @@ extension ModelContext {
         body()
         saveReporting()
     }
+
+    /// Deletes a project and its whole object graph (run it inside
+    /// `destructiveDelete`).
+    ///
+    /// A plain `delete(project)` crashes: a `Scene` is cascade-reachable both
+    /// directly (`Project.scenes`) and indirectly (`Project → Episode →
+    /// ScriptVersion → scenes`), so SwiftData tries to delete the same scene twice
+    /// and trips an assertion. Severing the direct Project→Scene link first makes
+    /// every scene owned solely by its version, so deleting the project cascades
+    /// through episodes → versions → scenes → shots as a single tree.
+    func deleteProjectGraph(_ project: Project) {
+        var seen = Set<ObjectIdentifier>()
+        let versions = project.episodes.flatMap { $0.scriptVersions } + project.scriptVersions
+        for scene in project.scenes + versions.flatMap({ $0.scenes })
+        where seen.insert(ObjectIdentifier(scene)).inserted {
+            scene.project = nil
+        }
+        delete(project)
+    }
 }
 
 @Model
 final class Project {
     /// Stable identity assigned at creation. Unlike persistentModelID (which is
     /// temporary until the first save), this never changes — safe to key SwiftUI
-    /// selection and ForEach on. Backfilled for pre-existing rows at launch.
-    var uid: String = UUID().uuidString
+    /// selection and ForEach on. Backfilled for pre-existing rows at launch. Kept in
+    /// the store's history on deletion (on every model), so a shared project's sync
+    /// knows which iCloud record to delete.
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var filmName: String = ""
     // Production credits, shown in exports. Live on the project so they persist
     // across all its script versions. Defaulted, so adding them migrates cleanly.
@@ -239,7 +260,7 @@ struct ScriptCharacter: Codable, Identifiable, Equatable {
 
 @Model
 final class Episode {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var episodeNumber: Int = 1
     var title: String = ""
     var createdDate: Date = Date()
@@ -275,7 +296,7 @@ final class Episode {
 
 @Model
 final class ScriptVersion {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var versionNumber: Int = 1
     var name: String = ""
     var createdDate: Date = Date()
@@ -331,7 +352,7 @@ final class ScriptVersion {
 
 @Model
 final class Scene {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var sceneNumber: Int = 0
     var project: Project?
     var scriptVersion: ScriptVersion?
@@ -868,7 +889,7 @@ nonisolated enum ShotTypeCategory: String, Codable, CaseIterable {
 /// photo1/photo2/video slots the app started with.
 @Model
 final class ShotReference {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var sortOrder: Int = 0
 
     // Media — exactly one of these is set. Stored as files beside the store
@@ -998,7 +1019,7 @@ final class ShotReference {
 /// `kind` leaves room for other field types later). Shown in the Shot Setup card.
 @Model
 final class ShotCustomInfo {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var sortOrder: Int = 0
     /// Field type — "text" or "filmstock"; future kinds reuse this.
     var kind: String = "text"
@@ -1148,16 +1169,16 @@ extension ShotCustomInfo {
 
 @Model
 final class Shot {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     var shotNumber: Int = 0
     var shotInformation: String = ""
-    private var numberingStyleRaw: String = "numbers"
-    private var sizeRaw: String = ""
-    private var secondSizeRaw: String = ""
-    private var typeCategoryRaw: String = ""
-    private var secondTypeCategoryRaw: String = ""
-    private var thirdTypeCategoryRaw: String = ""
-    private var typeRaw: String = ""
+    var numberingStyleRaw: String = "numbers"
+    var sizeRaw: String = ""
+    var secondSizeRaw: String = ""
+    var typeCategoryRaw: String = ""
+    var secondTypeCategoryRaw: String = ""
+    var thirdTypeCategoryRaw: String = ""
+    var typeRaw: String = ""
     var suffix: String = ""
     var nickname: String = ""
     var lensIsPrime: Bool = true
@@ -1783,7 +1804,7 @@ extension Scene {
 /// a scene across days) — that's just multiple entries referencing it.
 @Model
 final class ShootingDay {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     /// Day order in the schedule (Day 1, 2, 3 …).
     var sortOrder: Int = 0
     /// Optional shoot date assigned to this day.
@@ -1823,7 +1844,7 @@ final class ShootingDay {
 /// `note` labels each part ("pt. 1 of 2", "MOS", "pickups", …).
 @Model
 final class ScheduleEntry {
-    var uid: String = UUID().uuidString
+    @Attribute(.preserveValueOnDeletion) var uid: String = UUID().uuidString
     /// Order within the day.
     var sortOrder: Int = 0
     /// Optional label for this strip (e.g. which part of a split scene).
@@ -1843,6 +1864,12 @@ final class ScheduleEntry {
         self.scene = scene
         self.sortOrder = sortOrder
         self.note = note
+    }
+
+    /// A strip not yet attached to its scene — for a shared project's sync, which
+    /// links it once the scene's record is in.
+    init(sortOrder: Int) {
+        self.sortOrder = sortOrder
     }
 
     /// The shots this strip covers, in this day's shoot order. `selectedShotUIDs`

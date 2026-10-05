@@ -35,7 +35,11 @@ struct ProjectArchiveDocument: FileDocument {
 
 struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Project.createdDate, order: .reverse) private var projects: [Project]
+    @Query(sort: \Project.createdDate, order: .reverse) private var regularProjects: [Project]
+    /// Projects in the shared store (see SharedProjectStore), which `@Query` — bound
+    /// to the regular store — doesn't see.
+    @State private var sharedProjects: [Project] = []
+    private var projects: [Project] { regularProjects + sharedProjects }
     @State private var showingNewProjectSheet = false
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
@@ -43,6 +47,9 @@ struct ProjectListView: View {
     @State private var showingRestoreSheet = false
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
+    #if DEBUG
+    @State private var showingSharingLab = false
+    #endif
     @State private var showingManageRepos = false
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
@@ -76,6 +83,11 @@ struct ProjectListView: View {
     /// sheet can flag which published pages are still "in use".
     private var inUseRepoNames: Set<String> {
         Set(projects.compactMap { $0.publishedRepoFullName })
+    }
+
+    private func refreshSharedProjects() {
+        sharedProjects = SharedProjectStore.contextIfPresent()
+            .flatMap { try? $0.fetch(FetchDescriptor<Project>()) } ?? []
     }
 
     private var visibleProjects: [Project] {
@@ -116,6 +128,10 @@ struct ProjectListView: View {
             }
             .overlay(alignment: .top) { TrialBanner() }
             .navigationTitle("CinePlanner")
+            .task { refreshSharedProjects() }
+            .onReceive(NotificationCenter.default.publisher(for: SharedProjectStore.didChange)) { _ in
+                refreshSharedProjects()
+            }
             .navigationDestination(for: Project.self) { project in
                 // The editor — or, after the trial, the read-only viewer.
                 ProjectDestination(project: project)
@@ -168,6 +184,9 @@ struct ProjectListView: View {
             .sheet(isPresented: $showingWalkthrough) {
                 WalkthroughView()
             }
+            #if DEBUG
+            .sheet(isPresented: $showingSharingLab) { SharingLabView() }
+            #endif
             .sheet(isPresented: $showingDefaultCredits) {
                 DefaultCreditsSheet()
             }
@@ -403,6 +422,24 @@ struct ProjectListView: View {
                 }
                 .buttonStyle(.plain)
                 .help("How CinePlanner works — a quick visual walkthrough")
+
+                #if DEBUG
+                Button {
+                    showingSharingLab = true
+                } label: {
+                    Image(systemName: "flask")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.secondary.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .help("Sharing Lab (debug builds only)")
+                .accessibilityLabel("Sharing Lab")
+                #endif
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -606,7 +643,17 @@ struct ProjectCardView: View {
             export,
             .divider,
             ChipMenuItem(title: "Delete Project…", systemImage: "trash", role: .destructive) { showingDeleteAlert = true },
-        ]
+        ] + debugItems
+    }
+
+    private var debugItems: [ChipMenuItem] {
+        #if DEBUG
+        [.divider,
+         ChipMenuItem(title: SharedProjectStore.contains(project) ? "Move to My Projects (test)" : "Copy to Shared Store (test)",
+                      systemImage: "arrow.left.arrow.right") { moveForTesting() }]
+        #else
+        []
+        #endif
     }
 
     private var subtitle: String {
@@ -616,6 +663,7 @@ struct ProjectCardView: View {
         }
         parts.append("\(project.scenes.count) scene\(project.scenes.count == 1 ? "" : "s")")
         parts.append("\(shotCount) shot\(shotCount == 1 ? "" : "s")")
+        if SharedProjectStore.contains(project) { parts.append("Shared") }
         return parts.joined(separator: " · ")
     }
 
@@ -708,31 +756,38 @@ struct ProjectCardView: View {
         }
     }
 
-    /// Deletes the project and its whole object graph.
-    ///
-    /// A plain `modelContext.delete(project)` crashes: a `Scene` is cascade-
-    /// reachable both directly (`Project.scenes`) and indirectly
-    /// (`Project → Episode → ScriptVersion → scenes`), so SwiftData tries to
-    /// delete the same scene twice and trips an assertion. We instead tear the
-    /// graph down by hand — sever the cross-links, then delete each object
-    /// exactly once, leaves first — so no cascade path overlaps.
+    /// The store this project lives in — the shared one for a shared project.
+    private var context: ModelContext { project.modelContext ?? modelContext }
+
+    /// Deletes the project and its whole object graph, in whichever store holds it.
     private func deleteProject() {
-        var seen = Set<ObjectIdentifier>()
-        var scenes: [Scene] = []
-        let versions = project.episodes.flatMap { $0.scriptVersions } + project.scriptVersions
-        for scene in project.scenes + versions.flatMap({ $0.scenes })
-        where seen.insert(ObjectIdentifier(scene)).inserted {
-            scenes.append(scene)
-        }
-        modelContext.destructiveDelete {
-            // Sever the direct Project→Scene link so every scene is owned solely by
-            // its version; deleting the project then cascades through
-            // episodes → versions → scenes → shots as a single tree — no scene is
-            // reached twice (which would trip a double-delete assertion).
-            for scene in scenes { scene.project = nil }
-            modelContext.delete(project)
+        let isShared = SharedProjectStore.contains(project)
+        let context = context
+        context.destructiveDelete { context.deleteProjectGraph(project) }
+        if isShared { NotificationCenter.default.post(name: SharedProjectStore.didChange, object: nil) }
+    }
+
+    #if DEBUG
+    /// Phase-1 test, without iCloud. Into the shared store goes a copy (fresh uids,
+    /// via the archive), so a real project never leaves the regular store — which
+    /// would remove it from the other devices until the sync exists. A shared copy
+    /// moves back for real, which is safe in that direction.
+    private func moveForTesting() {
+        do {
+            if SharedProjectStore.contains(project) {
+                try SharedProjectStore.move(project, to: modelContext)
+            } else {
+                let shared = SharedProjectStore.container.mainContext
+                let copy = try ProjectArchive.importProject(from: ProjectArchive.data(for: project), into: shared)
+                copy.filmName += " (shared test)"
+                try shared.save()
+                NotificationCenter.default.post(name: SharedProjectStore.didChange, object: nil)
+            }
+        } catch {
+            exportErrorMessage = "Couldn't move the project: \(error.localizedDescription)"
         }
     }
+    #endif
 
     private var lastOpenedText: String {
         let formatter = RelativeDateTimeFormatter()
@@ -775,7 +830,7 @@ struct ProjectCardView: View {
                 episode.title = "Episode 1"
             }
         }
-        modelContext.saveReporting()
+        context.saveReporting()
     }
 }
 

@@ -99,10 +99,10 @@ final class OnSetLiveActivityController {
     // MARK: - Step (from the Live Activity buttons)
 
     private func step(forward: Bool) {
-        guard let activity, let ctx = container?.mainContext else { return }
+        guard let activity else { return }
         let versionUID = activity.attributes.versionUID
         let dayUID = activity.content.state.dayUID
-        guard let day = day(versionUID: versionUID, dayUID: dayUID, in: ctx) else { return }
+        guard let day = day(versionUID: versionUID, dayUID: dayUID), let ctx = day.modelContext else { return }
         let shots = day.orderedEntries.flatMap { $0.resolvedShots }
         guard !shots.isEmpty else { return }
         if forward {
@@ -116,18 +116,22 @@ final class OnSetLiveActivityController {
 
     // MARK: - Building state
 
-    private func version(uid: String, in ctx: ModelContext) -> ScriptVersion? {
+    /// The version in whichever store holds it: the regular one, or the shared one
+    /// for a shared project.
+    private func version(uid: String) -> ScriptVersion? {
         let descriptor = FetchDescriptor<ScriptVersion>(predicate: #Predicate { $0.uid == uid })
-        return try? ctx.fetch(descriptor).first
+        for ctx in [container?.mainContext, SharedProjectStore.openContext].compactMap({ $0 }) {
+            if let version = try? ctx.fetch(descriptor).first { return version }
+        }
+        return nil
     }
 
-    private func day(versionUID: String, dayUID: String, in ctx: ModelContext) -> ShootingDay? {
-        version(uid: versionUID, in: ctx)?.shootingDays.first { $0.uid == dayUID }
+    private func day(versionUID: String, dayUID: String) -> ShootingDay? {
+        version(uid: versionUID)?.shootingDays.first { $0.uid == dayUID }
     }
 
     private func makeState(versionUID: String, dayUID: String) -> OnSetActivityAttributes.ContentState? {
-        guard let ctx = container?.mainContext,
-              let version = version(uid: versionUID, in: ctx),
+        guard let version = version(uid: versionUID),
               let day = version.shootingDays.first(where: { $0.uid == dayUID }) else { return nil }
         let shots = day.orderedEntries.flatMap { $0.resolvedShots }
         let setups = shots.map { shot in

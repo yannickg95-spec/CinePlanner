@@ -19,6 +19,14 @@ struct CinePlannerApp: App {
 
     /// Purchase + trial state gating the app (free with a one-time unlock IAP).
     @StateObject private var access = AppAccess()
+    #if DEBUG
+    // Sharing Lab: receives an accepted share link (see SharingLab.swift).
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(SharingLabAppDelegate.self) private var sharingLabDelegate
+    #else
+    @UIApplicationDelegateAdaptor(SharingLabAppDelegate.self) private var sharingLabDelegate
+    #endif
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     /// How often pending edits are flushed to the store while the app is in use.
@@ -122,6 +130,8 @@ struct CinePlannerApp: App {
         LegacyMediaSweep.start(container: sharedModelContainer)
         // Local copies of scene maps too old to merge with (see SceneMapMerge).
         Task.detached(priority: .background) { SceneMapShadow.pruneExpired() }
+        // Media files handed to iCloud for shared projects, once uploaded.
+        Task { RecordAssets.pruneOld() }
 
         // Flush pending edits every few seconds, so CloudKit exports them while the
         // user works instead of only when SwiftData's autosave gets round to it.
@@ -131,6 +141,7 @@ struct CinePlannerApp: App {
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.flushInterval)
                 if context.hasChanges { context.saveReporting() }
+                if let shared = SharedProjectStore.openContext, shared.hasChanges { shared.saveReporting() }
             }
         }
     }
@@ -139,6 +150,7 @@ struct CinePlannerApp: App {
     private func flushPendingChanges() {
         let context = sharedModelContainer.mainContext
         if context.hasChanges { context.saveReporting() }
+        if let shared = SharedProjectStore.openContext, shared.hasChanges { shared.saveReporting() }
     }
 
     private static func setRecoveryMessage(_ message: String) {

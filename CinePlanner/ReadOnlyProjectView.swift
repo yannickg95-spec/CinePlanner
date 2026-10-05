@@ -14,18 +14,25 @@
 
 import SwiftUI
 import WebKit
+import SwiftData
 
 /// What opening a project shows: the editor, or — after the trial — the viewer.
+/// Either works in the project's own store: a shared project's isn't the regular
+/// one (see SharedProjectStore).
 struct ProjectDestination: View {
     let project: Project
     @EnvironmentObject private var access: AppAccess
+    @Environment(\.modelContext) private var environmentContext
 
     var body: some View {
-        if access.isReadOnly {
-            ReadOnlyProjectView(project: project)
-        } else {
-            ProjectEditorView(project: project)
+        Group {
+            if access.isReadOnly {
+                ReadOnlyProjectView(project: project)
+            } else {
+                ProjectEditorView(project: project)
+            }
         }
+        .modelContext(project.modelContext ?? environmentContext)
     }
 }
 

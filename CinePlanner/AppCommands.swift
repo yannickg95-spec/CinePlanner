@@ -34,6 +34,8 @@ final class ProjectEditorCommands {
     @ObservationIgnored var showSceneMap: () -> Void = {}
     @ObservationIgnored var showSchedule: () -> Void = {}
     @ObservationIgnored var startOnSet: () -> Void = {}
+    /// The editor's store, for ⌘Z — a shared project's is not the regular one.
+    @ObservationIgnored weak var modelContext: ModelContext?
 }
 
 /// The scene map's own undo history, while the map is on screen. Only the two
@@ -85,12 +87,12 @@ struct CinePlannerCommands: Commands {
         // app-wide (SwiftData) undo.
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") {
-                if let mapUndo { mapUndo.undo() } else { container.mainContext.undoManager?.undo() }
+                if let mapUndo { mapUndo.undo() } else { (editor?.modelContext ?? container.mainContext).undoManager?.undo() }
             }
             .keyboardShortcut("z", modifiers: .command)
             .disabled(mapUndo.map { !$0.canUndo } ?? false)
             Button("Redo") {
-                if let mapUndo { mapUndo.redo() } else { container.mainContext.undoManager?.redo() }
+                if let mapUndo { mapUndo.redo() } else { (editor?.modelContext ?? container.mainContext).undoManager?.redo() }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(mapUndo.map { !$0.canRedo } ?? false)

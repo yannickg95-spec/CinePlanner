@@ -147,6 +147,7 @@ struct ProjectEditorView: View {
         menuCommands.showSceneMap = { detailTab = .map }
         menuCommands.showSchedule = { if selectedVersion != nil { showScheduleSheet = true } }
         menuCommands.startOnSet = { if let version = selectedVersion { onSet.version = version } }
+        menuCommands.modelContext = modelContext
     }
 
     var coreView: some View {
