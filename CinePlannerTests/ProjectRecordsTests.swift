@@ -40,6 +40,17 @@ final class ProjectRecordsTests: XCTestCase {
         }
     }
 
+    func testTheSchemaRecordsFillEveryField() {
+        // Production can't learn fields: the records that teach Development's
+        // schema must carry every one.
+        let zone = CKRecordZone.ID(zoneName: "schema")
+        for schema in RecordSchemas.all {
+            let record = schema.sampleRecord(in: zone)
+            let expected = schema.syncedKeys.union(schema.parentKeys)
+            XCTAssertEqual(Set(record.allKeys()), expected, schema.recordType)
+        }
+    }
+
     // MARK: Round trip
 
     /// A project with a bit of everything: two versions, scenes with a map, shots

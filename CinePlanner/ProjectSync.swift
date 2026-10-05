@@ -12,10 +12,12 @@
 //  from iCloud fetches right away (with a fetch on returning to the app, and every
 //  half minute while a shared project is open, as a safety net).
 //
-//  The private database also holds SwiftData's zone with every regular project;
-//  the private engine leaves it alone.
+//  It uses an iCloud container of its own: SwiftData's sync (the regular store, in
+//  iCloud.YannickGiraud.CinePlanner) looks at every zone of its private database,
+//  so zones of ours there were fetched by it too — media and all — and one that
+//  was deleted left it retrying forever.
 //
-//  Debug builds only until sharing is finished (`ProjectSharing.isEnabled`).
+//  `ProjectSharing.isEnabled` is the one switch for the whole feature.
 //
 
 import Foundation
@@ -24,11 +26,7 @@ import SwiftData
 import os
 
 enum ProjectSharing {
-    #if DEBUG
     static let isEnabled = true
-    #else
-    static let isEnabled = false
-    #endif
 }
 
 @MainActor @Observable
@@ -45,7 +43,7 @@ final class ProjectSync {
     /// Asks the project list to open a project's sharing window (closing the
     /// editor first) — object: the project's uid.
     static let requestSharing = Notification.Name("ProjectSync.requestSharing")
-    nonisolated static let containerIdentifier = "iCloud.YannickGiraud.CinePlanner"
+    nonisolated static let containerIdentifier = "iCloud.YannickGiraud.CinePlanner.Sharing"
 
     /// The regular store's context (where a project goes when sharing stops).
     var mainContext: ModelContext? { mainContainer?.mainContext }
@@ -65,9 +63,6 @@ final class ProjectSync {
     @ObservationIgnored private var sendTasks: [CKDatabase.Scope: Task<Void, Never>] = [:]
     @ObservationIgnored private var bookSaveTask: Task<Void, Never>?
 
-    /// SwiftData's zone in the private database — the regular store's mirror.
-    private static let swiftDataZone = CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone")
-
     private init() {}
 
     // MARK: Starting
@@ -77,7 +72,15 @@ final class ProjectSync {
         self.mainContainer = mainContainer
         ckContainer = CKContainer(identifier: Self.containerIdentifier)
         core.book = Self.loadBook()
+        let moving = core.book.containerIdentifier != Self.containerIdentifier
+        if moving {
+            // Synced with another container before (development builds did, in
+            // SwiftData's): start over in this one.
+            Self.saveEngineState(nil, .private)
+            Self.saveEngineState(nil, .shared)
+        }
         makeEngines()
+        if moving { moveToThisContainer() }
         // Every save in the shared store: what changed goes out.
         saveObserver = NotificationCenter.default.addObserver(forName: ModelContext.didSave, object: nil,
                                                               queue: .main) { note in
@@ -88,7 +91,106 @@ final class ProjectSync {
             }
         }
         collectLocalChanges()   // anything saved while sync wasn't running
+        // Edits to a shared project are saved — and so sent — within two seconds,
+        // rather than at the app's general five-second flush.
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                if let context = SharedProjectStore.openContext, context.hasChanges { context.saveReporting() }
+            }
+        }
     }
+
+    /// Sync starting over in this container: our shared projects go up again (into
+    /// zones here), projects shared with us become our own copies — their shares
+    /// are in the old container — and the bookkeeping starts fresh.
+    private func moveToThisContainer() {
+        let owners = core.book.sharedZoneOwners
+        if let context = SharedProjectStore.contextIfPresent(),
+           let projects = try? context.fetch(FetchDescriptor<Project>()) {
+            for project in projects {
+                let zoneName = "Project-\(project.uid)"
+                if let owner = owners[zoneName] {
+                    core.sharedZoneDeleted(CKRecordZone.ID(zoneName: zoneName, ownerName: owner))
+                }
+            }
+        }
+        core.book = SyncBookkeeping()
+        // Not the old account id: iCloud gives the same person a different user
+        // record in every container, so it would look like another account.
+        core.book.containerIdentifier = Self.containerIdentifier
+        // Only now, with fresh bookkeeping, mark what's left (ours) for upload.
+        if let context = SharedProjectStore.contextIfPresent(),
+           let projects = try? context.fetch(FetchDescriptor<Project>()) {
+            projects.forEach(startSyncing)
+        }
+        // The history so far is already in those projects' records.
+        core.markHistoryRead()
+        saveBookNow()
+        projectsChanged()
+        Log.sync.notice("Sync moved to \(Self.containerIdentifier)")
+    }
+
+    #if DEBUG
+    /// Development only: brings back shared projects from the container development
+    /// builds synced with before (SwiftData's), into the store that holds them or —
+    /// when they're gone — the regular store. Run on one device only.
+    func recoverFromOldContainer() async throws -> [String] {
+        guard let main = mainContainer?.mainContext else { return [] }
+        let database = CKContainer(identifier: "iCloud.YannickGiraud.CinePlanner").privateCloudDatabase
+        let zones = try await database.allRecordZones().map(\.zoneID).filter { $0.zoneName.hasPrefix("Project-") }
+        var recovered: [String] = []
+        for zoneID in zones {
+            var records: [CKRecord] = []
+            var token: CKServerChangeToken?
+            var more = true
+            while more {
+                let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+                for (_, result) in changes.modificationResultsByID {
+                    if case .success(let modification) = result, !(modification.record is CKShare) {
+                        records.append(modification.record)
+                    }
+                }
+                token = changes.changeToken
+                more = changes.moreComing
+            }
+            guard records.contains(where: { $0.recordType == RecordSchemas.project.recordType }) else { continue }
+            let uid = String(zoneID.zoneName.dropFirst("Project-".count))
+            let shared = SharedProjectStore.contextIfPresent()
+            let target = shared.flatMap { RecordSchemas.project.fetch($0, uid) != nil ? $0 : nil } ?? main
+            ProjectRecords.apply(records, in: target)
+            try target.save()
+            recovered.append(RecordSchemas.project.fetch(target, uid)?.filmName ?? uid)
+        }
+        projectsChanged()
+        return recovered
+    }
+    #endif
+
+    /// Whether this device is signed in to iCloud (sharing needs it).
+    func accountAvailable() async -> Bool {
+        (try? await ckContainer?.accountStatus()) == .available
+    }
+
+    #if DEBUG
+    /// Development only: saves one record of every type, with every field filled, in
+    /// a zone of its own — so iCloud's Development schema knows them all — and
+    /// deletes the records again (the zone stays: deleting zones beside SwiftData's
+    /// trips up its sync). Deploy the schema to Production in the CloudKit Console
+    /// afterwards: Production can't add record types or fields, and a save carrying
+    /// one it doesn't know fails.
+    func prepareSchema() async throws -> Int {
+        guard let database = ckContainer?.privateCloudDatabase else { throw CKError(.notAuthenticated) }
+        let zone = CKRecordZone(zoneName: "CPSchema")
+        _ = try await database.modifyRecordZones(saving: [zone], deleting: [])
+        let records = RecordSchemas.all.map { $0.sampleRecord(in: zone.zoneID) }
+        let result = try await database.modifyRecords(saving: records, deleting: [])
+        _ = try? await database.modifyRecords(saving: [], deleting: records.map(\.recordID))
+        for (_, saved) in result.saveResults { if case .failure(let error) = saved { throw error } }
+        return records.count
+    }
+
+    #endif
 
     private func makeEngines() {
         guard let ckContainer else { return }
@@ -156,6 +258,7 @@ final class ProjectSync {
     }
 
     func receivedPush(scope: CKDatabase.Scope?) {
+        Log.sync.notice("Push received (\(scope == .shared ? "shared" : scope == .private ? "private" : "other"))")
         Task {
             do {
                 switch scope {
@@ -169,12 +272,13 @@ final class ProjectSync {
         }
     }
 
-    /// While a shared project is open: a fetch every half minute, for pushes that
-    /// don't arrive.
+    /// While a shared project is open: a fetch every ten seconds. iCloud's pushes
+    /// for changes others make in our own zones (the private database) arrive late
+    /// or not at all, and this is a small request.
     func keepFresh(while project: Project) async {
         guard privateEngine != nil, SharedProjectStore.contains(project) else { return }
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: .seconds(10))
             await fetchNow()
         }
     }
@@ -343,6 +447,9 @@ final class ProjectSync {
             let deletions = changes.deletions
                 .filter { $0.recordType != CKRecord.SystemType.share }
                 .map { (recordType: $0.recordType, recordID: $0.recordID) }
+            if !records.isEmpty || !deletions.isEmpty {
+                Log.sync.notice("Received \(records.count) change(s), \(deletions.count) deletion(s) (\(scope == .shared ? "shared" : "private"))")
+            }
             if core.applyRemote(records, deletions: deletions) { projectsChanged() }
             if !records.isEmpty || !deletions.isEmpty { SyncRefresher.shared.noteExternalChanges() }
             scheduleBookSave()
@@ -357,6 +464,13 @@ final class ProjectSync {
         case .sentRecordZoneChanges(let sent):
             sent.savedRecords.forEach(core.didSave)
             sent.deletedRecordIDs.forEach(core.didDelete)
+            if !sent.savedRecords.isEmpty || !sent.deletedRecordIDs.isEmpty {
+                Log.sync.notice("Sent \(sent.savedRecords.count) change(s), \(sent.deletedRecordIDs.count) deletion(s) (\(scope == .shared ? "shared" : "private"))")
+            }
+            // Saving works again (space was freed, say): the problem is over.
+            if !sent.savedRecords.isEmpty, !sent.failedRecordSaves.contains(where: { $0.error.code == .quotaExceeded }) {
+                problem = nil
+            }
             for failure in sent.failedRecordSaves { handleFailedSave(failure, scope: scope) }
             scheduleBookSave()
 
@@ -424,9 +538,12 @@ final class ProjectSync {
         scheduleBookSave()
     }
 
-    /// Another iCloud account: the previous one's shared projects go, sync starts over.
+    /// Another iCloud account: the previous one's shared projects become own copies,
+    /// and sync starts over.
     private func resetForNewAccount() {
-        core.reset()
+        let container = core.book.containerIdentifier
+        core.detachAll()
+        core.book.containerIdentifier = container
         Self.saveEngineState(nil, .private)
         Self.saveEngineState(nil, .shared)
         makeEngines()
@@ -503,15 +620,5 @@ extension ProjectSync: CKSyncEngineDelegate {
     nonisolated func nextRecordZoneChangeBatch(_ context: CKSyncEngine.SendChangesContext,
                                                syncEngine: CKSyncEngine) async -> CKSyncEngine.RecordZoneChangeBatch? {
         await batch(for: context, engine: syncEngine)
-    }
-
-    /// The private engine fetches every zone but SwiftData's (the regular store's
-    /// mirror, with all regular projects and their media).
-    nonisolated func nextFetchChangesOptions(_ context: CKSyncEngine.FetchChangesContext,
-                                             syncEngine: CKSyncEngine) async -> CKSyncEngine.FetchChangesOptions {
-        guard syncEngine.database.databaseScope == .private else { return context.options }
-        var options = context.options
-        options.scope = .allExcluding([CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone")])
-        return options
     }
 }

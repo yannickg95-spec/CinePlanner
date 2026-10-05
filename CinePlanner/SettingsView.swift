@@ -133,6 +133,10 @@ private struct AccountSettingsTab: View {
     @State private var restoreMessage: String?
     @State private var gitHubConnected = GitHubPublisher.hasToken
     @State private var gitHubUser: String?
+    #if DEBUG
+    @State private var schemaStatus: String?
+    @State private var recoveryStatus: String?
+    #endif
 
     private var status: String {
         switch access.state {
@@ -178,6 +182,43 @@ private struct AccountSettingsTab: View {
                      : "Connect from Publish to Web in an open project.")
                     .foregroundStyle(.secondary)
             }
+            #if DEBUG
+            Section {
+                Button("Prepare iCloud Schema for Sharing") {
+                    schemaStatus = "Working…"
+                    Task {
+                        do {
+                            let count = try await ProjectSync.shared.prepareSchema()
+                            schemaStatus = "Done: \(count) record types with every field are in the Development schema. Deploy it to Production in the CloudKit Console."
+                        } catch {
+                            schemaStatus = "Failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                if let schemaStatus {
+                    Text(schemaStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Recover Shared Projects from the Old Container") {
+                    recoveryStatus = "Working…"
+                    Task {
+                        do {
+                            let names = try await ProjectSync.shared.recoverFromOldContainer()
+                            recoveryStatus = names.isEmpty ? "Nothing to recover." : "Recovered: \(names.joined(separator: ", "))"
+                        } catch {
+                            recoveryStatus = "Failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                if let recoveryStatus {
+                    Text(recoveryStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Developer (debug builds)")
+            } footer: {
+                Text("Before a build that shares projects goes to TestFlight or the App Store: run this, then deploy the Development schema to Production.")
+                    .foregroundStyle(.secondary)
+            }
+            #endif
         }
         .formStyle(.grouped)
         .sheet(isPresented: $showingUnlock) { PaywallView(dismissable: true) }

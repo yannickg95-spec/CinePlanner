@@ -90,11 +90,17 @@ struct ProjectSharingSheet: View {
         Section {
             Button {
                 guard access.canCollaborate else { showingPaywall = true; return }
-                do {
-                    _ = try sync.startSharing(project)
-                    refresh += 1
-                } catch {
-                    errorMessage = error.localizedDescription
+                Task {
+                    guard await sync.accountAvailable() else {
+                        errorMessage = "Sign in to iCloud in Settings to share projects."
+                        return
+                    }
+                    do {
+                        _ = try sync.startSharing(project)
+                        refresh += 1
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
             } label: {
                 Label("Start Sharing", systemImage: "person.crop.circle.badge.plus")

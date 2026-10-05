@@ -6,14 +6,15 @@
 	<string>development</string>
 	<key>com.apple.developer.aps-environment</key>
 	<string>development</string>
-	<key>com.apple.developer.icloud-extended-share-access</key>
-	<array>
-		<string>InProcessOneTimeLinks</string>
-	</array>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.YannickGiraud.CinemaAR</string>
 		<string>iCloud.YannickGiraud.CinePlanner</string>
+		<string>iCloud.YannickGiraud.CinePlanner.Sharing</string>
+	</array>
+	<key>com.apple.developer.icloud-extended-share-access</key>
+	<array>
+		<string>InProcessOneTimeLinks</string>
 	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>
@@ -24,6 +25,7 @@
 	<array>
 		<string>iCloud.YannickGiraud.CinemaAR</string>
 		<string>iCloud.YannickGiraud.CinePlanner</string>
+		<string>iCloud.YannickGiraud.CinePlanner.Sharing</string>
 	</array>
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>

@@ -23,6 +23,9 @@ struct SyncBookkeeping: Codable {
     var historyToken: DefaultHistoryToken?
     /// The iCloud account this was synced with — another account must start afresh.
     var userRecordName: String?
+    /// The iCloud container this was synced with (nil: the one development builds
+    /// used first, SwiftData's) — another container must start afresh.
+    var containerIdentifier: String?
     /// Zones shared with this account: zone name → owner.
     var sharedZoneOwners: [String: String] = [:]
     /// Every record known to the server: uid → type, zone, last server version.
@@ -50,6 +53,7 @@ struct SyncBookkeeping: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         historyToken = try c.decodeIfPresent(DefaultHistoryToken.self, forKey: .historyToken)
         userRecordName = try c.decodeIfPresent(String.self, forKey: .userRecordName)
+        containerIdentifier = try c.decodeIfPresent(String.self, forKey: .containerIdentifier)
         sharedZoneOwners = try c.decodeIfPresent([String: String].self, forKey: .sharedZoneOwners) ?? [:]
         records = try c.decodeIfPresent([String: RecordInfo].self, forKey: .records) ?? [:]
         pendingFields = try c.decodeIfPresent([String: Set<String>].self, forKey: .pendingFields) ?? [:]
@@ -177,6 +181,15 @@ final class ProjectSyncCore {
         return out
     }
 
+    /// Skips the shared store's history up to now (its changes are covered another
+    /// way, such as a whole-project upload).
+    func markHistoryRead() {
+        guard let container = existingStore(),
+              let last = try? ModelContext(container).fetchHistory(HistoryDescriptor<DefaultHistoryTransaction>()).last
+        else { return }
+        book.historyToken = last.token
+    }
+
     /// Every object of a project as new, for its first upload (or after its zone
     /// went missing on the server).
     func markWholeProject(_ project: Project) -> [LocalRecordChange] {
@@ -189,7 +202,10 @@ final class ProjectSyncCore {
     }
 
     private func noteSave(_ id: PersistentIdentifier, keys: Set<String>, in context: ModelContext) -> LocalRecordChange? {
-        guard let object = context.model(for: id) as? any SyncedModel, !object.isDeleted,
+        // Fetched, not `model(for:)`: an object deleted since comes back as nil
+        // rather than as a stale one that traps when touched.
+        guard let schema = RecordSchemas.schema(recordType: "CP_\(id.entityName)"),
+              let object = schema.find(id: id, in: context), !object.isDeleted,
               let project = ProjectRecords.project(of: object) else { return nil }
         return noteSave(object, keys: keys, zoneID: zoneID(forProjectUID: project.uid))
     }
@@ -327,13 +343,20 @@ final class ProjectSyncCore {
         return try? SharedProjectStore.move(project, to: main)
     }
 
-    /// Everything of the previous account goes when another one signs in.
-    func reset() {
-        if let context = existingStore()?.mainContext, let projects = try? context.fetch(FetchDescriptor<Project>()) {
-            writeAsSync(in: context) { projects.forEach { context.deleteProjectGraph($0) } }
+    /// Another iCloud account signed in: the shared projects stop syncing — they
+    /// belong to the previous account's zones — and stay, as own copies in the
+    /// regular store (never deleted). Sync starts over.
+    func detachAll() {
+        if let context = existingStore()?.mainContext, let main = mainStore()?.mainContext,
+           let projects = try? context.fetch(FetchDescriptor<Project>()) {
+            let author = context.author
+            context.author = Self.syncAuthor          // not edits to send
+            for project in projects { _ = try? SharedProjectStore.move(project, to: main) }
+            context.author = author
         }
         book = SyncBookkeeping()
         inFlight = [:]
+        markHistoryRead()   // what's in the history now is the previous account's
     }
 
     private func project(inZone zoneName: String, in context: ModelContext) -> Project? {

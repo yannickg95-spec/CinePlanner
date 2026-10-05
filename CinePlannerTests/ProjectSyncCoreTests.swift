@@ -246,6 +246,22 @@ final class ProjectSyncCoreTests: XCTestCase {
         XCTAssertTrue(core.book.records.isEmpty)
     }
 
+    func testAnotherAccountNeverDeletesTheSharedProjects() throws {
+        let store = try makeStore(), main = try makeStore()
+        let core = makeCore(shared: store, main: main)
+        let (project, _, _) = try makeProject(in: store.mainContext)
+        let uid = project.uid
+        confirmAll(core.collectLocalChanges(), core: core)
+
+        core.detachAll()
+
+        XCTAssertEqual(try main.mainContext.fetch(FetchDescriptor<Project>()).map(\.uid), [uid], "kept as an own copy")
+        XCTAssertEqual(try main.mainContext.fetchCount(FetchDescriptor<Shot>()), 1)
+        XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Project>()), 0)
+        XCTAssertTrue(core.book.records.isEmpty)
+        XCTAssertTrue(core.collectLocalChanges().allSatisfy { $0.zoneToDelete == nil }, "nothing deleted in iCloud")
+    }
+
     func testOurZoneDeletedElsewhereRemovesTheProjectHere() throws {
         let store = try makeStore()
         let core = makeCore(shared: store)

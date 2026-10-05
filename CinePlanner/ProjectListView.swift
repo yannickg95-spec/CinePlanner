@@ -47,9 +47,6 @@ struct ProjectListView: View {
     @State private var showingRestoreSheet = false
     @State private var recoveryMessage: String?
     @State private var showingWalkthrough = false
-    #if DEBUG
-    @State private var showingSharingLab = false
-    #endif
     /// The project whose sharing window is open (by uid: sharing moves it between stores).
     @State private var sharingProjectUID: SharingTarget?
     @State private var showingManageRepos = false
@@ -197,9 +194,6 @@ struct ProjectListView: View {
             .sheet(isPresented: $showingWalkthrough) {
                 WalkthroughView()
             }
-            #if DEBUG
-            .sheet(isPresented: $showingSharingLab) { SharingLabView() }
-            #endif
             .sheet(isPresented: $showingDefaultCredits) {
                 DefaultCreditsSheet()
             }
@@ -436,23 +430,6 @@ struct ProjectListView: View {
                 .buttonStyle(.plain)
                 .help("How CinePlanner works — a quick visual walkthrough")
 
-                #if DEBUG
-                Button {
-                    showingSharingLab = true
-                } label: {
-                    Image(systemName: "flask")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(Color.secondary.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .help("Sharing Lab (debug builds only)")
-                .accessibilityLabel("Sharing Lab")
-                #endif
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
@@ -668,7 +645,7 @@ struct ProjectCardView: View {
             export,
             .divider,
             remove,
-        ] + sharingItems + debugItems
+        ] + sharingItems
     }
 
     /// Share… (the window explains Pro), or Sharing… once shared.
@@ -679,16 +656,6 @@ struct ProjectCardView: View {
             NotificationCenter.default.post(name: ProjectSync.requestSharing, object: project.uid)
         }
         return [.divider, share]
-    }
-
-    private var debugItems: [ChipMenuItem] {
-        #if DEBUG
-        [.divider,
-         ChipMenuItem(title: SharedProjectStore.contains(project) ? "Move to My Projects (test)" : "Copy to Shared Store (test)",
-                      systemImage: "arrow.left.arrow.right") { moveForTesting() }]
-        #else
-        []
-        #endif
     }
 
     private var subtitle: String {
@@ -815,27 +782,6 @@ struct ProjectCardView: View {
         if isShared { NotificationCenter.default.post(name: SharedProjectStore.didChange, object: nil) }
     }
 
-    #if DEBUG
-    /// Phase-1 test, without iCloud. Into the shared store goes a copy (fresh uids,
-    /// via the archive), so a real project never leaves the regular store — which
-    /// would remove it from the other devices until the sync exists. A shared copy
-    /// moves back for real, which is safe in that direction.
-    private func moveForTesting() {
-        do {
-            if SharedProjectStore.contains(project) {
-                try SharedProjectStore.move(project, to: modelContext)
-            } else {
-                let shared = SharedProjectStore.container.mainContext
-                let copy = try ProjectArchive.importProject(from: ProjectArchive.data(for: project), into: shared)
-                copy.filmName += " (shared test)"
-                try shared.save()
-                NotificationCenter.default.post(name: SharedProjectStore.didChange, object: nil)
-            }
-        } catch {
-            exportErrorMessage = "Couldn't move the project: \(error.localizedDescription)"
-        }
-    }
-    #endif
 
     private var lastOpenedText: String {
         let formatter = RelativeDateTimeFormatter()

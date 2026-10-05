@@ -19,13 +19,11 @@ struct CinePlannerApp: App {
 
     /// Purchase + trial state gating the app (free with a one-time unlock IAP).
     @StateObject private var access = AppAccess()
-    #if DEBUG
-    // Sharing Lab: receives an accepted share link (see SharingLab.swift).
+    // Shared projects: opened invitations and iCloud pushes (see AppDelegate).
     #if os(macOS)
-    @NSApplicationDelegateAdaptor(SharingLabAppDelegate.self) private var sharingLabDelegate
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #else
-    @UIApplicationDelegateAdaptor(SharingLabAppDelegate.self) private var sharingLabDelegate
-    #endif
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
     @Environment(\.scenePhase) private var scenePhase
 

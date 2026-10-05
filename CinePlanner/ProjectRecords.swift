@@ -34,6 +34,16 @@ extension ScheduleEntry: SyncedModel {}
 
 // MARK: - Fields
 
+/// A value of the type, for the record that creates the iCloud schema (see
+/// `RecordSchema.sampleRecord`).
+protocol RecordSample { static var recordSample: Self { get } }
+extension String: RecordSample { static var recordSample: String { "sample" } }
+extension Int: RecordSample { static var recordSample: Int { 1 } }
+extension Double: RecordSample { static var recordSample: Double { 1.5 } }
+extension Bool: RecordSample { static var recordSample: Bool { true } }
+extension Date: RecordSample { static var recordSample: Date { Date(timeIntervalSince1970: 0) } }
+extension Array: RecordSample where Element: RecordSample { static var recordSample: [Element] { [Element.recordSample] } }
+
 /// One attribute of a model in a record: how to write it in, and read it back.
 /// Reading only assigns a value that differs, so applying a record leaves unchanged
 /// fields alone (and out of the store's history).
@@ -41,25 +51,29 @@ struct RecordField<Model: SyncedModel> {
     let key: String
     let write: (Model, CKRecord) -> Void
     let read: (CKRecord, Model) -> Void
+    /// Writes a value of the field's type, filled in even where the model's is empty.
+    let writeSample: (CKRecord) -> Void
 
     /// A plain value: text, number, true/false, date, list of strings.
-    static func value<V: CKRecordValueProtocol & Equatable>(_ key: String, _ path: ReferenceWritableKeyPath<Model, V>) -> Self {
+    static func value<V: CKRecordValueProtocol & Equatable & RecordSample>(_ key: String, _ path: ReferenceWritableKeyPath<Model, V>) -> Self {
         Self(key: key,
              write: { model, record in record[key] = model[keyPath: path] },
              read: { record, model in
                  guard let value = record[key] as? V, model[keyPath: path] != value else { return }
                  model[keyPath: path] = value
-             })
+             },
+             writeSample: { $0[key] = V.recordSample })
     }
 
     /// An optional plain value; a missing field means nil.
-    static func value<V: CKRecordValueProtocol & Equatable>(_ key: String, _ path: ReferenceWritableKeyPath<Model, V?>) -> Self {
+    static func value<V: CKRecordValueProtocol & Equatable & RecordSample>(_ key: String, _ path: ReferenceWritableKeyPath<Model, V?>) -> Self {
         Self(key: key,
              write: { model, record in record[key] = model[keyPath: path] },
              read: { record, model in
                  let value = record[key] as? V
                  if model[keyPath: path] != value { model[keyPath: path] = value }
-             })
+             },
+             writeSample: { $0[key] = V.recordSample })
     }
 
     /// Media and PDFs, as an asset (records themselves are limited to 1 MB).
@@ -71,7 +85,8 @@ struct RecordField<Model: SyncedModel> {
              read: { record, model in
                  let data = (record[key] as? CKAsset)?.fileURL.flatMap { try? Data(contentsOf: $0) }
                  if model[keyPath: path] != data { model[keyPath: path] = data }
-             })
+             },
+             writeSample: { $0[key] = RecordAssets.asset(for: Data([0])) })
     }
 
     /// A structured value, as JSON text.
@@ -84,7 +99,8 @@ struct RecordField<Model: SyncedModel> {
                  guard text != current else { return }
                  model[keyPath: path] = text.flatMap { $0.data(using: .utf8) }
                      .flatMap { try? JSONDecoder().decode(V.self, from: $0) }
-             })
+             },
+             writeSample: { $0[key] = "[]" })
     }
 }
 
@@ -102,6 +118,7 @@ struct ParentLink<Model: SyncedModel> {
     let key: String
     let write: (Model, CKRecord) -> Void
     let read: (CKRecord, Model, RecordResolver) -> Void
+    var writeSample: (CKRecord) -> Void { { [key] in $0[key] = "sample" } }
 
     static func parent<P: SyncedModel>(_ key: String, _ path: ReferenceWritableKeyPath<Model, P?>) -> Self {
         Self(key: key,
@@ -142,6 +159,8 @@ protocol AnyRecordSchema {
     func link(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>)
     func delete(uid: String, in context: ModelContext)
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)?
+    func find(id: PersistentIdentifier, in context: ModelContext) -> (any SyncedModel)?
+    func sampleRecord(in zoneID: CKRecordZone.ID) -> CKRecord
 }
 
 extension RecordSchema: AnyRecordSchema {
@@ -183,6 +202,20 @@ extension RecordSchema: AnyRecordSchema {
     }
 
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)? { fetch(context, uid) }
+
+    func find(id: PersistentIdentifier, in context: ModelContext) -> (any SyncedModel)? {
+        try? context.fetch(FetchDescriptor<Model>(predicate: #Predicate { $0.persistentModelID == id })).first
+    }
+
+    /// A record of this type with every field filled — saving one in iCloud's
+    /// Development environment teaches its schema every field, before that schema
+    /// is deployed to Production (which can't learn new ones).
+    func sampleRecord(in zoneID: CKRecordZone.ID) -> CKRecord {
+        let record = CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: zoneID))
+        for field in fields { field.writeSample(record) }
+        for parent in parents { parent.writeSample(record) }
+        return record
+    }
 }
 
 /// Finds objects by uid while records are applied — the ones made in this batch
