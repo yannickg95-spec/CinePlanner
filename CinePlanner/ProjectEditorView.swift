@@ -135,6 +135,7 @@ struct ProjectEditorView: View {
         deletionAlerts(editorAlerts(editorSheets(coreView)))
             .onAppear(perform: connectMenuCommands)
             .focusedSceneValue(\.projectEditorCommands, menuCommands)
+            .task { await ProjectSync.shared.keepFresh(while: project) }
     }
 
     /// What this project offers the menu bar (File, View) — wired once into the one

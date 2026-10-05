@@ -46,6 +46,10 @@ final class SyncRefresher {
 
     private init() {}
 
+    /// Something outside the regular store's imports changed data on screen (a
+    /// shared project's sync): redraw the same way.
+    func noteExternalChanges() { generation &+= 1 }
+
     func start(container: ModelContainer) {
         guard self.container == nil else { return }
         self.container = container

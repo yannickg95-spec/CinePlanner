@@ -125,6 +125,8 @@ struct CinePlannerApp: App {
         // Keep the UI's context in step with iCloud imports (see SyncRefresher) — set
         // up before anything saves, so the main context's saves carry its author tag.
         MainActor.assumeIsolated { SyncRefresher.shared.start(container: sharedModelContainer) }
+        // Shared projects sync through their own iCloud zones (see ProjectSync).
+        ProjectSync.shared.start(mainContainer: sharedModelContainer)
         // Old-style shot media in projects that haven't been opened since (once iCloud
         // has caught up), so those fields can be retired.
         LegacyMediaSweep.start(container: sharedModelContainer)
@@ -255,7 +257,12 @@ struct CinePlannerApp: App {
         // Save the moment the app goes inactive/background, so the last edits reach
         // CloudKit before the user switches devices.
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { flushPendingChanges() }
+            if phase != .active {
+                flushPendingChanges()
+                ProjectSync.shared.saveBookNow()
+            } else {
+                Task { await ProjectSync.shared.fetchNow() }   // a shared project may have moved on
+            }
         }
         // Comfortably inside a 1600×1200 display (and typical laptop screens)
         .defaultSize(width: 1440, height: 860)

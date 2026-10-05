@@ -304,6 +304,15 @@ extension SharingLab: CKSyncEngineDelegate {
                                                syncEngine: CKSyncEngine) async -> CKSyncEngine.RecordZoneChangeBatch? {
         await batch(for: context, engine: syncEngine)
     }
+
+    /// Leave SwiftData's zone (every regular project and its media) alone.
+    nonisolated func nextFetchChangesOptions(_ context: CKSyncEngine.FetchChangesContext,
+                                             syncEngine: CKSyncEngine) async -> CKSyncEngine.FetchChangesOptions {
+        guard syncEngine.database.databaseScope == .private else { return context.options }
+        var options = context.options
+        options.scope = .allExcluding([CKRecordZone.ID(zoneName: "com.apple.coredata.cloudkit.zone")])
+        return options
+    }
 }
 
 // MARK: - The lab screen
@@ -405,7 +414,9 @@ final class SharingLabAppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else { return }
-        SharingLab.shared.receivedPush(scope: (notification as? CKDatabaseNotification)?.databaseScope)
+        let scope = (notification as? CKDatabaseNotification)?.databaseScope
+        SharingLab.shared.receivedPush(scope: scope)
+        ProjectSync.shared.receivedPush(scope: scope)
     }
 }
 #else
@@ -420,7 +431,9 @@ final class SharingLabAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else { return .noData }
-        SharingLab.shared.receivedPush(scope: (notification as? CKDatabaseNotification)?.databaseScope)
+        let scope = (notification as? CKDatabaseNotification)?.databaseScope
+        SharingLab.shared.receivedPush(scope: scope)
+        ProjectSync.shared.receivedPush(scope: scope)
         return .newData
     }
 }

@@ -37,6 +37,8 @@ nonisolated enum Log {
     static let backup = Logger(subsystem: subsystem, category: "backup")
     /// Everything else in the app shell.
     static let app = Logger(subsystem: subsystem, category: "app")
+    /// Syncing shared projects with iCloud.
+    static let sync = Logger(subsystem: subsystem, category: "sync")
     /// Scaling and transcoding imported photos and videos.
     static let media = Logger(subsystem: subsystem, category: "media")
 }

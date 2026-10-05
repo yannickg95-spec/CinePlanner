@@ -137,9 +137,10 @@ protocol AnyRecordSchema {
     var syncedKeys: Set<String> { get }
     var parentKeys: Set<String> { get }
     var notSyncedKeys: Set<String> { get }
-    func fill(_ record: CKRecord, from object: any SyncedModel)
-    func upsert(_ record: CKRecord, resolver: RecordResolver) -> any SyncedModel
-    func link(_ record: CKRecord, resolver: RecordResolver)
+    func fill(_ record: CKRecord, from object: any SyncedModel, only keys: Set<String>?)
+    func upsert(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>) -> any SyncedModel
+    func link(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>)
+    func delete(uid: String, in context: ModelContext)
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)?
 }
 
@@ -149,13 +150,13 @@ extension RecordSchema: AnyRecordSchema {
     var parentKeys: Set<String> { Set(parents.map(\.key)) }
     var notSyncedKeys: Set<String> { Set(notSynced.keys) }
 
-    func fill(_ record: CKRecord, from object: any SyncedModel) {
+    func fill(_ record: CKRecord, from object: any SyncedModel, only keys: Set<String>?) {
         guard let model = object as? Model else { return }
-        for field in fields { field.write(model, record) }
-        for parent in parents { parent.write(model, record) }
+        for field in fields where keys?.contains(field.key) ?? true { field.write(model, record) }
+        for parent in parents where keys?.contains(parent.key) ?? true { parent.write(model, record) }
     }
 
-    func upsert(_ record: CKRecord, resolver: RecordResolver) -> any SyncedModel {
+    func upsert(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>) -> any SyncedModel {
         let uid = record.recordID.recordName
         let model: Model
         if let existing = resolver.object(Model.self, uid: uid) {
@@ -166,13 +167,19 @@ extension RecordSchema: AnyRecordSchema {
             resolver.context.insert(model)
             resolver.remember(model)
         }
-        for field in fields { field.read(record, model) }
+        for field in fields where !skipping.contains(field.key) { field.read(record, model) }
         return model
     }
 
-    func link(_ record: CKRecord, resolver: RecordResolver) {
+    func link(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>) {
         guard let model = resolver.object(Model.self, uid: record.recordID.recordName) else { return }
-        for parent in parents { parent.read(record, model, resolver) }
+        for parent in parents where !skipping.contains(parent.key) { parent.read(record, model, resolver) }
+    }
+
+    func delete(uid: String, in context: ModelContext) {
+        guard let model = fetch(context, uid) else { return }
+        if let project = model as? Project { context.deleteProjectGraph(project) }
+        else { context.delete(model) }
     }
 
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)? { fetch(context, uid) }
@@ -523,12 +530,15 @@ enum ProjectRecords {
     }
 
     /// The record for one object. `base` is the record as last seen from the
-    /// server, when there is one, so the save carries its change tag.
-    static func record(for object: any SyncedModel, zoneID: CKRecordZone.ID, base: CKRecord? = nil) -> CKRecord? {
+    /// server, when there is one, so the save carries its change tag; `keys` limits
+    /// the fields written to those that changed (so unchanged media isn't uploaded
+    /// again). A record new to the server always gets every field.
+    static func record(for object: any SyncedModel, zoneID: CKRecordZone.ID,
+                       base: CKRecord? = nil, keys: Set<String>? = nil) -> CKRecord? {
         guard let schema = RecordSchemas.schema(for: type(of: object)) else { return nil }
         let record = base ?? CKRecord(recordType: schema.recordType,
                                       recordID: CKRecord.ID(recordName: object.uid, zoneID: zoneID))
-        schema.fill(record, from: object)
+        schema.fill(record, from: object, only: base == nil ? nil : keys)
         return record
     }
 
@@ -537,14 +547,44 @@ enum ProjectRecords {
     }
 
     /// Applies records in any order: creates or updates each object by uid, then
-    /// links every object to its parents. Returns how many parent links pointed at
-    /// objects that aren't there (yet).
+    /// links every object to its parents. `keeping` names, per record, fields left
+    /// as they are here (this device's changes not yet sent). Returns how many
+    /// parent links pointed at objects that aren't there (yet).
     @discardableResult
-    static func apply(_ records: [CKRecord], in context: ModelContext) -> Int {
+    static func apply(_ records: [CKRecord], in context: ModelContext,
+                      keeping: [String: Set<String>] = [:]) -> Int {
         let resolver = RecordResolver(context: context)
         let known = records.compactMap { record in RecordSchemas.schema(recordType: record.recordType).map { (record, $0) } }
-        for (record, schema) in known { resolver.remember(schema.upsert(record, resolver: resolver)) }
-        for (record, schema) in known { schema.link(record, resolver: resolver) }
+        for (record, schema) in known {
+            let kept = keeping[record.recordID.recordName] ?? []
+            resolver.remember(schema.upsert(record, resolver: resolver, skipping: kept))
+        }
+        for (record, schema) in known {
+            schema.link(record, resolver: resolver, skipping: keeping[record.recordID.recordName] ?? [])
+        }
         return resolver.unresolved
+    }
+
+    /// Deletes the objects behind deleted records.
+    static func delete(_ deletions: [(recordType: String, uid: String)], in context: ModelContext) {
+        for deletion in deletions {
+            RecordSchemas.schema(recordType: deletion.recordType)?.delete(uid: deletion.uid, in: context)
+        }
+    }
+
+    /// The project an object belongs to — which decides its zone.
+    static func project(of object: any SyncedModel) -> Project? {
+        switch object {
+        case let project as Project: project
+        case let episode as Episode: episode.project
+        case let version as ScriptVersion: version.episode?.project ?? version.project
+        case let scene as Scene: scene.scriptVersion.flatMap { project(of: $0) } ?? scene.project
+        case let shot as Shot: shot.scene.flatMap { project(of: $0) }
+        case let reference as ShotReference: reference.shot.flatMap { project(of: $0) }
+        case let info as ShotCustomInfo: info.shot.flatMap { project(of: $0) }
+        case let day as ShootingDay: day.scriptVersion.flatMap { project(of: $0) }
+        case let entry as ScheduleEntry: entry.day.flatMap { project(of: $0) } ?? entry.scene.flatMap { project(of: $0) }
+        default: nil
+        }
     }
 }
