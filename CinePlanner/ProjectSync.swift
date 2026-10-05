@@ -282,6 +282,7 @@ final class ProjectSync {
             await fetchNow()
         }
     }
+    }
 
     // MARK: Sharing
 
@@ -290,17 +291,49 @@ final class ProjectSync {
         guard let ckContainer else { return }
         let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "the project"
         do {
+            show(notice: "Joining “\(title)”…")
             _ = try await ckContainer.accept(metadata)
             let zoneID = metadata.share.recordID.zoneID
             core.book.sharedZoneOwners[zoneID.zoneName] = zoneID.ownerName
             noteShare(metadata.share)
             scheduleBookSave()
-            show(notice: "Joining “\(title)”…")
-            try await sharedEngine?.fetchChanges()
-            show(notice: "Joined “\(title)”")
+            // The whole project straight from its zone: the engine's own fetch can
+            // miss a zone joined a moment ago, and goes on from where it last was.
+            if try await fetchWholeZone(zoneID) {
+                show(notice: "Joined “\(title)”")
+            } else {
+                show(notice: "Joined “\(title)”. It appears here once it has finished uploading from its owner's device.")
+            }
+            try? await sharedEngine?.fetchChanges()
         } catch {
             show(notice: "Couldn't join “\(title)”: \(error.localizedDescription)")
         }
+    }
+
+    /// Everything in a zone shared with us, from the start, applied in one go (so
+    /// links between records on different pages resolve). False when the project
+    /// itself wasn't among it.
+    private func fetchWholeZone(_ zoneID: CKRecordZone.ID) async throws -> Bool {
+        guard let database = ckContainer?.sharedCloudDatabase else { return false }
+        var records: [CKRecord] = []
+        var token: CKServerChangeToken?
+        var moreComing = true
+        var attempts = 0
+        while moreComing {
+            do {
+                let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+                records += changes.modificationResultsByID.values.compactMap { try? $0.get().record }
+                token = changes.changeToken
+                moreComing = changes.moreComing
+            } catch let error as CKError where error.code == .zoneNotFound && attempts < 5 {
+                // Just joined: the zone can take a moment to show up.
+                attempts += 1
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+        Log.sync.notice("Fetched \(records.count) record(s) of joined zone \(zoneID.zoneName)")
+        applyFetched(records, deletions: [], scope: .shared)
+        return records.contains { $0.recordType == RecordSchemas.project.recordType }
     }
 
     /// Who a project is shared with or by, as last seen; nil when it isn't shared.
@@ -326,10 +359,7 @@ final class ProjectSync {
     func createShare(forProjectUID uid: String) async throws -> CKShare {
         guard let database = ckContainer?.privateCloudDatabase else { throw CKError(.notAuthenticated) }
         let zoneID = core.zoneID(forProjectUID: uid)
-        if !core.book.createdZones.contains(zoneID.zoneName) {
-            _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
-            core.book.createdZones.insert(zoneID.zoneName)
-        }
+        try await ensureUploaded(zoneID, projectUID: uid, in: database)
         if let existing = try await fetchShare(zoneID: zoneID) { return existing }
         let share = CKShare(recordZoneID: zoneID)
         let title = SharedProjectStore.openContext.flatMap { RecordSchemas.project.fetch($0, uid) }?.filmName
@@ -340,8 +370,29 @@ final class ProjectSync {
             throw CKError(.internalError)
         }
         noteShare(saved)
-        try? await privateEngine?.sendChanges()          // the project's records follow
         return saved
+    }
+
+    /// Makes sure the project is in its zone before anyone is invited to it. A zone
+    /// deleted on another device and made again holds only what was sent since, so
+    /// someone joining would get scenes and shots without the project they belong to.
+    private func ensureUploaded(_ zoneID: CKRecordZone.ID, projectUID uid: String, in database: CKDatabase) async throws {
+        func projectIsThere() async throws -> Bool {
+            do {
+                _ = try await database.record(for: CKRecord.ID(recordName: uid, zoneID: zoneID))
+                return true
+            } catch let error as CKError where error.code == .unknownItem || error.code == .zoneNotFound {
+                return false
+            }
+        }
+        if try await projectIsThere() { return }
+        // Just started sharing: it may only still be on its way.
+        try? await privateEngine?.sendChanges()
+        if try await projectIsThere() { return }
+        guard let context = SharedProjectStore.openContext, let project = RecordSchemas.project.fetch(context, uid) else { return }
+        Log.sync.notice("Zone \(zoneID.zoneName) was missing its project: sending all of it")
+        queue(core.markWholeProject(project))
+        try await privateEngine?.sendChanges()
     }
 
     /// The project's share as it is on the server now, if there is one.
@@ -367,6 +418,36 @@ final class ProjectSync {
         guard let database = ckContainer?.privateCloudDatabase else { return }
         let result = try await database.modifyRecords(saving: [share], deleting: [])
         if case .success(let saved as CKShare)? = result.saveResults[share.recordID] { noteShare(saved) }
+    }
+
+    /// A new invitation to one of our shared projects: a one-time link that lets in
+    /// whoever opens it first, who can edit until the owner says otherwise.
+    func makeInvitationLink(forProjectUID uid: String) async throws -> (url: URL, participantID: CKShare.Participant.ID) {
+        guard let database = ckContainer?.privateCloudDatabase else { throw CKError(.notAuthenticated) }
+        let share = try await createShare(forProjectUID: uid)
+        let participant = CKShare.Participant.oneTimeURLParticipant()
+        participant.permission = .readWrite
+        share.addParticipant(participant)
+        let result = try await database.modifyRecords(saving: [share], deleting: [])
+        guard case .success(let saved as CKShare)? = result.saveResults[share.recordID] else {
+            if case .failure(let error)? = result.saveResults[share.recordID] { throw error }
+            throw CKError(.internalError)
+        }
+        noteShare(saved)
+        // The Swift spelling is iOS/macOS 26 only; the method itself is 18/15.
+        guard let url = saved.__oneTimeURL(forParticipantID: participant.participantID) else {
+            throw CKError(.internalError)
+        }
+        return (url, participant.participantID)
+    }
+
+    /// Takes back an invitation that wasn't sent after all, if nobody used it yet.
+    func withdrawInvitation(_ participantID: CKShare.Participant.ID, projectUID: String) async {
+        guard let share = try? await fetchShare(forProjectUID: projectUID),
+              let participant = share.participants.first(where: { $0.participantID == participantID }),
+              participant.acceptanceStatus == .pending else { return }
+        share.removeParticipant(participant)
+        try? await saveShare(share)
     }
 
     /// Stops sharing one of our projects: it goes back to the regular store, and its
@@ -437,22 +518,9 @@ final class ProjectSync {
             scheduleBookSave()
 
         case .fetchedRecordZoneChanges(let changes):
-            let all = changes.modifications.map(\.record)
-            for case let share as CKShare in all { noteShare(share) }
-            for deletion in changes.deletions where deletion.recordType == CKRecord.SystemType.share {
-                core.book.shares[deletion.recordID.zoneID.zoneName] = nil
-                sharesGeneration &+= 1
-            }
-            let records = all.filter { !($0 is CKShare) }
-            let deletions = changes.deletions
-                .filter { $0.recordType != CKRecord.SystemType.share }
-                .map { (recordType: $0.recordType, recordID: $0.recordID) }
-            if !records.isEmpty || !deletions.isEmpty {
-                Log.sync.notice("Received \(records.count) change(s), \(deletions.count) deletion(s) (\(scope == .shared ? "shared" : "private"))")
-            }
-            if core.applyRemote(records, deletions: deletions) { projectsChanged() }
-            if !records.isEmpty || !deletions.isEmpty { SyncRefresher.shared.noteExternalChanges() }
-            scheduleBookSave()
+            applyFetched(changes.modifications.map(\.record),
+                         deletions: changes.deletions.map { (recordType: $0.recordType, recordID: $0.recordID) },
+                         scope: scope)
 
         case .sentDatabaseChanges(let sent):
             for zone in sent.savedZones { core.book.createdZones.insert(zone.zoneID.zoneName) }
@@ -548,6 +616,24 @@ final class ProjectSync {
         Self.saveEngineState(nil, .shared)
         makeEngines()
         projectsChanged()
+    }
+
+    /// Fetched changes: shares noted, the rest into the store.
+    private func applyFetched(_ all: [CKRecord], deletions allDeletions: [(recordType: String, recordID: CKRecord.ID)],
+                              scope: CKDatabase.Scope) {
+        for case let share as CKShare in all { noteShare(share) }
+        for deletion in allDeletions where deletion.recordType == CKRecord.SystemType.share {
+            core.book.shares[deletion.recordID.zoneID.zoneName] = nil
+            sharesGeneration &+= 1
+        }
+        let records = all.filter { !($0 is CKShare) }
+        let deletions = allDeletions.filter { $0.recordType != CKRecord.SystemType.share }
+        if !records.isEmpty || !deletions.isEmpty {
+            Log.sync.notice("Received \(records.count) change(s), \(deletions.count) deletion(s) (\(scope == .shared ? "shared" : "private"))")
+        }
+        if core.applyRemote(records, deletions: deletions) { projectsChanged() }
+        if !records.isEmpty || !deletions.isEmpty { SyncRefresher.shared.noteExternalChanges() }
+        scheduleBookSave()
     }
 
     private func projectsChanged() {

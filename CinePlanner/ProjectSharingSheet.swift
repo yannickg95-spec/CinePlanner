@@ -16,6 +16,10 @@ import SwiftUI
 import SwiftData
 import CloudKit
 import CoreTransferable
+#if os(iOS)
+import UIKit
+import LinkPresentation
+#endif
 
 struct ProjectSharingSheet: View {
     let projectUID: String
@@ -131,11 +135,23 @@ struct ProjectSharingSheet: View {
             Text("People")
         }
         Section {
+            #if os(iOS)
+            // ShareLink with a share doesn't open anything on iOS, and the system's
+            // own invitations there didn't open for the people invited — so a
+            // one-time link of ours, sent with the regular share window.
+            Button {
+                invite(project)
+            } label: {
+                Label("Invite People…", systemImage: "person.badge.plus")
+            }
+            .disabled(!access.canCollaborate || working)
+            #else
             ShareLink(item: ProjectShareItem(projectUID: project.uid, title: project.filmName, existing: share),
                       preview: SharePreview(project.filmName, image: Image(systemName: "film"))) {
                 Label("Invite People…", systemImage: "person.badge.plus")
             }
             .disabled(!access.canCollaborate)
+            #endif
             Button("Stop Sharing", role: .destructive) { confirmingStop = true }
         } footer: {
             Text("Invited people get a link that opens the project in CinePlanner.")
@@ -154,6 +170,29 @@ struct ProjectSharingSheet: View {
             Text("The project goes back to being yours alone. The people it was shared with keep their own copy, which no longer updates.")
         }
     }
+
+    #if os(iOS)
+    /// Makes an invitation link and offers it to send; one that isn't sent after
+    /// all is taken back.
+    private func invite(_ project: Project) {
+        working = true
+        Task {
+            defer { working = false }
+            do {
+                let invitation = try await sync.makeInvitationLink(forProjectUID: project.uid)
+                share = try? await sync.fetchShare(forProjectUID: projectUID)
+                InvitationShareWindow.present(invitation.url, title: project.filmName) { sent in
+                    Task {
+                        if !sent { await sync.withdrawInvitation(invitation.participantID, projectUID: projectUID) }
+                        share = try? await sync.fetchShare(forProjectUID: projectUID)
+                    }
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+    #endif
 
     private func people(_ share: CKShare) -> [CKShare.Participant] {
         share.participants.filter { $0.role != .owner && $0.acceptanceStatus != .removed }
@@ -198,7 +237,7 @@ struct ProjectSharingSheet: View {
         }
         return participant.userIdentity.lookupInfo?.emailAddress
             ?? participant.userIdentity.lookupInfo?.phoneNumber
-            ?? "Someone"
+            ?? (participant.acceptanceStatus == .pending ? "Invitation Link" : "Someone")
     }
 
     private func save(_ share: CKShare) {
@@ -265,6 +304,64 @@ nonisolated struct ProjectShareItem: Transferable {
         }
     }
 }
+
+#if os(iOS)
+/// The regular share window for an invitation link, over whatever is showing
+/// (the sharing sheet). Tells whether the link went somewhere.
+enum InvitationShareWindow {
+    static func present(_ url: URL, title: String, completion: @escaping (_ sent: Bool) -> Void) {
+        guard let presenter = topViewController() else { completion(false); return }
+        let controller = UIActivityViewController(activityItems: [InvitationItem(url: url, title: title)],
+                                                  applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, completed, _, _ in completion(completed) }
+        // On the iPad it's a popover, anchored mid-sheet.
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(controller, animated: true)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = (scenes.filter { $0.activationState == .foregroundActive }
+                       + scenes.filter { $0.activationState != .foregroundActive }).flatMap(\.windows)
+        var top = (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top
+    }
+}
+
+/// The link, with the project's name as its preview and mail subject.
+private final class InvitationItem: NSObject, UIActivityItemSource {
+    let url: URL
+    let title: String
+
+    init(url: URL, title: String) {
+        self.url = url
+        self.title = title
+    }
+
+    private var invitationText: String { "Join “\(title)” in CinePlanner" }
+
+    func activityViewControllerPlaceholderItem(_ controller: UIActivityViewController) -> Any { url }
+
+    func activityViewController(_ controller: UIActivityViewController,
+                                itemForActivityType activityType: UIActivity.ActivityType?) -> Any? { url }
+
+    func activityViewController(_ controller: UIActivityViewController,
+                                subjectForActivityType activityType: UIActivity.ActivityType?) -> String { invitationText }
+
+    func activityViewControllerLinkMetadata(_ controller: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.title = invitationText
+        metadata.originalURL = url
+        metadata.url = url
+        return metadata
+    }
+}
+#endif
 
 /// A project to open the sharing window for, by uid.
 struct SharingTarget: Identifiable {

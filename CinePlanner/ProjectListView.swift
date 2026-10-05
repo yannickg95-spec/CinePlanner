@@ -665,22 +665,68 @@ struct ProjectCardView: View {
         }
         parts.append("\(project.scenes.count) scene\(project.scenes.count == 1 ? "" : "s")")
         parts.append("\(shotCount) shot\(shotCount == 1 ? "" : "s")")
-        if SharedProjectStore.contains(project) { parts.append(sharingLabel) }
         return parts.joined(separator: " · ")
     }
 
-    private var sharingLabel: String {
+    /// What the card says about sharing, from roomy to tight: "Shared with 2
+    /// people" / "Shared" / just the icon (with the count, for ours).
+    private struct SharingBadge {
+        let full: String
+        let short: String
+        let count: Int?
+        let systemImage: String
+    }
+
+    /// Nil when the project isn't shared.
+    private var sharingBadge: SharingBadge? {
+        guard SharedProjectStore.contains(project) else { return nil }
         _ = ProjectSync.shared.sharesGeneration
-        guard let info = ProjectSync.shared.shareInfo(for: project) else { return "Shared" }
-        if !info.isOwner { return "Shared by \(info.ownerName ?? "someone")" }
-        switch info.participantCount {
-        case 0: return "Shared"
-        case 1: return "Shared with 1 person"
-        default: return "Shared with \(info.participantCount) people"
+        guard let info = ProjectSync.shared.shareInfo(for: project) else {
+            return SharingBadge(full: "Shared", short: "Shared", count: nil, systemImage: "person.2.fill")
         }
+        if !info.isOwner {
+            let sharedBy = "Shared by \(info.ownerName ?? "someone")"
+            return info.canEdit
+                ? SharingBadge(full: sharedBy, short: "Shared", count: nil, systemImage: "person.2.fill")
+                : SharingBadge(full: "\(sharedBy) · View Only", short: "View Only", count: nil, systemImage: "eye.fill")
+        }
+        let full = switch info.participantCount {
+        case 0: "Shared"
+        case 1: "Shared with 1 person"
+        default: "Shared with \(info.participantCount) people"
+        }
+        return SharingBadge(full: full, short: "Shared", count: info.participantCount > 0 ? info.participantCount : nil,
+                            systemImage: "person.2.fill")
+    }
+
+    /// A tinted capsule beside the film icon, as long as the card has room for.
+    private func sharingPill(_ badge: SharingBadge) -> some View {
+        ViewThatFits(in: .horizontal) {
+            pillBackground(Label(badge.full, systemImage: badge.systemImage))
+            pillBackground(Label(badge.short, systemImage: badge.systemImage))
+            pillBackground(HStack(spacing: 3) {
+                Image(systemName: badge.systemImage)
+                if let count = badge.count { Text("\(count)") }
+            })
+        }
+        .frame(height: 28)
+        .help(badge.full)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(badge.full)
+    }
+
+    private func pillBackground(_ content: some View) -> some View {
+        content
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.accentColor.opacity(0.14), in: Capsule())
     }
 
     var body: some View {
+        let badge = sharingBadge
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 Image(systemName: project.isSeries ? "tv" : "film")
@@ -690,6 +736,11 @@ struct ProjectCardView: View {
                     .background(Color.accentColor.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 7))
                     .help(project.isSeries ? "Series" : "Film")
+
+                if let badge {
+                    // Ahead of the spacer for the room: otherwise the two split it.
+                    sharingPill(badge).layoutPriority(1)
+                }
 
                 Spacer(minLength: 0)
 
