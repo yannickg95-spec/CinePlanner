@@ -222,10 +222,12 @@ final class ProjectSyncCoreTests: XCTestCase {
         book.records["x"] = .init(recordType: "CP_Shot", zoneName: "Project-1")
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(book)) as? [String: Any])
         json["shares"] = nil                       // written before sharing info existed
+        json["sharedZoneJoined"] = nil
         let decoded = try JSONDecoder().decode(SyncBookkeeping.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertEqual(decoded.userRecordName, "_abc")
         XCTAssertEqual(decoded.records["x"]?.zoneName, "Project-1")
         XCTAssertTrue(decoded.shares.isEmpty)
+        XCTAssertTrue(decoded.sharedZoneJoined.isEmpty)
     }
 
     // MARK: Zones that go away
@@ -244,6 +246,27 @@ final class ProjectSyncCoreTests: XCTestCase {
         XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Project>()), 0)
         XCTAssertTrue(core.collectLocalChanges().isEmpty, "leaving isn't a deletion to send")
         XCTAssertTrue(core.book.records.isEmpty)
+    }
+
+    func testWhenTheOwnerAsksOurCopyGoesEverywhere() throws {
+        let store = try makeStore(), main = try makeStore()
+        let core = makeCore(shared: store, main: main)
+        let source = try makeStore()
+        let (project, _, _) = try makeProject(in: source.mainContext)
+        let zone = ProjectRecords.zoneID(for: project, ownerName: "someoneElse")
+        core.applyRemote(ProjectRecords.records(for: project, zoneID: zone), deletions: [])
+        core.book.sharedZoneOwners[zone.zoneName] = "someoneElse"
+        core.book.sharedZoneJoined[zone.zoneName] = Date()
+
+        core.sharedZoneRemoved(zone)
+
+        XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Project>()), 0)
+        XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Shot>()), 0)
+        XCTAssertEqual(try main.mainContext.fetchCount(FetchDescriptor<Project>()), 0, "no copy kept")
+        XCTAssertTrue(core.collectLocalChanges().isEmpty, "not a leaving to send")
+        XCTAssertTrue(core.book.records.isEmpty)
+        XCTAssertNil(core.book.sharedZoneOwners[zone.zoneName])
+        XCTAssertNil(core.book.sharedZoneJoined[zone.zoneName])
     }
 
     func testAnotherAccountNeverDeletesTheSharedProjects() throws {

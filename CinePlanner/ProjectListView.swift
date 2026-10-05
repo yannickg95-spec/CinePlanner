@@ -614,6 +614,7 @@ struct ProjectCardView: View {
     @State private var showingDeleteAlert = false
     @State private var showingSeriesToFilmBlocked = false
     @State private var exportErrorMessage: String?
+    @State private var deleteErrorMessage: String?
     @State private var exportDocument: ProjectArchiveDocument?
     @State private var showingExporter = false
     @Environment(\.modelContext) private var modelContext
@@ -622,17 +623,17 @@ struct ProjectCardView: View {
         project.scenes.reduce(0) { $0 + $1.shots.count }
     }
 
-    /// Shared with us (not ours): it can be left, not deleted.
-    private var isSharedWithUs: Bool {
-        _ = ProjectSync.shared.sharesGeneration
-        return ProjectSync.shared.shareInfo(for: project)?.isOwner == false
-    }
+    /// Shared with us (not ours): it can be left, not deleted — nor exported as a
+    /// project file.
+    private var isSharedWithUs: Bool { ProjectSync.shared.isSharedWithUs(project) }
 
     /// The card's actions. Read-only after the trial — or shared with us to view
     /// only — exporting (and the sharing window) is left.
     private var cardMenuItems: [ChipMenuItem] {
-        let export = ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() }
-        guard !access.isReadOnly, ProjectSync.shared.canEdit(project) else { return [export] + sharingItems }
+        let export = isSharedWithUs
+            ? []
+            : [ChipMenuItem(title: "Export Project…", systemImage: "square.and.arrow.up") { exportProject() }]
+        guard !access.isReadOnly, ProjectSync.shared.canEdit(project) else { return export + sharingItems }
         let remove = isSharedWithUs
             ? ChipMenuItem(title: "Leave Shared Project…", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                 NotificationCenter.default.post(name: ProjectSync.requestSharing, object: project.uid)
@@ -642,7 +643,7 @@ struct ProjectCardView: View {
             ChipMenuItem(title: "Rename…", systemImage: "pencil") { showingEditSheet = true },
             ChipMenuItem(title: project.isSeries ? "Change to Film" : "Change to Series",
                          systemImage: project.isSeries ? "film" : "tv") { toggleProjectType() },
-            export,
+        ] + export + [
             .divider,
             remove,
         ] + sharingItems
@@ -807,13 +808,24 @@ struct ProjectCardView: View {
         }
         .alert("Delete “\(project.filmName)”?", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
-            Button("Delete Project", role: .destructive) {
-                deleteProject()
+            if SharedProjectStore.contains(project) {
+                Button("Delete, Let Them Keep a Copy", role: .destructive) { deleteProject(removeCopies: false) }
+                Button("Delete Everywhere", role: .destructive) { deleteProject(removeCopies: true) }
+            } else {
+                Button("Delete Project", role: .destructive) { deleteProject() }
             }
         } message: {
             Text(SharedProjectStore.contains(project)
-                 ? "This permanently deletes the project with all its episodes, scenes and shots, and stops sharing it. The people it was shared with keep their own copy. This cannot be undone."
+                 ? "This permanently deletes the project with all its episodes, scenes and shots, and stops sharing it. The people it was shared with can keep their own copy, which no longer updates — or it can go from their devices too. This cannot be undone."
                  : "This permanently deletes the project with all its episodes, scenes and shots. This cannot be undone.")
+        }
+        .alert("Couldn't Delete Project", isPresented: Binding(
+            get: { deleteErrorMessage != nil },
+            set: { if !$0 { deleteErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(deleteErrorMessage ?? "")
         }
         .alert("Can't switch to a film", isPresented: $showingSeriesToFilmBlocked) {
             Button("OK", role: .cancel) { }
@@ -826,11 +838,20 @@ struct ProjectCardView: View {
     private var context: ModelContext { project.modelContext ?? modelContext }
 
     /// Deletes the project and its whole object graph, in whichever store holds it.
-    private func deleteProject() {
-        let isShared = SharedProjectStore.contains(project)
-        let context = context
-        context.destructiveDelete { context.deleteProjectGraph(project) }
-        if isShared { NotificationCenter.default.post(name: SharedProjectStore.didChange, object: nil) }
+    /// A shared one first leaves word whether the people it's shared with keep theirs.
+    private func deleteProject(removeCopies: Bool = false) {
+        guard SharedProjectStore.contains(project) else {
+            let context = context
+            context.destructiveDelete { context.deleteProjectGraph(project) }
+            return
+        }
+        Task {
+            do {
+                try await ProjectSync.shared.deleteSharedProject(project, removeCopies: removeCopies)
+            } catch {
+                deleteErrorMessage = error.localizedDescription
+            }
+        }
     }
 
 

@@ -187,7 +187,11 @@ final class ProjectSync {
         let result = try await database.modifyRecords(saving: records, deleting: [])
         _ = try? await database.modifyRecords(saving: [], deleting: records.map(\.recordID))
         for (_, saved) in result.saveResults { if case .failure(let error) = saved { throw error } }
-        return records.count
+        // And the word left when sharing ends, in the public database.
+        let sample = Self.sharingEndedID(zoneName: "CPSchema")
+        try await saveSharingEnded(sample, removeCopies: false)
+        _ = try? await ckContainer?.publicCloudDatabase.modifyRecords(saving: [], deleting: [sample])
+        return records.count + 1
     }
 
     #endif
@@ -282,7 +286,6 @@ final class ProjectSync {
             await fetchNow()
         }
     }
-    }
 
     // MARK: Sharing
 
@@ -295,6 +298,7 @@ final class ProjectSync {
             _ = try await ckContainer.accept(metadata)
             let zoneID = metadata.share.recordID.zoneID
             core.book.sharedZoneOwners[zoneID.zoneName] = zoneID.ownerName
+            core.book.sharedZoneJoined[zoneID.zoneName] = Date()
             noteShare(metadata.share)
             scheduleBookSave()
             // The whole project straight from its zone: the engine's own fetch can
@@ -451,9 +455,11 @@ final class ProjectSync {
     }
 
     /// Stops sharing one of our projects: it goes back to the regular store, and its
-    /// zone (with the share) is deleted. The people it was shared with keep a copy.
+    /// zone (with the share) is deleted. The people it was shared with keep their
+    /// copy, or — if the owner asks — it goes from their devices too.
     @discardableResult
-    func stopSharing(_ project: Project) throws -> Project? {
+    func stopSharing(_ project: Project, removeCopies: Bool) async throws -> Project? {
+        try await leaveWord(zoneName: "Project-\(project.uid)", removeCopies: removeCopies)
         guard let main = mainContainer?.mainContext else { return nil }
         core.book.shares["Project-\(project.uid)"] = nil
         let moved = try SharedProjectStore.move(project, to: main)
@@ -461,13 +467,134 @@ final class ProjectSync {
         return moved
     }
 
+    /// Deletes one of our shared projects; the people it was shared with keep their
+    /// copy, or it goes from their devices too.
+    func deleteSharedProject(_ project: Project, removeCopies: Bool) async throws {
+        try await leaveWord(zoneName: "Project-\(project.uid)", removeCopies: removeCopies)
+        guard let context = project.modelContext else { return }
+        context.destructiveDelete { context.deleteProjectGraph(project) }
+        projectsChanged()
+    }
+
+    /// Takes someone off one of our shared projects; they keep their copy, or it
+    /// goes from their devices.
+    func removeParticipant(_ participant: CKShare.Participant, from share: CKShare, removeCopy: Bool) async throws {
+        // Nobody's behind an invitation that wasn't used yet, so there's no copy.
+        if let user = participant.userIdentity.userRecordID?.recordName {
+            try await leaveWord(zoneName: share.recordID.zoneID.zoneName, user: user, removeCopies: removeCopy)
+        }
+        share.removeParticipant(participant)
+        try await saveShare(share)
+    }
+
+    /// Shared with this account by someone else.
+    func isSharedWithUs(_ project: Project) -> Bool {
+        guard SharedProjectStore.contains(project) else { return false }
+        if let info = shareInfo(for: project) { return !info.isOwner }
+        return core.book.sharedZoneOwners["Project-\(project.uid)"] != nil
+    }
+
     /// Leaves a project shared with us: our copy goes, and we're taken off its share.
-    func leave(_ project: Project) {
+    func leave(_ project: Project) async {
+        // This account's other devices see only that the project is gone: word that
+        // it should go there too, rather than stay as a copy.
+        if let me = try? await ckContainer?.userRecordID().recordName {
+            try? await saveSharingEnded(Self.sharingEndedID(zoneName: "Project-\(project.uid)", user: me, left: true),
+                                        removeCopies: true)
+        }
         guard let context = project.modelContext else { return }
         core.book.shares["Project-\(project.uid)"] = nil
         context.destructiveDelete { context.deleteProjectGraph(project) }
         projectsChanged()
         sendSoon(.shared)
+    }
+
+    // MARK: When sharing ends
+
+    /// What the people a project was shared with are told when it stops being
+    /// shared with them — whether to keep their copy. It's left in the public
+    /// database, as the project's zone is about to go. Named after the zone, plus
+    /// the person when it's about one of them (and ".left" when they left it
+    /// themselves, for their other devices); it holds nothing else.
+    nonisolated static let sharingEndedRecordType = "CP_SharingEnded"
+
+    private static func sharingEndedID(zoneName: String, user: String? = nil, left: Bool = false) -> CKRecord.ID {
+        CKRecord.ID(recordName: [zoneName, user, left ? "left" : nil].compactMap { $0 }.joined(separator: "."))
+    }
+
+    /// The owner's word, before the zone goes. Keeping a copy is what happens
+    /// without it too, so only asking for the copies to go must get through.
+    private func leaveWord(zoneName: String, user: String? = nil, removeCopies: Bool) async throws {
+        do {
+            try await saveSharingEnded(Self.sharingEndedID(zoneName: zoneName, user: user), removeCopies: removeCopies)
+        } catch where !removeCopies {
+            Log.sync.error("Couldn't leave word that copies stay: \(error.localizedDescription)")
+        }
+    }
+
+    private func saveSharingEnded(_ id: CKRecord.ID, removeCopies: Bool) async throws {
+        guard let database = ckContainer?.publicCloudDatabase else { throw CKError(.notAuthenticated) }
+        let record = CKRecord(recordType: Self.sharingEndedRecordType, recordID: id)
+        record["removeCopies"] = removeCopies ? Int64(1) : Int64(0)
+        let result = try await database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
+        if case .failure(let error)? = result.saveResults[id] { throw error }
+    }
+
+    private enum SharingEnd { case keep, removedByOwner, left }
+
+    /// The latest word about a zone shared with us since we joined it: about
+    /// everyone, about us, or from our own leaving on another device.
+    private func sharingEnd(of zoneID: CKRecordZone.ID) async -> SharingEnd {
+        guard let ckContainer else { return .keep }
+        let zoneName = zoneID.zoneName
+        let joined = core.book.sharedZoneJoined[zoneName] ?? .distantPast
+        var ids = [Self.sharingEndedID(zoneName: zoneName)]
+        let me = try? await ckContainer.userRecordID().recordName
+        if let me {
+            ids += [Self.sharingEndedID(zoneName: zoneName, user: me), Self.sharingEndedID(zoneName: zoneName, user: me, left: true)]
+        }
+        for attempt in 0..<3 {
+            do {
+                let latest = try await ckContainer.publicCloudDatabase.records(for: ids).values
+                    .compactMap { try? $0.get() }
+                    .filter { ($0.modificationDate ?? .distantPast) >= joined }
+                    .max { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
+                guard let latest, (latest["removeCopies"] as? Int64) == 1 else { return .keep }
+                return latest.recordID.recordName.hasSuffix(".left") ? .left : .removedByOwner
+            } catch {
+                Log.sync.error("Couldn't read the word about \(zoneName): \(error.localizedDescription)")
+                try? await Task.sleep(for: .seconds(2 << attempt))
+            }
+        }
+        return .keep
+    }
+
+    /// Zones shared with us whose end is being looked into.
+    private var endingZones: Set<String> = []
+
+    /// A project shared with us isn't any more: the owner stopped sharing it,
+    /// deleted it or took us off — or we left it on another device. Our copy goes
+    /// or stays (in the regular store), as the word about it says.
+    private func sharingEnded(_ zoneID: CKRecordZone.ID) {
+        let zoneName = zoneID.zoneName
+        guard endingZones.insert(zoneName).inserted else { return }
+        let title = SharedProjectStore.openContext
+            .flatMap { RecordSchemas.project.fetch($0, String(zoneName.dropFirst("Project-".count))) }?.filmName
+        Task {
+            defer { endingZones.remove(zoneName) }
+            switch await sharingEnd(of: zoneID) {
+            case .keep:
+                core.sharedZoneDeleted(zoneID)
+                if let title { show(notice: "“\(title)” is no longer shared. You keep your own copy.") }
+            case .removedByOwner:
+                core.sharedZoneRemoved(zoneID)
+                if let title { show(notice: "“\(title)” is no longer shared, and its owner removed it.") }
+            case .left:
+                core.sharedZoneRemoved(zoneID)
+            }
+            projectsChanged()
+            scheduleBookSave()
+        }
     }
 
     private func noteShare(_ share: CKShare) {
@@ -505,15 +632,17 @@ final class ProjectSync {
 
         case .fetchedDatabaseChanges(let changes):
             for modification in changes.modifications where scope == .shared {
-                core.book.sharedZoneOwners[modification.zoneID.zoneName] = modification.zoneID.ownerName
+                let zoneName = modification.zoneID.zoneName
+                core.book.sharedZoneOwners[zoneName] = modification.zoneID.ownerName
+                if core.book.sharedZoneJoined[zoneName] == nil { core.book.sharedZoneJoined[zoneName] = Date() }
             }
             for deletion in changes.deletions where deletion.zoneID.zoneName.hasPrefix("Project-") {
                 if scope == .private {
                     core.ownZoneDeleted(deletion.zoneID)
+                    projectsChanged()
                 } else {
-                    core.sharedZoneDeleted(deletion.zoneID)
+                    sharingEnded(deletion.zoneID)
                 }
-                projectsChanged()
             }
             scheduleBookSave()
 
@@ -568,8 +697,7 @@ final class ProjectSync {
                 else { return }
                 startSyncing(project)
             } else {
-                core.sharedZoneDeleted(id.zoneID)
-                projectsChanged()
+                sharingEnded(id.zoneID)
             }
 
         case .unknownItem:

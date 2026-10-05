@@ -111,7 +111,7 @@ struct ReadOnlyProjectView: View {
     private var readOnlyReason: String {
         guard isViewOnlyShare else { return "Your free trial has ended. You can view and export this project." }
         let owner = ProjectSync.shared.shareInfo(for: project)?.ownerName
-        return "\(owner ?? "The owner") shared this project with you to view. You can export it; changes are up to the people who can edit."
+        return "\(owner ?? "The owner") shared this project with you to view. You can export a PDF or web page of it; changes are up to the people who can edit."
     }
 
     // MARK: - Export
@@ -127,8 +127,11 @@ struct ReadOnlyProjectView: View {
             } else {
                 formatButtons(version: project.orderedEpisodes.first?.orderedVersions.last)
             }
-            Divider()
-            Button("Project File (.cineplan)…") { exportArchive() }
+            // Someone else's project isn't theirs to take as a project file.
+            if !ProjectSync.shared.isSharedWithUs(project) {
+                Divider()
+                Button("Project File (.cineplan)…") { exportArchive() }
+            }
         } label: {
             if exporting {
                 ProgressView().controlSize(.small)

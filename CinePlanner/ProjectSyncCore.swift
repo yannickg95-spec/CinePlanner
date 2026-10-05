@@ -36,6 +36,9 @@ struct SyncBookkeeping: Codable {
     var createdZones: Set<String> = []
     /// Who a project is shared with or by: zone name → its share, as last seen.
     var shares: [String: ShareInfo] = [:]
+    /// When this device first saw each zone shared with this account: word from an
+    /// owner left before then (about an earlier time it was shared) doesn't count.
+    var sharedZoneJoined: [String: Date] = [:]
 
     struct ShareInfo: Codable, Equatable {
         var isOwner: Bool
@@ -59,6 +62,7 @@ struct SyncBookkeeping: Codable {
         pendingFields = try c.decodeIfPresent([String: Set<String>].self, forKey: .pendingFields) ?? [:]
         createdZones = try c.decodeIfPresent(Set<String>.self, forKey: .createdZones) ?? []
         shares = try c.decodeIfPresent([String: ShareInfo].self, forKey: .shares) ?? [:]
+        sharedZoneJoined = try c.decodeIfPresent([String: Date].self, forKey: .sharedZoneJoined) ?? [:]
     }
 
     struct RecordInfo: Codable {
@@ -333,7 +337,7 @@ final class ProjectSyncCore {
     /// or removed us): we keep our own copy, in the regular store.
     @discardableResult
     func sharedZoneDeleted(_ zoneID: CKRecordZone.ID) -> Project? {
-        defer { forgetZone(zoneID.zoneName); book.sharedZoneOwners[zoneID.zoneName] = nil }
+        defer { forgetSharedZone(zoneID.zoneName) }
         guard let context = existingStore()?.mainContext,
               let project = project(inZone: zoneID.zoneName, in: context),
               let main = mainStore()?.mainContext else { return nil }
@@ -363,6 +367,22 @@ final class ProjectSyncCore {
         guard zoneName.hasPrefix("Project-") else { return nil }
         let uid = String(zoneName.dropFirst("Project-".count))
         return RecordSchemas.project.fetch(context, uid)
+    }
+
+    /// A project shared with us stopped being shared, and its owner asked for the
+    /// copies to go (or we left it on another device): it's deleted here too.
+    func sharedZoneRemoved(_ zoneID: CKRecordZone.ID) {
+        defer { forgetSharedZone(zoneID.zoneName) }
+        guard let context = existingStore()?.mainContext,
+              let project = project(inZone: zoneID.zoneName, in: context) else { return }
+        writeAsSync(in: context) { context.deleteProjectGraph(project) }
+    }
+
+    private func forgetSharedZone(_ zoneName: String) {
+        forgetZone(zoneName)
+        book.sharedZoneOwners[zoneName] = nil
+        book.sharedZoneJoined[zoneName] = nil
+        book.shares[zoneName] = nil
     }
 
     private func forgetZone(_ zoneName: String) {

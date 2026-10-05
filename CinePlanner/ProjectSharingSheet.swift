@@ -33,6 +33,7 @@ struct ProjectSharingSheet: View {
     @State private var showingPaywall = false
     @State private var confirmingStop = false
     @State private var confirmingLeave = false
+    @State private var removingParticipant: CKShare.Participant?
     @State private var refresh = 0
 
     private var sync: ProjectSync { ProjectSync.shared }
@@ -88,6 +89,8 @@ struct ProjectSharingSheet: View {
                   systemImage: "person.2")
             Label("You choose for each person whether they can make changes or only view.",
                   systemImage: "lock.open")
+            Label("They can't save it as a project file of their own. When you stop sharing, you choose whether they keep a copy.",
+                  systemImage: "hand.raised")
             Label("Photos and videos in the project count toward your iCloud storage.",
                   systemImage: "icloud")
         }
@@ -134,6 +137,15 @@ struct ProjectSharingSheet: View {
         } header: {
             Text("People")
         }
+        .confirmationDialog(removingParticipant.map { "Remove \(name(of: $0))?" } ?? "",
+                            isPresented: Binding(get: { removingParticipant != nil },
+                                                 set: { if !$0 { removingParticipant = nil } }),
+                            presenting: removingParticipant) { participant in
+            Button("Remove, Let Them Keep a Copy") { remove(participant, removeCopy: false) }
+            Button("Remove and Delete Their Copy", role: .destructive) { remove(participant, removeCopy: true) }
+        } message: { participant in
+            Text("\(name(of: participant)) can no longer open or change “\(project.filmName)”. They can keep their own copy, which no longer updates — or it can go from their devices.")
+        }
         Section {
             #if os(iOS)
             // ShareLink with a share doesn't open anything on iOS, and the system's
@@ -153,21 +165,15 @@ struct ProjectSharingSheet: View {
             .disabled(!access.canCollaborate)
             #endif
             Button("Stop Sharing", role: .destructive) { confirmingStop = true }
+                .disabled(working)
         } footer: {
             Text("Invited people get a link that opens the project in CinePlanner.")
         }
         .confirmationDialog("Stop sharing “\(project.filmName)”?", isPresented: $confirmingStop) {
-            Button("Stop Sharing", role: .destructive) {
-                do {
-                    try sync.stopSharing(project)
-                    share = nil
-                    refresh += 1
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            }
+            Button("Stop Sharing, Let Them Keep a Copy") { stop(project, removeCopies: false) }
+            Button("Stop Sharing and Delete Their Copies", role: .destructive) { stop(project, removeCopies: true) }
         } message: {
-            Text("The project goes back to being yours alone. The people it was shared with keep their own copy, which no longer updates.")
+            Text("The project goes back to being yours alone. The people it was shared with can keep their own copy, which no longer updates — or it can go from their devices.")
         }
     }
 
@@ -218,8 +224,12 @@ struct ProjectSharingSheet: View {
             .labelsHidden()
             .fixedSize()
             Button(role: .destructive) {
-                share.removeParticipant(participant)
-                save(share)
+                // An invitation nobody used yet has no copy to decide about.
+                if participant.acceptanceStatus == .accepted {
+                    removingParticipant = participant
+                } else {
+                    remove(participant, removeCopy: false)
+                }
             } label: {
                 Image(systemName: "person.crop.circle.badge.minus")
             }
@@ -238,6 +248,34 @@ struct ProjectSharingSheet: View {
         return participant.userIdentity.lookupInfo?.emailAddress
             ?? participant.userIdentity.lookupInfo?.phoneNumber
             ?? (participant.acceptanceStatus == .pending ? "Invitation Link" : "Someone")
+    }
+
+    private func stop(_ project: Project, removeCopies: Bool) {
+        working = true
+        Task {
+            defer { working = false }
+            do {
+                try await sync.stopSharing(project, removeCopies: removeCopies)
+                share = nil
+                refresh += 1
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func remove(_ participant: CKShare.Participant, removeCopy: Bool) {
+        guard let share else { return }
+        working = true
+        Task {
+            defer { working = false }
+            do {
+                try await sync.removeParticipant(participant, from: share, removeCopy: removeCopy)
+                self.share = try await sync.fetchShare(forProjectUID: projectUID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func save(_ share: CKShare) {
@@ -269,7 +307,7 @@ struct ProjectSharingSheet: View {
         }
         .confirmationDialog("Leave “\(project.filmName)”?", isPresented: $confirmingLeave) {
             Button("Leave", role: .destructive) {
-                sync.leave(project)
+                Task { await sync.leave(project) }
                 dismiss()
             }
         } message: {
