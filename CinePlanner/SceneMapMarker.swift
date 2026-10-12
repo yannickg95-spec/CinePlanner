@@ -546,6 +546,90 @@ nonisolated let sceneMapHandleSlop: CGFloat = 12
 nonisolated let sceneMapHandleSlop: CGFloat = 0
 #endif
 
+/// How far a marker's icon reaches from its centre toward `direction` (a unit
+/// vector in map units), at scale 1: the icon's own outline turned with the marker
+/// — not the circle around it — so an arrow can stop right next to it. Matches the
+/// icons as drawn in `iconGraphic`, white outline included.
+func sceneMarkerReach(kind: MapElement.Kind, rotation degrees: Double, toward direction: CGPoint) -> CGFloat {
+    // Into the icon's own frame, where it faces up (-y) before it's turned.
+    let r = degrees * .pi / 180
+    let lx = direction.x * cos(r) + direction.y * sin(r)
+    let ly = -direction.x * sin(r) + direction.y * cos(r)
+    switch kind {
+    case .camera:
+        // `video.fill` (19:13) fitted to 26, slimmed to 85% across, turned to face
+        // up: a box 13 + 1.6 along the lens axis and 7.6 + 1.6 across.
+        let along: CGFloat = 14.6, across: CGFloat = 9.2
+        let tx = abs(lx) > 0.0001 ? across / abs(lx) : .infinity
+        let ty = abs(ly) > 0.0001 ? along / abs(ly) : .infinity
+        return min(tx, ty)
+    case .character:
+        // Shoulders: an oval 30 × 11 (+1 outline each side); head: a circle of
+        // 7.5 (+1) set 2 forward. The farther of the two edges along the way.
+        let shoulders = 1 / sqrt(lx * lx / (16 * 16) + ly * ly / (6.5 * 6.5))
+        let towardHead = -2 * ly
+        let head = towardHead + sqrt(max(towardHead * towardHead - 4 + 8.5 * 8.5, 0))
+        return max(shoulders, head)
+    }
+}
+
+/// A movement arrow as drawn between two markers: its shaft and solid head, each
+/// end stopping just short of its marker's icon. The editor and the exports both
+/// draw it from this, so they look alike.
+struct SceneArrowDrawing {
+    struct End {
+        var kind: MapElement.Kind
+        var rotation: Double
+        var scale: CGFloat
+    }
+
+    var shaft: Path
+    var head: Path
+    var lineWidth: CGFloat
+
+    /// `points`: from-marker centre, the pivots, to-marker centre (map units).
+    init?(points: [CGPoint], from: End, to: End) {
+        var pts = points
+        let n = pts.count
+        guard n >= 2 else { return nil }
+        func unit(_ v: CGPoint) -> CGPoint {
+            let m = hypot(v.x, v.y)
+            return m > 0 ? CGPoint(x: v.x / m, y: v.y / m) : CGPoint(x: 1, y: 0)
+        }
+        // Shaft and head scale with the markers, so a small marker gets a slim arrow.
+        let avgScale = (from.scale + to.scale) / 2
+        lineWidth = 6 * avgScale
+        let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
+        let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
+        // A little air between icon and arrow; the shaft's round cap reaches half
+        // its width back toward the marker it starts at.
+        let air: CGFloat = 3
+        let startTrim = (sceneMarkerReach(kind: from.kind, rotation: from.rotation, toward: ds) + air) * from.scale
+            + lineWidth / 2
+        let endTrim = (sceneMarkerReach(kind: to.kind, rotation: to.rotation, toward: CGPoint(x: -de.x, y: -de.y)) + air)
+            * to.scale
+        pts[0] = CGPoint(x: pts[0].x + ds.x * startTrim, y: pts[0].y + ds.y * startTrim)
+        pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * endTrim, y: pts[n - 1].y - de.y * endTrim)
+
+        // Solid triangular head; the shaft attaches to its base (not the tip).
+        let tip = pts[n - 1]
+        let headLength = 14 * avgScale, headHalfWidth = 8 * avgScale
+        let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
+        var shaftPts = pts
+        shaftPts[n - 1] = baseCenter
+        shaft = smoothPolyline(shaftPts)
+        let perp = CGPoint(x: -de.y, y: de.x)
+        var head = Path()
+        head.move(to: tip)
+        head.addLine(to: CGPoint(x: baseCenter.x + perp.x * headHalfWidth, y: baseCenter.y + perp.y * headHalfWidth))
+        head.addLine(to: CGPoint(x: baseCenter.x - perp.x * headHalfWidth, y: baseCenter.y - perp.y * headHalfWidth))
+        head.closeSubpath()
+        self.head = head
+    }
+
+    var shaftStyle: StrokeStyle { StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round) }
+}
+
 func sceneMarkerScale(kind: MapElement.Kind, metersWide: Double?, cameraMeters: Double?,
                       mapWidthPoints: CGFloat, viewable: Bool = false) -> CGFloat {
     let realistic = realisticMarkerScale(kind: kind, metersWide: metersWide,

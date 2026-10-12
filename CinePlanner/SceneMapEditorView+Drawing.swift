@@ -212,62 +212,30 @@ extension SceneMapEditorView {
         // transform on the context, then draw in logical (rect) coordinates.
         var ctx = baseCtx
         applyMapGroupTransform(&ctx, in: rect, canvas: canvas)
-        // Counter-scale the shaft width and arrowhead so they don't balloon with the
-        // map zoom — the path (endpoints, and the trim that clears the markers) still
-        // scales, but the body thins and the head shrinks as you zoom in. `pow(…, 0.7)`
-        // makes this a bit gentler than a full 1/zoom counter-scale. (Widths are in
-        // pre-scale units; the ctx scale multiplies them back up.) Dividing by the
-        // placement scale keeps them constant as the whole map group is scaled too.
+        // Shaft, head and the trim that clears the markers are all in map (rect)
+        // units, so they scale with the markers and the placement together.
         func markerScale(_ el: MapElement) -> CGFloat {
             sceneMarkerScale(kind: el.kind, metersWide: mapMetersWide, cameraMeters: mapCameraMeters,
                              mapWidthPoints: rect.width, viewable: scene.sceneMapViewableMarkerSize)
         }
         for arrow in doc.arrows {
-            guard var pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
+            guard let pts = arrowCanvasPoints(arrow, in: rect), pts.count >= 2,
                   let from = doc.elements.first(where: { $0.id == arrow.fromID }) else { continue }
             // An arrow belongs to the marker layer it connects, so it ghosts with it.
             let layerVisible = from.kind == .camera ? doc.showCameras : doc.showCharacters
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
-            // Clear the marker icons at both ends, whatever their size or rotation: the
-            // icon fits a 40·scale circle, so trim by that radius (rotation-independent)
-            // plus a gap. Each end uses its own marker's scale.
-            let toEl = doc.elements.first(where: { $0.id == arrow.toID })
-            let fromScale = markerScale(from)
-            let toScale = toEl.map(markerScale) ?? fromScale
-            let gap: CGFloat = 6
-            let startTrim = 24 * fromScale + gap
-            let endTrim = 24 * toScale + gap
-            let n = pts.count
-            let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
-            pts[0] = CGPoint(x: pts[0].x + ds.x * startTrim, y: pts[0].y + ds.y * startTrim)
-            let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
-            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * endTrim, y: pts[n - 1].y - de.y * endTrim)
-
-            // Shaft/head scale with the markers (same units as the trim), so the arrow
-            // stays in proportion — small markers get a slim shaft and a small head.
-            let avgScale = (fromScale + toScale) / 2
-            let lineWidth: CGFloat = 6 * avgScale
-            // Solid triangular head; the shaft attaches to its base (not the tip).
-            let tip = pts[n - 1]
-            let headLength: CGFloat = 20 * avgScale
-            let headHalfWidth: CGFloat = 11 * avgScale
-            let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
-            var shaftPts = pts
-            shaftPts[n - 1] = baseCenter
-            let perp = CGPoint(x: -de.y, y: de.x)
-            var head = Path()
-            head.move(to: tip)
-            head.addLine(to: CGPoint(x: baseCenter.x + perp.x * headHalfWidth, y: baseCenter.y + perp.y * headHalfWidth))
-            head.addLine(to: CGPoint(x: baseCenter.x - perp.x * headHalfWidth, y: baseCenter.y - perp.y * headHalfWidth))
-            head.closeSubpath()
+            let to = doc.elements.first(where: { $0.id == arrow.toID }) ?? from
+            guard let drawing = SceneArrowDrawing(
+                points: pts,
+                from: .init(kind: from.kind, rotation: from.rotation, scale: markerScale(from)),
+                to: .init(kind: to.kind, rotation: to.rotation, scale: markerScale(to))) else { continue }
             // Draw shaft + head as one layer and fade it whole when the layer is hidden,
             // so the shaft's round cap overlapping the head doesn't show as a darker spot.
             var arrowCtx = ctx
             arrowCtx.opacity = layerVisible ? 1 : Self.hiddenLayerOpacity
             arrowCtx.drawLayer { layer in
-                layer.stroke(smoothPolyline(shaftPts), with: shading,
-                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
-                layer.fill(head, with: shading)
+                layer.stroke(drawing.shaft, with: shading, style: drawing.shaftStyle)
+                layer.fill(drawing.head, with: shading)
             }
         }
     }

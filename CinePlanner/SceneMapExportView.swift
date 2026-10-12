@@ -418,33 +418,13 @@ struct SceneMapExportView: View {
             var pts = [canvasPoint(from.x, from.y, in: rect)]
             pts += arrow.pivots.map { canvasPoint($0.x, $0.y, in: rect) }
             pts.append(canvasPoint(to.x, to.y, in: rect))
-            guard pts.count >= 2 else { continue }
+            guard let drawing = SceneArrowDrawing(
+                points: pts,
+                from: .init(kind: from.kind, rotation: from.rotation, scale: markerScale(from)),
+                to: .init(kind: to.kind, rotation: to.rotation, scale: markerScale(to))) else { continue }
             let shading = GraphicsContext.Shading.color(Color(hex: from.colorHex))
-            // Clear each marker (its own scale, rotation-independent) plus a gap.
-            let fromScale = markerScale(from), toScale = markerScale(to)
-            let gap: CGFloat = 6
-            let startTrim = 24 * fromScale + gap, endTrim = 24 * toScale + gap
-            let n = pts.count
-            let ds = unit(CGPoint(x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y))
-            pts[0] = CGPoint(x: pts[0].x + ds.x * startTrim, y: pts[0].y + ds.y * startTrim)
-            let de = unit(CGPoint(x: pts[n - 1].x - pts[n - 2].x, y: pts[n - 1].y - pts[n - 2].y))
-            pts[n - 1] = CGPoint(x: pts[n - 1].x - de.x * endTrim, y: pts[n - 1].y - de.y * endTrim)
-            let avgScale = (fromScale + toScale) / 2
-            let lineWidth: CGFloat = 6 * avgScale
-            let tip = pts[n - 1]
-            let headLength: CGFloat = 20 * avgScale, headHalfWidth: CGFloat = 11 * avgScale
-            let baseCenter = CGPoint(x: tip.x - de.x * headLength, y: tip.y - de.y * headLength)
-            var shaftPts = pts
-            shaftPts[n - 1] = baseCenter
-            ctx.stroke(smoothPolyline(shaftPts), with: shading,
-                       style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
-            let perp = CGPoint(x: -de.y, y: de.x)
-            var head = Path()
-            head.move(to: tip)
-            head.addLine(to: CGPoint(x: baseCenter.x + perp.x * headHalfWidth, y: baseCenter.y + perp.y * headHalfWidth))
-            head.addLine(to: CGPoint(x: baseCenter.x - perp.x * headHalfWidth, y: baseCenter.y - perp.y * headHalfWidth))
-            head.closeSubpath()
-            ctx.fill(head, with: shading)
+            ctx.stroke(drawing.shaft, with: shading, style: drawing.shaftStyle)
+            ctx.fill(drawing.head, with: shading)
         }
     }
 }
