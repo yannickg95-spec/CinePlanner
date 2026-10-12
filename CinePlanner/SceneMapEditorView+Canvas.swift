@@ -106,6 +106,17 @@ extension SceneMapEditorView {
                         .onEnded { _ in longPressAddText(in: rect, canvas: geo.size) }
                 )
                 #endif
+                // Movement arrows: drawn OUTSIDE the map group's transform in a
+                // screen-space Canvas so the vector rasterizes crisply at any placement
+                // scale or zoom (a Canvas inside the group's scaleEffect would just be a
+                // magnified, blurry 1× bitmap). drawArrows replicates the whole transform
+                // on the graphics context instead. Above the map, beneath the markers,
+                // furniture and notes — an arrow never covers a marker.
+                if !doc.arrows.isEmpty {
+                    Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
+                        .allowsHitTesting(false)
+                        .clipped()
+                }
                 // Markers and furniture ride the SAME placement, but in their own layer
                 // that overflows the pane and is never clipped or masked — so a piece the
                 // placement pushes into the white margin (a CineStager import fitted to an
@@ -194,18 +205,6 @@ extension SceneMapEditorView {
             // to the pane, not to the ground, so they stay upright and in place while
             // the map turns under them. The sun's rays and ball do turn — those are
             // map content, tied to the compass rather than to the screen.
-            // Movement arrows: drawn OUTSIDE the map group's transform in a
-            // screen-space Canvas so the vector rasterizes crisply at any placement
-            // scale or zoom (a Canvas inside the group's scaleEffect would just be a
-            // magnified, blurry 1× bitmap). drawArrows replicates the whole transform
-            // on the graphics context instead. Beneath the chrome, above the map.
-            .overlay {
-                if !doc.arrows.isEmpty {
-                    Canvas { ctx, _ in drawArrows(ctx, in: rect, canvas: geo.size) }
-                        .allowsHitTesting(false)
-                        .clipped()
-                }
-            }
             // The export frame: dim what falls outside the crop and outline it, so it's
             // always clear what will end up inside the map on export. Always shown
             // (except while the reframe tool draws its own frame). Above the map and

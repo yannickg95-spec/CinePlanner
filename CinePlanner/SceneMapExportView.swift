@@ -217,8 +217,9 @@ struct SceneMapExportView: View {
         let place = isSatellite ? SceneMapBackgroundTransform() : backgroundTransform
         ZStack {
             Color.platformTextBackground
-            // Image and markers transform as one, so the markers keep the spots on
-            // the image they annotate — the same placement the editor shows.
+            // The map (image or floor plan) and, further up, the pieces ride the same
+            // placement, so the markers keep the spots on the image they annotate —
+            // the placement the editor shows.
             ZStack {
                 if let background, doc.showBackground {
                     Image(platformImage: background)
@@ -240,6 +241,19 @@ struct SceneMapExportView: View {
                 if !plan.isEmpty && doc.showBackground {
                     Canvas { ctx, _ in Self.drawFloorPlan(ctx, plan: plan, in: rect) }
                 }
+            }
+            .sceneMapPlacement(place, in: rect)
+            // Arrows: outside the placement group (replicated on the context) so they
+            // rasterize crisply, matching the editor — above the map, beneath the
+            // pieces, so an arrow never covers a marker.
+            if !doc.arrows.isEmpty {
+                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect, canvas: size, place: place,
+                                                   metersWide: metersWide, cameraMeters: cameraMeters,
+                                                   viewable: viewableMarkers) }
+            }
+            // Furniture, markers and notes: the same placement, in a group of their
+            // own so they sit above the arrows.
+            ZStack {
                 ForEach(doc.furniture.filter { $0.kind.isLight ? doc.showLights : doc.showFurniture }) { item in
                     FurnitureView(furniture: item, isSelected: false, contentRect: rect,
                                   placeScale: CGFloat(place.scale), placeRotation: place.rotation,
@@ -265,14 +279,9 @@ struct SceneMapExportView: View {
                                 onSelect: {}, onMove: { _ in }, onEdit: {}, onDelete: {})
                 }
             }
+            // The map group's size, so the placement turns and scales about the same centre.
+            .frame(width: size.width, height: size.height)
             .sceneMapPlacement(place, in: rect)
-            // Arrows: outside the placement group (replicated on the context) so they
-            // rasterize crisply, matching the editor.
-            if !doc.arrows.isEmpty {
-                Canvas { ctx, _ in Self.drawArrows(ctx, doc: doc, in: rect, canvas: size, place: place,
-                                                   metersWide: metersWide, cameraMeters: cameraMeters,
-                                                   viewable: viewableMarkers) }
-            }
             // Chrome stays put (untransformed), matching the editor.
             if isSatellite, background != nil {
                 AppleMapsAttribution(rect: rect)
