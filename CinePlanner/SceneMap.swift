@@ -52,6 +52,11 @@ nonisolated struct MapElement: Identifiable, Codable, Equatable {
     /// auto — the shot's own CineStager sensor when it has one, else Super-35.
     /// An explicit value (S16/S35/LF or the CineStager camera) overrides that.
     var fovBasis: FOVBasis? = nil
+    /// Camera-only, for a position on a CineStager video's path: the moment
+    /// (seconds into the video) the camera stood here, and the reference holding
+    /// that video — so the camera's card shows what it saw from here.
+    var videoTime: Double? = nil
+    var videoReferenceUID: String? = nil
     /// When this item was last changed (seconds since 1970), stamped on save. Lets two
     /// devices' versions of the map be merged item by item (see SceneMapMerge); nil
     /// on maps saved before it existed.
@@ -59,6 +64,7 @@ nonisolated struct MapElement: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, kind, x, y, rotation, label, labelHidden, labelOffset, shotUID, worldX, worldZ, colorHex, focalLengthMM, sensorWidthMM, fovBasis
+        case videoTime, videoReferenceUID
         case editedAt
     }
 
@@ -84,6 +90,8 @@ nonisolated struct MapElement: Identifiable, Codable, Equatable {
         focalLengthMM = try c.decodeIfPresent(Double.self, forKey: .focalLengthMM) ?? 35
         sensorWidthMM = try c.decodeIfPresent(Double.self, forKey: .sensorWidthMM) ?? 24.89
         fovBasis = try c.decodeIfPresent(FOVBasis.self, forKey: .fovBasis)
+        videoTime = try c.decodeIfPresent(Double.self, forKey: .videoTime)
+        videoReferenceUID = try c.decodeIfPresent(String.self, forKey: .videoReferenceUID)
         editedAt = try c.decodeIfPresent(Double.self, forKey: .editedAt)
     }
 

@@ -45,7 +45,8 @@ enum SceneMapMarkerImport {
                           location: reference.mapLocationModel, in: scene)
             scene.sceneFloorPlanJSON = nil
         }
-        addMissing(markers, frame: cleanMapFrame(of: markers, onCleanMap: onCleanMap), shot: shot, to: scene)
+        addMissing(markers, frame: cleanMapFrame(of: markers, onCleanMap: onCleanMap), shot: shot,
+                   video: reference, to: scene)
         fitBackgroundToMarkers(in: scene)
         scene.modelContext?.saveReporting()
     }
@@ -94,12 +95,12 @@ enum SceneMapMarkerImport {
 
     /// Adds any of the markers not on the scene map yet, placed on the background
     /// lying at `frame` on the marker map: the shot's cameras when it has none on the map — one per
-    /// position of a video's path, joined by arrows through the route's bends —
-    /// and mannequins standing where none is. Returns whether anything was added
-    /// (and stores the scene map when it did).
+    /// position of a video's path, joined by arrows through the route's bends,
+    /// each knowing its moment in `video` — and mannequins standing where none is.
+    /// Returns whether anything was added (and stores the scene map when it did).
     @discardableResult
     static func addMissing(_ markers: CineStagerMapMetadata.Markers, frame: CGRect?,
-                           shot: Shot, to scene: Scene) -> Bool {
+                           shot: Shot, video: ShotReference? = nil, to scene: Scene) -> Bool {
         var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
         var changed = false
 
@@ -114,6 +115,10 @@ enum SceneMapMarkerImport {
                 element.worldX = position.worldX
                 element.worldZ = position.worldZ
                 if let rotation = position.rotationDeg { element.rotation = rotation }
+                if let video, let times = markers.cameraPath?.times, index < times.count {
+                    element.videoTime = times[index]
+                    element.videoReferenceUID = video.uid
+                }
                 doc.elements.append(element)
                 if let previous {
                     let bends = markers.cameraPath?.legs[index - 1] ?? []
@@ -165,6 +170,63 @@ enum SceneMapMarkerImport {
         guard let f = frame, f.width > 0, f.height > 0 else { return CGPoint(x: u, y: v) }
         return CGPoint(x: (u - Double(f.minX)) / Double(f.width), y: (v - Double(f.minY)) / Double(f.height))
     }
+
+    // MARK: Moments in the video
+
+    /// Where on its shot's video a camera marker stood, by marker: as recorded when
+    /// it was placed, or — for markers placed before that was recorded — the
+    /// position on a reference's video path it matches (the same world spot, else
+    /// the same map spot). Taken in the path's order, so a camera that came back to
+    /// a spot gets each visit once.
+    static func videoMoments(for shot: Shot, in doc: SceneMapDoc) -> [UUID: (reference: ShotReference, time: Double)] {
+        let references = shot.references.sorted { $0.sortOrder < $1.sortOrder }
+        var moments: [UUID: (reference: ShotReference, time: Double)] = [:]
+        var unmatched: [MapElement] = []
+        for camera in doc.elements where camera.kind == .camera && camera.shotUID == shot.uid {
+            if let time = camera.videoTime, let uid = camera.videoReferenceUID,
+               let reference = references.first(where: { $0.uid == uid }) {
+                moments[camera.id] = (reference, time)
+            } else {
+                unmatched.append(camera)
+            }
+        }
+        for reference in references where !unmatched.isEmpty {
+            guard let path = videoPath(of: reference) else { continue }
+            var taken = Set<Int>()
+            unmatched.removeAll { camera in
+                let hit = path.path.positions.indices.first { i in
+                    guard !taken.contains(i) else { return false }
+                    let position = path.path.positions[i]
+                    if let ex = camera.worldX, let ez = camera.worldZ, let px = position.worldX, let pz = position.worldZ {
+                        return abs(ex - px) < sameWorld && abs(ez - pz) < sameWorld
+                    }
+                    let p = onBackground(position.u, position.v, path.frame)
+                    return abs(camera.x - p.x) < 0.01 && abs(camera.y - p.y) < 0.01
+                }
+                guard let hit else { return false }
+                taken.insert(hit)
+                moments[camera.id] = (reference, path.path.times[hit])
+                return true
+            }
+        }
+        return moments
+    }
+
+    /// A reference's camera path with its moments, and where its background lies
+    /// on the marker map — read once per reference (its map's EXIF), as the card
+    /// asking for it redraws with every pointer move.
+    private static func videoPath(of reference: ShotReference) -> (path: CineStagerMapMetadata.CameraPath, frame: CGRect?)? {
+        if let cached = pathCache[reference.uid] { return cached }
+        var found: (path: CineStagerMapMetadata.CameraPath, frame: CGRect?)?
+        if let markers = markers(for: reference), let path = markers.cameraPath,
+           path.times.count == path.positions.count {
+            found = (path, cleanMapFrame(of: markers, onCleanMap: reference.mapCleanData != nil))
+        }
+        pathCache[reference.uid] = .some(found)
+        return found
+    }
+
+    private static var pathCache: [String: (path: CineStagerMapMetadata.CameraPath, frame: CGRect?)?] = [:]
 
     private static func hasCamera(of shot: Shot, in doc: SceneMapDoc) -> Bool {
         doc.elements.contains { $0.kind == .camera && $0.shotUID == shot.uid }

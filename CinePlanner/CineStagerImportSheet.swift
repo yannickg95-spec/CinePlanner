@@ -510,7 +510,7 @@ struct CineStagerImportSheet: View {
 
         guard let markers else { return }
         SceneMapMarkerImport.addMissing(markers, frame: SceneMapMarkerImport.cleanMapFrame(of: markers, onCleanMap: true),
-                                        shot: shot, to: scene)
+                                        shot: shot, video: ref, to: scene)
         // Re-importing recomputes the one-time fit.
         SceneMapMarkerImport.fitBackgroundToMarkers(in: scene)
     }

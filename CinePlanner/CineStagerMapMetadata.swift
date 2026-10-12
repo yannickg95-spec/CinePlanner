@@ -16,6 +16,7 @@
 //  next bends through (legs separated by "/", a straight one empty):
 //
 //    CameraPathMap2D:u,v;u,v;…      (CameraMap2D is the first)
+//    CameraPathTime:s;s;…           (seconds into the video at each)
 //    CameraPathRoute:u,v;u,v/…
 //
 //  The clean (marker-free) map is framed on the location alone: the square of
@@ -51,6 +52,9 @@ nonisolated enum CineStagerMapMetadata {
     struct CameraPath: Equatable {
         var positions: [Marker]
         var legs: [[CGPoint]]
+        /// Seconds into the video at each position (index-aligned); empty when the
+        /// map doesn't say.
+        var times: [Double] = []
     }
 
     struct Markers: Equatable {
@@ -104,9 +108,11 @@ nonisolated enum CineStagerMapMetadata {
                 let legs = (fields["CameraPathRoute"] ?? "").components(separatedBy: "/").map { leg in
                     parsePoints(leg).map { CGPoint(x: $0.u, y: $0.v) }
                 }
+                let times = (fields["CameraPathTime"] ?? "").components(separatedBy: ";").map { Double($0) }
                 markers.cameraPath = CameraPath(
                     positions: positions,
-                    legs: (0..<(positions.count - 1)).map { $0 < legs.count ? legs[$0] : [] })
+                    legs: (0..<(positions.count - 1)).map { $0 < legs.count ? legs[$0] : [] },
+                    times: times.count == positions.count ? times.compactMap { $0 } : [])
             }
         }
         if let manns = fields["MannequinsMap2D"] {

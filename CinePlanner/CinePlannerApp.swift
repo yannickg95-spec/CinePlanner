@@ -132,6 +132,7 @@ struct CinePlannerApp: App {
         Task.detached(priority: .background) { SceneMapShadow.pruneExpired() }
         // Media files handed to iCloud for shared projects, once uploaded.
         Task { RecordAssets.pruneOld() }
+        Task { PathVideoFrames.pruneOld() }
 
         // Flush pending edits every few seconds, so CloudKit exports them while the
         // user works instead of only when SwiftData's autosave gets round to it.

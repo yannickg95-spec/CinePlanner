@@ -88,6 +88,14 @@ final class CineStagerCameraPathTests: XCTestCase {
         XCTAssertEqual(path.legs, [[], [CGPoint(x: 0.4, y: 0.45), CGPoint(x: 0.6, y: 0.42)]])
         XCTAssertEqual(markers.camera?.u, 0.2)   // the start, as older readers see it
         XCTAssertEqual(markers.cameraPositions.count, 3)
+        XCTAssertEqual(path.times, [0, 4, 9.6])
+    }
+
+    func testPathTimesThatDontMatchThePositionsAreLeftOut() throws {
+        let markers = try XCTUnwrap(CineStagerMapMetadata.markers(from: map([
+            "CameraPathMap2D:0.1,0.1;0.5,0.5", "CameraPathTime:0.0",
+        ])))
+        XCTAssertEqual(markers.cameraPath?.times, [])
     }
 
     func testAPhotosMapHasOneCameraAndNoPath() throws {
@@ -174,6 +182,88 @@ final class CineStagerCameraPathTests: XCTestCase {
         assertClose(cameras(doc).map(\.y), [0.875, 0.5, 0.375])
         XCTAssertEqual(doc.arrows.count, 2)
         XCTAssertTrue(SceneMapMarkerImport.allPresent(markers, reference: reference, shot: shot, in: scene))
+    }
+
+    // MARK: - Moments in the video
+
+    private func videoReference(of shot: Shot) throws -> ShotReference {
+        let reference = ShotReference(sortOrder: 0)
+        context.insert(reference)
+        reference.shot = shot
+        reference.mapData = try map(videoMap)
+        return reference
+    }
+
+    func testEachCameraOnThePathKnowsItsMomentInTheVideo() throws {
+        let (scene, shot) = shotInScene()
+        let reference = try videoReference(of: shot)
+        let markers = try XCTUnwrap(SceneMapMarkerImport.markers(for: reference))
+        SceneMapMarkerImport.addToSceneMap(markers, reference: reference, shot: shot, to: scene)
+
+        let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        XCTAssertEqual(cameras(doc).map(\.videoTime), [0, 4, 9.6])
+        XCTAssertTrue(cameras(doc).allSatisfy { $0.videoReferenceUID == reference.uid })
+        let moments = SceneMapMarkerImport.videoMoments(for: shot, in: doc)
+        XCTAssertEqual(cameras(doc).map { moments[$0.id]?.time }, [0, 4, 9.6])
+        XCTAssertTrue(cameras(doc).allSatisfy { moments[$0.id]?.reference === reference })
+    }
+
+    /// Cameras placed before the moment was recorded are matched to the path by
+    /// where they stood in the world — even after being moved on the map.
+    func testOlderCamerasAreMatchedToThePathByTheirWorldSpot() throws {
+        let (scene, shot) = shotInScene()
+        let reference = try videoReference(of: shot)
+        let markers = try XCTUnwrap(SceneMapMarkerImport.markers(for: reference))
+        SceneMapMarkerImport.addMissing(markers, frame: nil, shot: shot, to: scene)   // no video: as before
+        var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        XCTAssertTrue(cameras(doc).allSatisfy { $0.videoTime == nil })
+        doc.elements[doc.elements.firstIndex { $0.kind == .camera }!].x += 0.2       // moved by hand
+
+        let moments = SceneMapMarkerImport.videoMoments(for: shot, in: doc)
+        XCTAssertEqual(cameras(doc).map { moments[$0.id]?.time }, [0, 4, 9.6])
+    }
+
+    func testOlderCamerasWithoutAWorldSpotAreMatchedOnTheMapUnlessMoved() throws {
+        let (scene, shot) = shotInScene()
+        let reference = try videoReference(of: shot)
+        let markers = try XCTUnwrap(SceneMapMarkerImport.markers(for: reference))
+        SceneMapMarkerImport.addMissing(markers, frame: nil, shot: shot, to: scene)
+        var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+        for i in doc.elements.indices where doc.elements[i].kind == .camera {
+            doc.elements[i].worldX = nil
+            doc.elements[i].worldZ = nil
+        }
+        doc.elements[doc.elements.lastIndex { $0.kind == .camera }!].y += 0.2        // moved away
+
+        let moments = SceneMapMarkerImport.videoMoments(for: shot, in: doc)
+        XCTAssertEqual(cameras(doc).map { moments[$0.id]?.time }, [0, 4, nil])
+    }
+
+    /// A camera that came back to where it started: each visit goes to its own
+    /// camera, in the path's order.
+    func testACameraBackAtAnEarlierSpotGetsEachVisitOnce() throws {
+        let (scene, shot) = shotInScene()
+        let reference = ShotReference(sortOrder: 0)
+        context.insert(reference)
+        reference.shot = shot
+        reference.mapData = try map([
+            "CameraPathMap2D:0.2,0.2;0.8,0.8;0.2,0.2",
+            "CameraPathWorldXZ:1.000,1.000;3.000,3.000;1.000,1.000",
+            "CameraPathTime:0.0;3.0;7.5",
+        ])
+        let markers = try XCTUnwrap(SceneMapMarkerImport.markers(for: reference))
+        SceneMapMarkerImport.addMissing(markers, frame: nil, shot: shot, to: scene)
+        let doc = SceneMapDoc.load(from: scene.sceneMapJSON)
+
+        let moments = SceneMapMarkerImport.videoMoments(for: shot, in: doc)
+        XCTAssertEqual(cameras(doc).map { moments[$0.id]?.time }, [0, 3, 7.5])
+    }
+
+    func testAnOlderMapEntryWithoutTheMomentKeyStillLoads() throws {
+        let json = #"{"elements":[{"kind":"camera","x":0.5,"y":0.5}]}"#
+        let element = try XCTUnwrap(SceneMapDoc.load(from: json).elements.first)
+        XCTAssertNil(element.videoTime)
+        XCTAssertNil(element.videoReferenceUID)
     }
 
     // MARK: - Where the clean map lies

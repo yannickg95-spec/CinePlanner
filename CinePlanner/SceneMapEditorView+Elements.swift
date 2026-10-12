@@ -357,6 +357,9 @@ struct CameraShotPopover: View {
     /// Resolved card width — capped by the caller to the space available, so the
     /// card (and its still) shrink to fit a small or resized window.
     var width: CGFloat = 264
+    /// For a camera on a video's path: the video and the moment it stood here —
+    /// the still is then that frame.
+    var moment: (reference: ShotReference, time: Double)? = nil
 
     private var cardWidth: CGFloat { width }
     /// The still fills the card width (minus padding) at a 16:9 crop, so it scales
@@ -399,7 +402,10 @@ struct CameraShotPopover: View {
             Text(nickname.isEmpty ? "Shot \(shot.displayNumber)" : "Shot \(shot.displayNumber) – \(nickname)")
                 .font(.headline)
                 .lineLimit(1)
-            if let image = referenceImage {
+            if let moment {
+                PathMomentStill(reference: moment.reference, time: moment.time, size: imageSize,
+                                fallback: referenceImage)
+            } else if let image = referenceImage {
                 Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

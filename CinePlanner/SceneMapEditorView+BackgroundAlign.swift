@@ -355,7 +355,8 @@ extension SceneMapEditorView {
                 ? cyScreen + (handleDY >= 0 ? -1 : 1) * (estH / 2 + 44)
                 : cyScreen
             let cy = min(max(cyBase, estH / 2 + 8), max(estH / 2 + 8, canvas.height - estH / 2 - 8))
-            CameraShotPopover(shot: shot, compact: compact, width: cardW)
+            CameraShotPopover(shot: shot, compact: compact, width: cardW,
+                              moment: SceneMapMarkerImport.videoMoments(for: shot, in: doc)[element.id])
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
                 .shadow(color: .black.opacity(0.22), radius: 9, y: 2)
