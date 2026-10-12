@@ -5,7 +5,8 @@
 //  The two things project sharing needs from the app delegate: an invitation
 //  link the user opened (accepted here, so the project joins the shared store),
 //  and pushes from iCloud (so a shared project fetches right away instead of
-//  waiting for the sync engine's schedule).
+//  waiting for the sync engine's schedule — and, on iOS, so a push can wake the
+//  app to hear that someone joined).
 //
 
 import SwiftUI
@@ -35,7 +36,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else { return .noData }
-        ProjectSync.shared.receivedPush(scope: (notification as? CKDatabaseNotification)?.databaseScope)
+        // Awaited: woken in the background, the app is put away once this returns.
+        await ProjectSync.shared.handlePush(scope: (notification as? CKDatabaseNotification)?.databaseScope)
         return .newData
     }
 }

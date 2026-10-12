@@ -214,6 +214,55 @@ final class ProjectSyncCoreTests: XCTestCase {
         XCTAssertEqual(shot.extraInfo, "Handheld")
     }
 
+    // MARK: Batches
+
+    func testAShotThatComesBeforeItsSceneIsLinkedWhenTheSceneComes() throws {
+        let store = try makeStore()
+        let core = makeCore(shared: store)
+        let source = try makeStore()
+        let (project, scene, shot) = try makeProject(in: source.mainContext)
+        let zone = ProjectRecords.zoneID(for: project, ownerName: "someoneElse")
+        let records = ProjectRecords.records(for: project, zoneID: zone)
+
+        core.applyRemote(records.filter { $0.recordID.recordName != scene.uid }, deletions: [])
+        XCTAssertEqual(core.book.unlinked[shot.uid]?.parents.values.first, scene.uid, "waits for its scene")
+        XCTAssertEqual(core.orphans().map(\.uid), [shot.uid])
+
+        core.applyRemote(records.filter { $0.recordID.recordName == scene.uid }, deletions: [])
+
+        let linked = try XCTUnwrap(store.mainContext.fetch(FetchDescriptor<Shot>()).first)
+        XCTAssertEqual(linked.scene?.uid, scene.uid)
+        XCTAssertTrue(core.book.unlinked.isEmpty)
+        XCTAssertTrue(core.orphans().isEmpty)
+        XCTAssertTrue(core.collectLocalChanges().isEmpty, "linking is sync's, not an edit to send")
+    }
+
+    func testAnOrphanIsRemovedHereWithoutSendingADeletion() throws {
+        let store = try makeStore()
+        let core = makeCore(shared: store)
+        let source = try makeStore()
+        let (project, _, shot) = try makeProject(in: source.mainContext)
+        let zone = ProjectRecords.zoneID(for: project, ownerName: "someoneElse")
+        let records = ProjectRecords.records(for: project, zoneID: zone)
+        core.applyRemote(records.filter { $0.recordID.recordName == shot.uid }, deletions: [])   // its scene never comes
+
+        XCTAssertEqual(core.removeOrphans([shot.uid]), [shot.uid])
+
+        XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Shot>()), 0)
+        XCTAssertNil(core.book.records[shot.uid])
+        XCTAssertNil(core.book.unlinked[shot.uid])
+        XCTAssertTrue(core.collectLocalChanges().isEmpty)
+    }
+
+    func testObjectsThatBelongToAProjectAreNeverOrphans() throws {
+        let store = try makeStore()
+        let core = makeCore(shared: store)
+        let (_, _, shot) = try makeProject(in: store.mainContext)
+        XCTAssertTrue(core.orphans().isEmpty)
+        XCTAssertTrue(core.removeOrphans([shot.uid]).isEmpty)
+        XCTAssertEqual(try store.mainContext.fetchCount(FetchDescriptor<Shot>()), 1)
+    }
+
     // MARK: Bookkeeping
 
     func testOlderBookkeepingStillLoads() throws {
@@ -223,6 +272,7 @@ final class ProjectSyncCoreTests: XCTestCase {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(book)) as? [String: Any])
         json["shares"] = nil                       // written before sharing info existed
         json["sharedZoneJoined"] = nil
+        json["unlinked"] = nil
         let decoded = try JSONDecoder().decode(SyncBookkeeping.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertEqual(decoded.userRecordName, "_abc")
         XCTAssertEqual(decoded.records["x"]?.zoneName, "Project-1")
@@ -267,6 +317,21 @@ final class ProjectSyncCoreTests: XCTestCase {
         XCTAssertTrue(core.book.records.isEmpty)
         XCTAssertNil(core.book.sharedZoneOwners[zone.zoneName])
         XCTAssertNil(core.book.sharedZoneJoined[zone.zoneName])
+    }
+
+    func testShareInfoFromBeforeNamesAndMembersStillLoads() throws {
+        var book = SyncBookkeeping()
+        book.shares["Project-1"] = .init(isOwner: true, ownerName: nil, participantCount: 1, canEdit: true,
+                                         people: ["_a": "Anna"], joinedIDs: ["p1"])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(book)) as? [String: Any])
+        var shares = try XCTUnwrap(json["shares"] as? [String: [String: Any]])
+        shares["Project-1"]?["people"] = nil         // written before either existed
+        shares["Project-1"]?["joinedIDs"] = nil
+        json["shares"] = shares
+        let decoded = try JSONDecoder().decode(SyncBookkeeping.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded.shares["Project-1"]?.participantCount, 1)
+        XCTAssertNil(decoded.shares["Project-1"]?.people)
+        XCTAssertNil(decoded.shares["Project-1"]?.joinedIDs, "so nobody is announced as new on first sight")
     }
 
     func testAnotherAccountNeverDeletesTheSharedProjects() throws {

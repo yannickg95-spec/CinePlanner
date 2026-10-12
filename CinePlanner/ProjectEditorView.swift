@@ -134,6 +134,7 @@ struct ProjectEditorView: View {
     
     var body: some View {
         deletionAlerts(editorAlerts(editorSheets(coreView)))
+            .overlay(alignment: .bottom) { SyncActivityToast(project: project) }
             .onAppear(perform: connectMenuCommands)
             .focusedSceneValue(\.projectEditorCommands, menuCommands)
             .task { await ProjectSync.shared.keepFresh(while: project) }

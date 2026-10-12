@@ -82,19 +82,24 @@ extension ProjectEditorView {
         }
     }
 
-    /// Matches the schedule/GitHub circles; filled while the project is shared.
+    /// Matches the schedule/GitHub circles; filled while the project is shared,
+    /// with a badge for how it stands with iCloud (up to date, sending, offline…).
     var sharingButton: some View {
-        Button(action: openSharing) {
+        let status = ProjectSync.shared.status(for: project)
+        return Button(action: openSharing) {
             Image(systemName: SharedProjectStore.contains(project) ? "person.2.fill" : "person.2")
-                .accessibilityLabel("Sharing")
+                .accessibilityLabel(status.map { "Sharing, \($0.title)" } ?? "Sharing")
                 .font(.system(size: 14))
                 .foregroundStyle(SharedProjectStore.contains(project) ? Color.accentColor : .secondary)
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .overlay(alignment: .bottomTrailing) {
+                    if let status { SyncStatusBadge(status: status).offset(x: 2, y: 2) }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help(SharedProjectStore.contains(project) ? "Who this project is shared with" : "Share this project to work on it together")
+        .help(status.map { "\($0.title). \($0.detail)" } ?? "Share this project to work on it together")
     }
 
     /// Opens the shooting-schedule board for the selected version. Built to match

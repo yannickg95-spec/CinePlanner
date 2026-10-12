@@ -228,6 +228,7 @@ extension ProjectEditorView {
             if ProjectSharing.isEnabled {
                 Button(action: openSharing) {
                     Label(SharedProjectStore.contains(project) ? "Sharing…" : "Share…", systemImage: "person.2")
+                    if let status = ProjectSync.shared.status(for: project) { Text(status.title) }
                 }
             }
 
@@ -259,6 +260,12 @@ extension ProjectEditorView {
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(Color.secondary.opacity(0.12)))
+                .overlay(alignment: .bottomTrailing) {
+                    // Sharing is folded in here: say so when it isn't up to date.
+                    if let status = ProjectSync.shared.status(for: project), status != .upToDate {
+                        SyncStatusBadge(status: status).offset(x: 2, y: 2)
+                    }
+                }
                 .contentShape(Circle())
         }
         .menuStyle(.button)

@@ -129,7 +129,7 @@ struct ParentLink<Model: SyncedModel> {
                  guard let uid else { model[keyPath: path] = nil; return }
                  // A parent that hasn't arrived yet stays unlinked until it does.
                  if let parent = resolver.object(P.self, uid: uid) { model[keyPath: path] = parent }
-                 else { resolver.unresolved += 1 }
+                 else { resolver.noteMissing(key, parentUID: uid, of: model) }
              })
     }
 }
@@ -158,6 +158,7 @@ protocol AnyRecordSchema {
     func upsert(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>) -> any SyncedModel
     func link(_ record: CKRecord, resolver: RecordResolver, skipping: Set<String>)
     func delete(uid: String, in context: ModelContext)
+    func all(in context: ModelContext) -> [any SyncedModel]
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)?
     func find(id: PersistentIdentifier, in context: ModelContext) -> (any SyncedModel)?
     func sampleRecord(in zoneID: CKRecordZone.ID) -> CKRecord
@@ -201,6 +202,8 @@ extension RecordSchema: AnyRecordSchema {
         else { context.delete(model) }
     }
 
+    func all(in context: ModelContext) -> [any SyncedModel] { (try? context.fetch(FetchDescriptor<Model>())) ?? [] }
+
     func find(uid: String, in context: ModelContext) -> (any SyncedModel)? { fetch(context, uid) }
 
     func find(id: PersistentIdentifier, in context: ModelContext) -> (any SyncedModel)? {
@@ -223,10 +226,18 @@ extension RecordSchema: AnyRecordSchema {
 final class RecordResolver {
     let context: ModelContext
     /// Parent links that pointed at an object not (yet) in the store.
-    var unresolved = 0
+    private(set) var unresolved = 0
+    /// Those links, to make once the parent is here.
+    private(set) var waiting: [String: WaitingLinks] = [:]
     private var cache: [String: any SyncedModel] = [:]
 
     init(context: ModelContext) { self.context = context }
+
+    func noteMissing(_ key: String, parentUID: String, of child: any SyncedModel) {
+        unresolved += 1
+        guard let recordType = RecordSchemas.schema(for: type(of: child))?.recordType else { return }
+        waiting[child.uid, default: WaitingLinks(recordType: recordType)].parents[key] = parentUID
+    }
 
     func remember(_ object: any SyncedModel) {
         cache[Self.key(type(of: object), object.uid)] = object
@@ -241,6 +252,14 @@ final class RecordResolver {
     }
 
     private static func key(_ type: any SyncedModel.Type, _ uid: String) -> String { "\(type):\(uid)" }
+}
+
+/// A child's links to parents that weren't there when it arrived: parent key →
+/// parent uid. iCloud hands a zone's changes over in batches, and a shot can come
+/// in a batch before its scene's.
+struct WaitingLinks: Codable, Equatable {
+    var recordType: String
+    var parents: [String: String] = [:]
 }
 
 /// Media files handed to CloudKit as assets. They live in Caches until CloudKit
@@ -596,6 +615,36 @@ enum ProjectRecords {
             schema.link(record, resolver: resolver, skipping: keeping[record.recordID.recordName] ?? [])
         }
         return resolver.unresolved
+    }
+
+    /// As `apply`, carrying links over from earlier batches: `waiting` comes in with
+    /// the links still missing a parent and goes out with those that still are.
+    /// A link this device changed and hasn't sent yet (`pending`) is left alone.
+    static func apply(_ records: [CKRecord], in context: ModelContext, keeping: [String: Set<String>],
+                      waiting: inout [String: WaitingLinks], pending: [String: Set<String>]) {
+        let resolver = RecordResolver(context: context)
+        let known = records.compactMap { record in RecordSchemas.schema(recordType: record.recordType).map { (record, $0) } }
+        for (record, schema) in known {
+            let kept = keeping[record.recordID.recordName] ?? []
+            resolver.remember(schema.upsert(record, resolver: resolver, skipping: kept))
+        }
+        for (record, schema) in known {
+            schema.link(record, resolver: resolver, skipping: keeping[record.recordID.recordName] ?? [])
+        }
+        // Earlier children whose parent may be here now (one that came again just
+        // now has said where it belongs already).
+        let arrived = Set(known.map { $0.0.recordID.recordName })
+        for (uid, links) in waiting where !arrived.contains(uid) {
+            guard let schema = RecordSchemas.schema(recordType: links.recordType),
+                  schema.find(uid: uid, in: context) != nil else { continue }
+            let unsent = pending[uid].map { $0.contains("*") ? [] : $0 } ?? []
+            let keys = Set(links.parents.keys).subtracting(unsent)
+            guard !keys.isEmpty else { continue }
+            let record = CKRecord(recordType: links.recordType, recordID: CKRecord.ID(recordName: uid))
+            for key in keys { record[key] = links.parents[key] }
+            schema.link(record, resolver: resolver, skipping: schema.parentKeys.subtracting(keys))
+        }
+        waiting = resolver.waiting
     }
 
     /// Deletes the objects behind deleted records.

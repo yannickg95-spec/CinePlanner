@@ -39,6 +39,8 @@ struct SyncBookkeeping: Codable {
     /// When this device first saw each zone shared with this account: word from an
     /// owner left before then (about an earlier time it was shared) doesn't count.
     var sharedZoneJoined: [String: Date] = [:]
+    /// Children that arrived before their parent: uid → the links still to make.
+    var unlinked: [String: WaitingLinks] = [:]
 
     struct ShareInfo: Codable, Equatable {
         var isOwner: Bool
@@ -46,6 +48,10 @@ struct SyncBookkeeping: Codable {
         /// People who joined, besides the owner.
         var participantCount: Int
         var canEdit: Bool
+        /// Everyone on the share by user record name → name, to say who changed what.
+        var people: [String: String]? = nil
+        /// Participant IDs of those who joined, to tell when someone new does.
+        var joinedIDs: [String]? = nil
     }
 
     init() {}
@@ -63,6 +69,7 @@ struct SyncBookkeeping: Codable {
         createdZones = try c.decodeIfPresent(Set<String>.self, forKey: .createdZones) ?? []
         shares = try c.decodeIfPresent([String: ShareInfo].self, forKey: .shares) ?? [:]
         sharedZoneJoined = try c.decodeIfPresent([String: Date].self, forKey: .sharedZoneJoined) ?? [:]
+        unlinked = try c.decodeIfPresent([String: WaitingLinks].self, forKey: .unlinked) ?? [:]
     }
 
     struct RecordInfo: Codable {
@@ -294,10 +301,13 @@ final class ProjectSyncCore {
         if context.hasChanges { try? context.save() }   // the merged maps: ours, to send
 
         let projectsBefore = (try? context.fetchCount(FetchDescriptor<Project>())) ?? 0
+        var unlinked = book.unlinked
+        let pending = book.pendingFields
         writeAsSync(in: context) {
-            ProjectRecords.apply(records, in: context, keeping: keeping)
+            ProjectRecords.apply(records, in: context, keeping: keeping, waiting: &unlinked, pending: pending)
             ProjectRecords.delete(deletions.map { ($0.recordType, $0.recordID.recordName) }, in: context)
         }
+        book.unlinked = unlinked
         let projectsAfter = (try? context.fetchCount(FetchDescriptor<Project>())) ?? 0
 
         for record in records {
@@ -389,7 +399,39 @@ final class ProjectSyncCore {
         for (uid, info) in book.records where info.zoneName == zoneName {
             book.records[uid] = nil
             book.pendingFields[uid] = nil
+            book.unlinked[uid] = nil
         }
+    }
+
+    // MARK: Objects that belong to no project
+
+    /// Objects in the shared store that can't be traced to a project — a parent
+    /// that never came, from before links were carried across batches.
+    func orphans() -> [(uid: String, recordType: String)] {
+        guard let context = existingStore()?.mainContext else { return [] }
+        return RecordSchemas.all.filter { $0.recordType != RecordSchemas.project.recordType }.flatMap { schema in
+            schema.all(in: context)
+                .filter { ProjectRecords.project(of: $0) == nil }
+                .map { (uid: $0.uid, recordType: schema.recordType) }
+        }
+    }
+
+    /// Deletes these objects here, if they still belong to no project, and forgets
+    /// them — as sync's, so it isn't sent. Returns the ones it deleted.
+    @discardableResult
+    func removeOrphans(_ uids: Set<String>) -> [String] {
+        guard let context = existingStore()?.mainContext else { return [] }
+        let doomed = orphans().filter { uids.contains($0.uid) }
+        guard !doomed.isEmpty else { return [] }
+        writeAsSync(in: context) {
+            for orphan in doomed { RecordSchemas.schema(recordType: orphan.recordType)?.delete(uid: orphan.uid, in: context) }
+        }
+        for orphan in doomed {
+            book.records[orphan.uid] = nil
+            book.pendingFields[orphan.uid] = nil
+            book.unlinked[orphan.uid] = nil
+        }
+        return doomed.map(\.uid)
     }
 
     // MARK: Helpers

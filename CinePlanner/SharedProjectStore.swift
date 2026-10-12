@@ -19,6 +19,10 @@ import os
 enum SharedProjectStore {
     /// Posted when projects arrive in or leave the store.
     static let didChange = Notification.Name("SharedProjectStore.didChange")
+    /// Posted when a project left this store — moved to the regular one or deleted
+    /// (sharing stopped, left, removed) — object: its uid. An editor showing it is
+    /// showing objects that are gone, so it's reopened from where the project is now.
+    static let projectLeft = Notification.Name("SharedProjectStore.projectLeft")
 
     /// Opened on first use.
     static let container: ModelContainer = open()

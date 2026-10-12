@@ -3,10 +3,11 @@
 //  CinePlanner
 //
 //  Sharing a project. For one of ours that isn't shared yet: what sharing means,
-//  and Start Sharing (which moves it to the shared store). Once shared: the people
-//  it's shared with — can edit or view only, invited or joined — with Invite
-//  People… (the system's sharing window) and Stop Sharing; the people keep their
-//  own copy. For a project shared with us: whose it is, what we may do, and Leave.
+//  and Start Sharing (which moves it to the shared store). Once shared: how it
+//  stands with iCloud, the people it's shared with — can edit or view only, invited
+//  or joined — and what they changed lately, with Invite People… (a one-time link
+//  in the system's share window), Copy Invitation Link and Stop Sharing. For a
+//  project shared with us: whose it is, what we may do, and Leave.
 //
 //  Opened from the project list, keyed by the project's uid: starting to share
 //  replaces the project object (it moves stores), so this looks it up each time.
@@ -15,10 +16,11 @@
 import SwiftUI
 import SwiftData
 import CloudKit
-import CoreTransferable
 #if os(iOS)
 import UIKit
 import LinkPresentation
+#else
+import AppKit
 #endif
 
 struct ProjectSharingSheet: View {
@@ -34,7 +36,11 @@ struct ProjectSharingSheet: View {
     @State private var confirmingStop = false
     @State private var confirmingLeave = false
     @State private var removingParticipant: CKShare.Participant?
+    @State private var linkCopied = false
     @State private var refresh = 0
+    #if os(macOS)
+    @State private var inviteAnchor = PickerAnchor()
+    #endif
 
     private var sync: ProjectSync { ProjectSync.shared }
 
@@ -67,6 +73,10 @@ struct ProjectSharingSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .task(id: refresh) { await loadShare() }
+            // While open: who's in it now — someone may join or leave meanwhile,
+            // and a Mac hears about it from iCloud only now and then.
+            .task(id: refresh) { await keepShareFresh() }
+            .onChange(of: sync.sharesGeneration) { Task { await reloadShare() } }
             .sheet(isPresented: $showingPaywall) { PaywallView(dismissable: true) }
             .alert("Couldn't Update Sharing", isPresented: Binding(get: { errorMessage != nil },
                                                                   set: { if !$0 { errorMessage = nil } })) {
@@ -123,6 +133,7 @@ struct ProjectSharingSheet: View {
 
     @ViewBuilder
     private func ours(_ project: Project) -> some View {
+        statusSection(project)
         Section {
             if loadingShare && share == nil {
                 ProgressView()
@@ -131,7 +142,7 @@ struct ProjectSharingSheet: View {
                     participantRow(participant, in: share)
                 }
             } else {
-                Text("Nobody yet. Invite people to work on this project with you.")
+                Text("Nobody has joined yet. Invite people to work on this project with you.")
                     .foregroundStyle(.secondary)
             }
         } header: {
@@ -146,28 +157,42 @@ struct ProjectSharingSheet: View {
         } message: { participant in
             Text("\(name(of: participant)) can no longer open or change “\(project.filmName)”. They can keep their own copy, which no longer updates — or it can go from their devices.")
         }
+        activitySection(project)
         Section {
-            #if os(iOS)
-            // ShareLink with a share doesn't open anything on iOS, and the system's
-            // own invitations there didn't open for the people invited — so a
-            // one-time link of ours, sent with the regular share window.
+            // A one-time link of ours, on every platform: ShareLink with a share
+            // opened nothing on iOS, and the system's own invitations there didn't
+            // open for the people invited.
             Button {
                 invite(project)
             } label: {
                 Label("Invite People…", systemImage: "person.badge.plus")
             }
-            .disabled(!access.canCollaborate || working)
-            #else
-            ShareLink(item: ProjectShareItem(projectUID: project.uid, title: project.filmName, existing: share),
-                      preview: SharePreview(project.filmName, image: Image(systemName: "film"))) {
-                Label("Invite People…", systemImage: "person.badge.plus")
-            }
-            .disabled(!access.canCollaborate)
+            #if os(macOS)
+            .background(PickerAnchorView(anchor: inviteAnchor))
             #endif
+            .disabled(!access.canCollaborate || working)
+            Button {
+                copyInvitation(project)
+            } label: {
+                Label("Copy Invitation Link", systemImage: "link")
+            }
+            .disabled(!access.canCollaborate || working)
+            if let share, !unused(share).isEmpty {
+                Button {
+                    withdrawUnused()
+                } label: {
+                    Label(unused(share).count == 1 ? "Withdraw the Unused Invitation"
+                                                   : "Withdraw \(unused(share).count) Unused Invitations",
+                          systemImage: "xmark.circle")
+                }
+                .disabled(working)
+            }
             Button("Stop Sharing", role: .destructive) { confirmingStop = true }
                 .disabled(working)
         } footer: {
-            Text("Invited people get a link that opens the project in CinePlanner.")
+            Text(linkCopied
+                 ? "Invitation link copied. Paste it in a message to one person — each link lets one person in."
+                 : "Each invitation is a link that lets one person open the project in CinePlanner.")
         }
         .confirmationDialog("Stop sharing “\(project.filmName)”?", isPresented: $confirmingStop) {
             Button("Stop Sharing, Let Them Keep a Copy") { stop(project, removeCopies: false) }
@@ -177,7 +202,6 @@ struct ProjectSharingSheet: View {
         }
     }
 
-    #if os(iOS)
     /// Makes an invitation link and offers it to send; one that isn't sent after
     /// all is taken back.
     private func invite(_ project: Project) {
@@ -187,21 +211,107 @@ struct ProjectSharingSheet: View {
             do {
                 let invitation = try await sync.makeInvitationLink(forProjectUID: project.uid)
                 share = try? await sync.fetchShare(forProjectUID: projectUID)
-                InvitationShareWindow.present(invitation.url, title: project.filmName) { sent in
+                let done: (Bool) -> Void = { sent in
                     Task {
                         if !sent { await sync.withdrawInvitation(invitation.participantID, projectUID: projectUID) }
                         share = try? await sync.fetchShare(forProjectUID: projectUID)
                     }
                 }
+                #if os(iOS)
+                InvitationShareWindow.present(invitation.url, title: project.filmName, completion: done)
+                #else
+                InvitationShareWindow.present(invitation.url, from: inviteAnchor.view, completion: done)
+                #endif
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
     }
-    #endif
 
+    /// Makes an invitation link and puts it on the clipboard, to paste anywhere.
+    private func copyInvitation(_ project: Project) {
+        working = true
+        Task {
+            do {
+                let invitation = try await sync.makeInvitationLink(forProjectUID: project.uid)
+                #if os(iOS)
+                UIPasteboard.general.string = invitation.url.absoluteString
+                #else
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(invitation.url.absoluteString, forType: .string)
+                #endif
+                working = false
+                linkCopied = true
+                share = try? await sync.fetchShare(forProjectUID: projectUID)
+                try? await Task.sleep(for: .seconds(8))
+                linkCopied = false
+            } catch {
+                working = false
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: Status and activity
+
+    @ViewBuilder
+    private func statusSection(_ project: Project) -> some View {
+        if let status = sync.status(for: project) {
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(status.title)
+                        Text(status.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: status.labelImage).foregroundStyle(status.tint)
+                }
+            }
+        }
+    }
+
+    /// What other people changed lately (since this device started).
+    @ViewBuilder
+    private func activitySection(_ project: Project) -> some View {
+        let recent = sync.activity["Project-\(project.uid)"] ?? []
+        if !recent.isEmpty {
+            Section("Recent Changes") {
+                ForEach(recent.prefix(10)) { item in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(item.sentence)
+                        Spacer(minLength: 8)
+                        Text(item.date, format: .relative(presentation: .named))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Those who joined. (An invitation link is a participant on the share too,
+    /// until someone uses it — those are the unused ones.)
     private func people(_ share: CKShare) -> [CKShare.Participant] {
-        share.participants.filter { $0.role != .owner && $0.acceptanceStatus != .removed }
+        share.participants.filter { $0.role != .owner && $0.acceptanceStatus == .accepted }
+    }
+
+    private func unused(_ share: CKShare) -> [CKShare.Participant] {
+        share.participants.filter { $0.role != .owner && $0.acceptanceStatus == .pending }
+    }
+
+    /// Links sent or copied that nobody used: they stop working.
+    private func withdrawUnused() {
+        guard let share else { return }
+        working = true
+        Task {
+            defer { working = false }
+            for participant in unused(share) { share.removeParticipant(participant) }
+            do {
+                try await sync.saveShare(share)
+                self.share = try await sync.fetchShare(forProjectUID: projectUID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func participantRow(_ participant: CKShare.Participant, in share: CKShare) -> some View {
@@ -224,12 +334,7 @@ struct ProjectSharingSheet: View {
             .labelsHidden()
             .fixedSize()
             Button(role: .destructive) {
-                // An invitation nobody used yet has no copy to decide about.
-                if participant.acceptanceStatus == .accepted {
-                    removingParticipant = participant
-                } else {
-                    remove(participant, removeCopy: false)
-                }
+                removingParticipant = participant
             } label: {
                 Image(systemName: "person.crop.circle.badge.minus")
             }
@@ -241,13 +346,7 @@ struct ProjectSharingSheet: View {
     }
 
     private func name(of participant: CKShare.Participant) -> String {
-        if let components = participant.userIdentity.nameComponents {
-            let formatted = PersonNameComponentsFormatter.localizedString(from: components, style: .default)
-            if !formatted.isEmpty { return formatted }
-        }
-        return participant.userIdentity.lookupInfo?.emailAddress
-            ?? participant.userIdentity.lookupInfo?.phoneNumber
-            ?? (participant.acceptanceStatus == .pending ? "Invitation Link" : "Someone")
+        ProjectSync.name(of: participant) ?? "Someone"
     }
 
     private func stop(_ project: Project, removeCopies: Bool) {
@@ -296,10 +395,12 @@ struct ProjectSharingSheet: View {
     @ViewBuilder
     private func sharedWithUs(_ project: Project) -> some View {
         let info = sync.shareInfo(for: project)
+        statusSection(project)
         Section {
             LabeledContent("Shared by", value: info?.ownerName ?? "Someone")
             LabeledContent("You can", value: info?.canEdit == true ? "Make changes" : "View only")
         }
+        activitySection(project)
         Section {
             Button("Leave Shared Project", role: .destructive) { confirmingLeave = true }
         } footer: {
@@ -315,31 +416,25 @@ struct ProjectSharingSheet: View {
         }
     }
 
+    private func reloadShare() async {
+        guard !working, let project, SharedProjectStore.contains(project) else { return }
+        if let fresh = try? await sync.fetchShare(forProjectUID: project.uid) { share = fresh }
+    }
+
+    private func keepShareFresh() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            await reloadShare()
+        }
+    }
+
     private func loadShare() async {
         guard let project, SharedProjectStore.contains(project) else { return }
+        sync.askToNotify()      // so it can say when someone joins
         loadingShare = true
         defer { loadingShare = false }
         share = try? await sync.fetchShare(forProjectUID: project.uid)
-    }
-}
-
-/// A project for the system's sharing window: its existing share, or one made
-/// when the user picks how to invite.
-nonisolated struct ProjectShareItem: Transferable {
-    let projectUID: String
-    let title: String
-    let existing: CKShare?
-
-    static var transferRepresentation: some TransferRepresentation {
-        CKShareTransferRepresentation { item in
-            let container = CKContainer(identifier: ProjectSync.containerIdentifier)
-            if let share = item.existing {
-                return .existing(share, container: container)
-            }
-            return .prepareShare(container: container) {
-                try await ProjectSync.shared.createShare(forProjectUID: item.projectUID)
-            }
-        }
     }
 }
 
@@ -398,6 +493,52 @@ private final class InvitationItem: NSObject, UIActivityItemSource {
         metadata.url = url
         return metadata
     }
+}
+#endif
+
+#if os(macOS)
+/// The Mac's share picker for an invitation link, pointing at the Invite button.
+/// Tells whether a way to send it was picked.
+enum InvitationShareWindow {
+    private static var delegate: InvitationPickerDelegate?
+
+    static func present(_ url: URL, from view: NSView?, completion: @escaping (_ sent: Bool) -> Void) {
+        guard let view, view.window != nil else { completion(false); return }
+        let picker = NSSharingServicePicker(items: [url])
+        let delegate = InvitationPickerDelegate(completion: completion)
+        picker.delegate = delegate
+        Self.delegate = delegate
+        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+    }
+}
+
+private final class InvitationPickerDelegate: NSObject, NSSharingServicePickerDelegate {
+    let completion: (Bool) -> Void
+
+    init(completion: @escaping (Bool) -> Void) { self.completion = completion }
+
+    // Closed without a choice: the link went nowhere. Once a way to send it is
+    // picked it's kept — whether it actually went out can't always be told.
+    func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+        completion(service != nil)
+    }
+}
+
+/// Where the share picker points from.
+final class PickerAnchor {
+    weak var view: NSView?
+}
+
+struct PickerAnchorView: NSViewRepresentable {
+    let anchor: PickerAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) { anchor.view = nsView }
 }
 #endif
 

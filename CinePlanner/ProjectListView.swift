@@ -49,6 +49,8 @@ struct ProjectListView: View {
     @State private var showingWalkthrough = false
     /// The project whose sharing window is open (by uid: sharing moves it between stores).
     @State private var sharingProjectUID: SharingTarget?
+    /// The project open in the editor, by uid — to reopen it when it moves stores.
+    @State private var openProjectUID: String?
     @State private var showingManageRepos = false
     @State private var showingDefaultCredits = false
     @State private var showingProjectImporter = false
@@ -82,6 +84,13 @@ struct ProjectListView: View {
     /// sheet can flag which published pages are still "in use".
     private var inUseRepoNames: Set<String> {
         Set(projects.compactMap { $0.publishedRepoFullName })
+    }
+
+    /// A project by uid, in whichever store holds it.
+    private func project(withUID uid: String) -> Project? {
+        let descriptor = FetchDescriptor<Project>(predicate: #Predicate { $0.uid == uid })
+        return (try? modelContext.fetch(descriptor).first)
+            ?? (try? SharedProjectStore.contextIfPresent()?.fetch(descriptor).first)
     }
 
     private func refreshSharedProjects() {
@@ -144,7 +153,23 @@ struct ProjectListView: View {
             .overlay(alignment: .bottom) { SyncNoticeBanner() }
             .navigationDestination(for: Project.self) { project in
                 // The editor — or, after the trial, the read-only viewer.
+                let uid = project.uid
                 ProjectDestination(project: project)
+                    .onAppear { openProjectUID = uid }
+                    .onDisappear { if openProjectUID == uid { openProjectUID = nil } }
+            }
+            // The open project left the shared store (sharing stopped, say): its
+            // editor shows objects that are gone, so it's opened again from where
+            // the project is now — or closed, when it's gone altogether.
+            .onReceive(NotificationCenter.default.publisher(for: SharedProjectStore.projectLeft)) { note in
+                guard let uid = note.object as? String, uid == openProjectUID else { return }
+                refreshSharedProjects()
+                navigationPath = NavigationPath()
+                guard let moved = project(withUID: uid) else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    navigationPath.append(moved)
+                }
             }
             // Read-only after the trial: making or importing a project offers the unlock.
             .sheet(isPresented: $showingUnlock) { PaywallView(dismissable: true) }
