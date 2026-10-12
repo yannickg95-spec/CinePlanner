@@ -486,137 +486,33 @@ struct CineStagerImportSheet: View {
     }
 
     /// Populates the parent scene's top-down map: the clean location map as the
-    /// background, plus a camera marker (named for this shot) and mannequin
-    /// markers read from the top-down map image's embedded coordinates.
+    /// background, plus the camera — for a video that travelled, a camera at
+    /// every position joined by arrows — and mannequin markers read from the
+    /// top-down map image's embedded coordinates.
     private func populateSceneMap(for ref: ShotReference, from cs: CineStagerShot,
                                   cleanData: Data?, replaceBackground: Bool) async {
-        guard let scene = ref.shot?.scene else { return }
+        guard let scene = ref.shot?.scene, let shot = ref.shot else { return }
 
-        // The marker map's EXIF carries both the marker positions and the room's
-        // footprint within the (framed-wider) scan. Fetch it first so the background
-        // can be cropped to the room before it's stored.
+        // The marker map's EXIF carries the marker positions and where the clean
+        // map lies among them.
         let mapData = await library.data(at: library.mapURL(for: cs))
         let markers = mapData.flatMap { CineStagerMapMetadata.markers(from: $0) }
-        let roomRect = markers?.roomRect
 
-        // Re-maps a marker's image-space (u,v) into the cropped room's space, so a
-        // marker the capture framed *outside* the room lands outside 0…1 — the editor
-        // then fits the view so it comes into view. Identity without a room rect.
-        func toRoom(_ u: Double, _ v: Double) -> (x: Double, y: Double) {
-            guard let r = roomRect, r.width > 0, r.height > 0 else { return (u, v) }
-            return ((u - Double(r.minX)) / Double(r.width),
-                    (v - Double(r.minY)) / Double(r.height))
-        }
-
-        // Background: the marker-free location map. CineStager already frames it tight
-        // to the room (the clean map *is* the RoomRect region), so it's used as-is —
-        // markers map onto it via `toRoom`, and one placed outside the room falls into
-        // the margin the fit opens up. (We used to crop it again by the RoomRect, which
-        // double-cropped this already-tight image.) Set it when the scene has none, or
-        // when the user chose to replace an existing one; otherwise leave it untouched.
+        // Background: the marker-free location map, framed on the location alone —
+        // markers are mapped onto it, and one the capture placed outside it falls
+        // into the margin the fit opens up. Set it when the scene has none, or when
+        // the user chose to replace an existing one; otherwise leave it untouched.
         ref.mapCleanData = cleanData   // keep the clean map for later re-adds
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
-            scene.sceneMapBackgroundData = clean
-            scene.sceneMapBackgroundIsSatellite = false
-            // Remember which location this map is, so another shot of the same
-            // location adds its markers without a replace prompt.
-            let loc = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
-            scene.sceneMapLocation = (loc?.isEmpty == false) ? loc : nil
-            // Real-world scale. Cropped to the room, the map spans the room's width;
-            // otherwise (older exports, no room rect) the whole square, which
-            // CineStager sizes to the room's longer side. Camera width is in cm.
-            let span = max(ref.mapLocationWidth ?? 0, ref.mapLocationLength ?? 0)
-            let metersWide = (roomRect != nil ? ref.mapLocationWidth : nil) ?? span
-            scene.sceneMapMetersWide = metersWide > 0 ? metersWide : nil
-            // Remember CineStager's own scale so a later manual scale change can be
-            // reset back to it.
-            scene.sceneMapImportedMetersWide = metersWide > 0 ? metersWide : nil
-            scene.sceneMapCameraSizeMeters = (ref.mapCameraPhysicalWidth ?? 0) > 0
-                ? ref.mapCameraPhysicalWidth! / 100 : nil
+            SceneMapMarkerImport.setBackground(clean, reference: ref, markers: markers,
+                                               location: cs.locationModelName, in: scene)
         }
 
         guard let markers else { return }
-
-        var doc = SceneMapDoc.load(from: scene.sceneMapJSON)
-
-        if let cam = markers.camera {
-            let p = toRoom(cam.u, cam.v)
-            var element = MapElement(kind: .camera, x: p.x, y: p.y)
-            element.label = ref.shot?.displayNumber ?? "Cam"
-            element.shotUID = ref.shot?.uid
-            element.colorHex = "#FF9500"
-            element.worldX = cam.worldX
-            element.worldZ = cam.worldZ
-            if let rot = cam.rotationDeg { element.rotation = rot }
-            doc.elements.append(element)
-        }
-
-        // Add each mannequin, but skip ones already on the map from an earlier import.
-        // Match on the ARKit world position, which is the same mannequin's position
-        // whatever shot or map framing it appears in — far more reliable than the
-        // on-map coordinate, which shifts when a later import frames the map
-        // differently. Fall back to the on-map position for markers with no world
-        // coordinate (older imports, hand-placed).
-        let sameWorld = 0.03   // metres — "the same spot", not "nearby"
-        let sameSpot = 0.004   // normalized fallback (~0.4% of the map)
-        for mannequin in markers.mannequins {
-            let p = toRoom(mannequin.u, mannequin.v)
-            let duplicate = doc.elements.contains { element in
-                guard element.kind == .character else { return false }
-                if let ex = element.worldX, let ez = element.worldZ,
-                   let mx = mannequin.worldX, let mz = mannequin.worldZ {
-                    return abs(ex - mx) < sameWorld && abs(ez - mz) < sameWorld
-                }
-                return abs(element.x - p.x) < sameSpot && abs(element.y - p.y) < sameSpot
-            }
-            guard !duplicate else { continue }
-            var element = MapElement(kind: .character, x: p.x, y: p.y)
-            element.colorHex = "#4C8DFF"
-            element.worldX = mannequin.worldX
-            element.worldZ = mannequin.worldZ
-            if let rot = mannequin.rotationDeg { element.rotation = rot }
-            doc.elements.append(element)
-        }
-
-        assignSceneCharacters(to: &doc, scene: scene)
-        scene.storeSceneMap(doc)
-
-        // The one time we zoom the background out to keep markers in the map: if a
-        // camera/mannequin lands beyond the room's edge, fit the placement to them
-        // now, once, and store it. After the import it's just a stored placement like
-        // a hand-alignment — the editor never refits live, and markers dragged
-        // afterwards snap to the map's bounds instead. Re-importing recomputes it.
-        if !scene.sceneMapBackgroundIsSatellite {
-            let points = doc.elements.map { CGPoint(x: $0.x, y: $0.y) }
-            // markerHalfExtent 0: zoom out only when a marker's *anchor* genuinely
-            // falls outside the image (0…1), e.g. a camera the capture placed beyond
-            // the room. Markers merely near an edge (the common no-RoomRect capture)
-            // sit inside the image and mustn't trigger a zoom.
-            scene.sceneMapBackgroundTransform =
-                SceneMapBackgroundTransform.fittingMarkers(points, markerHalfExtent: 0)
-        }
-    }
-
-
-    /// Best-effort: label the scene map's unlabeled mannequins with the scene's
-    /// detected characters (in order), tinting each with that character's project
-    /// color. Anonymous CineStager mannequins have no identity of their own, so
-    /// this is a guess the user can correct via the marker's right-click menu.
-    private func assignSceneCharacters(to doc: inout SceneMapDoc, scene: Scene) {
-        let names = scene.sceneCharacterNames
-        guard !names.isEmpty else { return }
-        let projectChars = scene.project?.scriptCharacters ?? []
-        func color(for name: String) -> String {
-            projectChars.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.colorHex ?? "#4C8DFF"
-        }
-        var next = 0
-        for i in doc.elements.indices
-        where doc.elements[i].kind == .character && doc.elements[i].label.isEmpty {
-            guard next < names.count else { break }
-            doc.elements[i].label = names[next]
-            doc.elements[i].colorHex = color(for: names[next])
-            next += 1
-        }
+        SceneMapMarkerImport.addMissing(markers, frame: SceneMapMarkerImport.cleanMapFrame(of: markers, onCleanMap: true),
+                                        shot: shot, to: scene)
+        // Re-importing recomputes the one-time fit.
+        SceneMapMarkerImport.fitBackgroundToMarkers(in: scene)
     }
 }
 

@@ -366,7 +366,7 @@ struct ReferenceCardView: View {
     private var sceneMapMarkerMenu: some View {
         if let shot = reference.shot, let scene = shot.scene,
            let markers = SceneMapMarkerImport.markers(for: reference), !markers.isEmpty {
-            let allPresent = SceneMapMarkerImport.allPresent(markers, shot: shot, in: scene)
+            let allPresent = SceneMapMarkerImport.allPresent(markers, reference: reference, shot: shot, in: scene)
                 && SceneMapMarkerImport.backgroundPresent(for: reference, in: scene)
             Button {
                 SceneMapMarkerImport.addToSceneMap(markers, reference: reference, shot: shot, to: scene)
