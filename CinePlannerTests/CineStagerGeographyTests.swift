@@ -74,6 +74,17 @@ final class CineStagerGeographyTests: XCTestCase {
         XCTAssertNil(metadata.framelines)
     }
 
+    /// A video's height above the floor is only in its map; an older map has
+    /// just the session-relative height, which doesn't count as one.
+    func testAMapSaysTheHeightAboveTheFloorOnlyWhenItKnowsIt() throws {
+        let newer = try XCTUnwrap(EXIFExtractor.extractMetadata(
+            from: try jpeg(["CameraMap2D:0.5,0.5", "Height:155.0cm", "Camera Height Above Floor:98.0cm"])))
+        XCTAssertEqual(newer.heightAboveFloor, 98)
+        let older = try XCTUnwrap(EXIFExtractor.extractMetadata(from: try jpeg(["CameraMap2D:0.5,0.5", "Height:155.0cm"])))
+        XCTAssertNil(older.heightAboveFloor)
+        XCTAssertEqual(older.height, 155)
+    }
+
     func testARealCamerasPhotoGivesItsStopAndFocus() throws {
         let photo = try jpeg([], exif: [kCGImagePropertyExifFNumber as String: 4.0,
                                         kCGImagePropertyExifSubjectDistance as String: 150.0])

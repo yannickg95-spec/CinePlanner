@@ -73,6 +73,10 @@ struct PhotoMetadata {
     var tilt: Double?      // Pitch
     var horizon: Double?   // Roll
     var height: Double?
+    /// CineStager's height of the camera above the floor (cm) — what `height`
+    /// is when there is one; nil where only the session-relative `Height` was
+    /// written (a video's map before CineStager 6.3).
+    var heightAboveFloor: Double?
     
     // Capture Matching
     var captureID: String?
@@ -392,7 +396,12 @@ class EXIFExtractor {
         // CineStager's height above the floor beats its `Height`, which in AR is
         // measured from where the AR session began.
         var heightAboveFloor: Double?
-        defer { if let heightAboveFloor { metadata.height = heightAboveFloor } }
+        defer {
+            if let heightAboveFloor {
+                metadata.height = heightAboveFloor
+                metadata.heightAboveFloor = heightAboveFloor
+            }
+        }
         Log.exif.debug("  🔸 Found \(parts.count) parts: \(parts)")
         
         for part in parts {

@@ -504,7 +504,7 @@ struct CineStagerImportSheet: View {
                 ref.videoExtension = nil
             }
         }
-        let mapData = await fillMap(ref, from: cs)
+        let (mapData, mapHeightAboveFloor) = await fillMap(ref, from: cs)
 
         // Guess the shot size when it has none: prefer the geometric estimate
         // (camera↔mannequin distance + focal length), reliable even for mannequin
@@ -550,9 +550,10 @@ struct CineStagerImportSheet: View {
         // annotated "Previously pitch"/"Previously roll").
         ref.horizon = cs.pitchDeg
         ref.tilt = cs.rollDeg
-        // Above the floor when CineStager measured it; `heightCM` is, in AR, from
-        // where the AR session began — kept only for older captures.
-        ref.height = cs.cameraHeightAboveFloorCM ?? cs.heightCM
+        // Above the floor when CineStager measured it — for a video only in its
+        // map unless Link Location added it later; `heightCM` is, in AR, from where
+        // the AR session began — kept only for older captures.
+        ref.height = cs.cameraHeightAboveFloorCM ?? mapHeightAboveFloor ?? cs.heightCM
         ref.captureType = cs.type
         ref.dateTimeOriginal = cs.timestamp
         ref.fNumber = cs.fNumber
@@ -598,9 +599,11 @@ struct CineStagerImportSheet: View {
 
     /// Puts the shot's top-down map on the reference, with what its EXIF says
     /// (location, camera size, storey) — the same as a dragged-in map. Hands
-    /// back the map's bytes; nil without one.
-    private func fillMap(_ ref: ShotReference, from cs: CineStagerShot) async -> Data? {
+    /// back the map's bytes, nil without one, and the camera's height above the
+    /// floor it records (a video's is only there).
+    private func fillMap(_ ref: ShotReference, from cs: CineStagerShot) async -> (data: Data?, heightAboveFloor: Double?) {
         var mapData: Data?
+        var heightAboveFloor: Double?
         if cs.hasMap, let data = await library.data(at: library.mapURL(for: cs)) {
             mapData = data
             ref.mapData = data
@@ -614,6 +617,7 @@ struct CineStagerImportSheet: View {
                 ref.mapLocationHeight = m.locationHeight
                 ref.mapLocationFloor = m.locationFloor
                 ref.mapLocationFloorName = m.locationFloorName
+                heightAboveFloor = m.heightAboveFloor
             }
         }
         // The storey, from shots.json too (a video's has no EXIF of its own).
@@ -621,7 +625,7 @@ struct CineStagerImportSheet: View {
             ref.mapLocationFloor = cs.floor
             ref.mapLocationFloorName = cs.floorName
         }
-        return mapData
+        return (mapData, heightAboveFloor)
     }
 
     // MARK: - Maps made later
@@ -653,8 +657,8 @@ struct CineStagerImportSheet: View {
             var conflict: PendingPlace?
             for item in items {
                 let reference = item.reference, cs = item.shot
-                _ = await fillMap(reference, from: cs)
-                if let above = cs.cameraHeightAboveFloorCM { reference.height = above }
+                let (_, mapHeightAboveFloor) = await fillMap(reference, from: cs)
+                if let above = cs.cameraHeightAboveFloorCM ?? mapHeightAboveFloor { reference.height = above }
                 let cleanData = await library.data(at: library.cleanMapURL(for: cs))
                 reference.mapCleanData = cleanData
                 if onSceneMaps, let scene = reference.shot?.scene,

@@ -11,17 +11,17 @@ Gebouwd (oktober 2026): camerahoogte boven de vloer, framelines alleen nog een e
 
 **Op een toestel testen**
 
-- [ ] Een CineStager-opname met camerahoogte boven de vloer importeren: klopt de hoogte ("Camera Height" op de referentiekaart)?
-- [ ] Een locatie met verdiepingen: een opname op de eerste verdieping in een scène met de map van de begane grond geeft de vraag om de map te vervangen (met de verdieping erin); in een batch komen de markers alleen op de map van hun eigen verdieping
-- [ ] Game mode met scherptediepte: T-stop, f-getal en focus op de referentiekaart, onder de foto in de PDF en in het bijschrift in de HTML-export en op de webpagina
-- [ ] Plek en noorden: het adres, de tijdzone en het kompas na importeren; het noorden vast in het zon-venster; meedraaien met het uitlijngereedschap; de vraag bij een scène die al een andere plek heeft
-- [ ] Een anamorfe opname: de wig breed genoeg (zoals CineStager's beeldhoek), ook met een rear-adapter
-- [ ] Link Location in CineStager bij een opname die al in CinePlanner staat: de balk "CineStager has made maps…" in het importvenster, de map op de referentie en desgewenst op de scene map
+- [x] Een CineStager-opname met camerahoogte boven de vloer importeren: klopt de hoogte ("Camera Height" op de referentiekaart)?
+- [x] Een locatie met verdiepingen: een opname op de eerste verdieping in een scène met de map van de begane grond geeft de vraag om de map te vervangen (met de verdieping erin); in een batch komen de markers alleen op de map van hun eigen verdieping
+- [x] Game mode met scherptediepte: T-stop, f-getal en focus op de referentiekaart, onder de foto in de PDF en in het bijschrift in de HTML-export en op de webpagina
+- [x] Plek en noorden: het adres, de tijdzone en het kompas na importeren; het noorden vast in het zon-venster; meedraaien met het uitlijngereedschap; de vraag bij een scène die al een andere plek heeft
+- [x] Een anamorfe opname: de wig breed genoeg (zoals CineStager's beeldhoek), ook met een rear-adapter
+- [x] Link Location in CineStager bij een opname die al in CinePlanner staat: de balk "CineStager has made maps…" in het importvenster, de map op de referentie en desgewenst op de scene map
 
 **Afmaken en testen**
 
-- [ ] (M) Personen uit CineStager op een toestel testen: bij een foto personages waar ze stonden; bij een video een personage per standpunt met pijlen ertussen, één naam per persoon
-- [ ] (S) Een video uit CineStager importeren op een toestel testen: een cameramarker per standpunt, pijlen ertussen (staat in `main`)
+- [x] (M) Personen uit CineStager op een toestel testen: bij een foto personages waar ze stonden; bij een video een personage per standpunt met pijlen ertussen, één naam per persoon
+- [x] (S) Een video uit CineStager importeren op een toestel testen: een cameramarker per standpunt, pijlen ertussen (staat in `main`)
 
 ## Bij elk nieuw veld
 
