@@ -256,7 +256,7 @@ extension SceneMapEditorView {
             guard let uid = element.shotUID,
                   let shot = scene.shots.first(where: { $0.uid == uid }),
                   shot.lensfocal > 0 else { continue }
-            let halfAngle = atan((sensorWidthMM(for: element, shot: shot) / 2) / Double(shot.lensfocal))
+            let halfAngle = fovHalfAngle(for: element, shot: shot)
             let cx = rect.minX + element.x * rect.width
             let cy = rect.minY + element.y * rect.height
             // Facing unit vector matches the marker's rotation handle: (sin, -cos).

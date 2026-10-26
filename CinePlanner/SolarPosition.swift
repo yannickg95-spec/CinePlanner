@@ -104,6 +104,11 @@ nonisolated struct SunSettings: Codable, Equatable {
     var dateEpoch: Double? = nil        // any instant on the chosen calendar day
     var northOffsetDeg: Double = 0      // screen angle (from up, clockwise) that points North
     var timeMinutes: Double = 720       // minutes since local midnight (default noon)
+    /// North on the background image itself, degrees clockwise from its top, when
+    /// the image knows it — a CineStager location map. North on screen is then
+    /// this plus the background's rotation, so it's fixed like a satellite
+    /// map's rather than dialled by hand. Nil for any other background.
+    var backgroundNorthDeg: Double? = nil
 
     var hasLocation: Bool { latitude != nil && longitude != nil }
     var timeZone: TimeZone { timeZoneID.flatMap(TimeZone.init(identifier:)) ?? .current }

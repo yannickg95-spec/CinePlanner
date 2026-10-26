@@ -78,6 +78,11 @@ extension SceneMapEditorView {
 
     func persistBackgroundTransform() {
         scene.sceneMapBackgroundTransform = bgTransform
+        // A CineStager map's north turns with it.
+        if let north = sun.backgroundNorthDeg {
+            sun.northOffsetDeg = Compass.normalized(north + bgTransform.rotation)
+            scene.sunSettings = sun
+        }
         scene.modelContext?.saveReporting()
     }
 

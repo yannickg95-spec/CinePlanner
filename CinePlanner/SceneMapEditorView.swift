@@ -412,8 +412,12 @@ struct SceneMapEditorView: View {
             scaleLengthSheet
         }
         .sheet(isPresented: $showSunSettings) {
+            // North is the map's own on a satellite or a CineStager map (turned
+            // with the background); a satellite map's place is its own too.
             SunSettingsSheet(settings: $sun, onChange: saveSun,
-                             lockedNorthOffset: satelliteAnchor.map { -$0.heading })
+                             lockedNorthOffset: satelliteAnchor.map { -$0.heading }
+                                ?? sun.backgroundNorthDeg.map { Compass.normalized($0 + bgTransform.rotation) },
+                             locationFromMap: satelliteAnchor != nil)
         }
         .sheet(isPresented: $showingMapPicker) {
             MapBackgroundSheet(initialCoordinate: savedSatelliteCoordinate,

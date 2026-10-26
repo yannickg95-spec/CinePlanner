@@ -53,6 +53,28 @@ struct CineStagerShot: Codable, Identifiable {
     /// framing without a top-down map / location model. Optional (newer captures).
     let subjectDistanceM: Double?
 
+    // Since CineStager 6.3 (all optional: older captures don't have them).
+    /// How high the camera stood above the floor (cm), with a location.
+    let cameraHeightAboveFloorCM: Double?
+    /// The lens's f-number, a cine lens's T-stop, and where focus was set (m) —
+    /// Game mode with depth of field on.
+    let fNumber: Double?
+    let tStop: Double?
+    let focusDistanceM: Double?
+    /// The full horizontal angle of view of the format (degrees), desqueezed.
+    let horizontalFOVDegrees: Double?
+    /// An anamorphic lens's total squeeze, and its adapter ("1.33× front").
+    let anamorphicSqueeze: Double?
+    let anamorphicAdapter: String?
+    /// Where on earth the location is, and which way north lies on its map
+    /// (degrees clockwise from the top), when set up in CineStager.
+    let locationPlace: CineStagerPlace?
+    let mapNorth: Double?
+    /// The storey the camera stood on (0 = the lowest set up) and its name, for
+    /// a location with several.
+    let floor: Int?
+    let floorName: String?
+
     var isVideo: Bool { type == "video" }
     var hasMap: Bool { topDownMapFileName != nil }
 }

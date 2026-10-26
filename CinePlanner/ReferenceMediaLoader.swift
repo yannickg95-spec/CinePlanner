@@ -55,6 +55,12 @@ enum ReferenceMediaLoader {
         reference.caption = metadata.iptcCaption
         reference.framelines = metadata.framelines
         reference.software = metadata.tiffSoftware
+        reference.fNumber = metadata.fNumber
+        reference.tStop = metadata.tStop
+        reference.focusDistance = metadata.focusDistance
+        reference.horizontalFOV = metadata.horizontalFOV
+        reference.anamorphicSqueeze = metadata.anamorphicSqueeze
+        reference.anamorphicAdapter = metadata.anamorphicAdapter
 
         // Fill only the shot's *empty* camera fields from the metadata. Camera
         // information the user — or a project default — already put there is left

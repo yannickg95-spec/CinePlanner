@@ -395,7 +395,8 @@ extension ProjectExporter {
                             videoExtension: reference.videoExtension ?? "mov",
                             mapVideoData: reference.mapVideoData,
                             mapVideoExtension: reference.mapVideoExtension ?? "mov",
-                            note: Self.cleanNote(reference.note)
+                            note: Self.referenceCaption(lens: reference.lensSettingsLine,
+                                                        note: Self.cleanNote(reference.note))
                         )
                     }
                 )
@@ -970,6 +971,13 @@ extension ProjectExporter {
     }
 
     /// Trims a user note and returns nil when it's blank.
+    /// What shows under a reference's media: its lens settings, then the user's
+    /// note.
+    static func referenceCaption(lens: String?, note: String?) -> String? {
+        let parts = [lens, note].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " — ")
+    }
+
     static func cleanNote(_ s: String?) -> String? {
         let t = s?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (t?.isEmpty ?? true) ? nil : t

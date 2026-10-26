@@ -16,6 +16,8 @@ struct SunSettingsSheet: View {
     /// North is: the dial is hidden and the offset pinned to this value. nil for a
     /// photo or drawn plan, where North is the user's to set.
     var lockedNorthOffset: Double?
+    /// The location is the map's own (a satellite map): read-only, no lookup.
+    var locationFromMap = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var geocoding = false
@@ -33,7 +35,7 @@ struct SunSettingsSheet: View {
 
             Form {
                 Section("Location") {
-                    if lockedNorthOffset != nil {
+                    if locationFromMap {
                         // Satellite maps take their location from the map itself, so the
                         // coordinates are read-only and there's no address lookup.
                         LabeledContent("Latitude", value: coordDisplay(\.latitude))
@@ -67,6 +69,13 @@ struct SunSettingsSheet: View {
                     DatePicker("Shoot date", selection: dateBinding, displayedComponents: .date)
                 }
 
+                if let locked = lockedNorthOffset, !locationFromMap {
+                    // A CineStager map: its location says where north lies on it.
+                    Section("North") {
+                        Text("\(Int(locked.rounded()))° from up, as set for the location in CineStager")
+                            .font(.callout.monospacedDigit())
+                    }
+                }
                 if lockedNorthOffset == nil {
                     Section("North") {
                         HStack(spacing: 20) {
@@ -93,7 +102,7 @@ struct SunSettingsSheet: View {
                 onChange()
             }
         }
-        .adaptiveSheetFrame(width: 400, height: lockedNorthOffset != nil ? 360 : 600)
+        .adaptiveSheetFrame(width: 400, height: locationFromMap ? 360 : lockedNorthOffset != nil ? 480 : 600)
     }
 
     // MARK: - Bindings

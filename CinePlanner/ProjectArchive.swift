@@ -101,6 +101,8 @@ enum ProjectArchive {
         var sceneMapJSON: String?
         var sceneMapBackgroundData: Data?
         var sceneMapLocation: String?
+        /// The storey of the location the map shows; absent in older archives.
+        var sceneMapFloor: Int? = nil
         var sceneMapBackgroundIsSatellite: Bool?
         var sceneMapSatelliteLat: Double?
         var sceneMapSatelliteLon: Double?
@@ -212,6 +214,15 @@ enum ProjectArchive {
         var mapLocationHeight: Double?
         /// The marker-free CineStager map, kept for re-adding markers later.
         var mapCleanData: Data?
+        // Newer fields: absent in older archives.
+        var mapLocationFloor: Int? = nil
+        var mapLocationFloorName: String? = nil
+        var fNumber: Double? = nil
+        var tStop: Double? = nil
+        var focusDistance: Double? = nil
+        var horizontalFOV: Double? = nil
+        var anamorphicSqueeze: Double? = nil
+        var anamorphicAdapter: String? = nil
     }
 
     // MARK: - Export
@@ -303,6 +314,7 @@ enum ProjectArchive {
             sceneMapJSON: scene.sceneMapJSON,
             sceneMapBackgroundData: scene.sceneMapBackgroundData,
             sceneMapLocation: scene.sceneMapLocation,
+            sceneMapFloor: scene.sceneMapFloor,
             sceneMapBackgroundIsSatellite: scene.sceneMapBackgroundIsSatellite,
             sceneMapSatelliteLat: scene.sceneMapSatelliteLat,
             sceneMapSatelliteLon: scene.sceneMapSatelliteLon,
@@ -382,7 +394,11 @@ enum ProjectArchive {
             mapCameraPhysicalLength: r.mapCameraPhysicalLength, mapLocationModel: r.mapLocationModel,
             mapLocationWidth: r.mapLocationWidth, mapLocationLength: r.mapLocationLength,
             mapLocationHeight: r.mapLocationHeight,
-            mapCleanData: r.mapCleanData
+            mapCleanData: r.mapCleanData,
+            mapLocationFloor: r.mapLocationFloor, mapLocationFloorName: r.mapLocationFloorName,
+            fNumber: r.fNumber, tStop: r.tStop, focusDistance: r.focusDistance,
+            horizontalFOV: r.horizontalFOV,
+            anamorphicSqueeze: r.anamorphicSqueeze, anamorphicAdapter: r.anamorphicAdapter
         )
     }
 
@@ -464,6 +480,7 @@ enum ProjectArchive {
                     scene.sceneMapJSON = s.sceneMapJSON
                     scene.sceneMapBackgroundData = s.sceneMapBackgroundData
                     scene.sceneMapLocation = s.sceneMapLocation
+                    scene.sceneMapFloor = s.sceneMapFloor
                     scene.sceneMapBackgroundIsSatellite = s.sceneMapBackgroundIsSatellite ?? false
                     scene.sceneMapSatelliteLat = s.sceneMapSatelliteLat
                     scene.sceneMapSatelliteLon = s.sceneMapSatelliteLon
@@ -554,6 +571,14 @@ enum ProjectArchive {
                             ref.mapLocationLength = r.mapLocationLength
                             ref.mapLocationHeight = r.mapLocationHeight
                             ref.mapCleanData = r.mapCleanData
+                            ref.mapLocationFloor = r.mapLocationFloor
+                            ref.mapLocationFloorName = r.mapLocationFloorName
+                            ref.fNumber = r.fNumber
+                            ref.tStop = r.tStop
+                            ref.focusDistance = r.focusDistance
+                            ref.horizontalFOV = r.horizontalFOV
+                            ref.anamorphicSqueeze = r.anamorphicSqueeze
+                            ref.anamorphicAdapter = r.anamorphicAdapter
                         }
 
                         for c in sh.customInfo ?? [] {

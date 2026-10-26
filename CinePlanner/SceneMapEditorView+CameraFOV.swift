@@ -66,6 +66,38 @@ extension SceneMapEditorView {
         return (shot.sensorWidthMM ?? 0) > 0 ? shot.sensorWidthMM! : 24.89
     }
 
+    /// Half the camera's horizontal angle of view (radians), from its focal length
+    /// and sensor. On the shot's own CineStager camera an anamorphic lens widens
+    /// it by its squeeze (a rear adapter also lengthens the focal length), and
+    /// CineStager's own figure is used while the shot keeps the camera and focal
+    /// length it was captured with.
+    func fovHalfAngle(for element: MapElement, shot: Shot) -> Double {
+        let focal = Double(shot.lensfocal)
+        let sensor = sensorWidthMM(for: element, shot: shot)
+        guard effectiveBasis(for: element) == .cineStager,
+              let reference = shot.orderedReferences.last(where: {
+                  $0.horizontalFOV != nil || ($0.anamorphicSqueeze ?? 1) > 1
+              }) else {
+            return atan((sensor / 2) / focal)
+        }
+        let sameCamera = Shot.combinedCamera(reference.cameraFamily ?? "", reference.cameraFormat ?? "") == shot.camera
+        if sameCamera, reference.focalLength == focal, let fov = reference.horizontalFOV, fov > 0 {
+            return fov / 2 * .pi / 180
+        }
+        let squeeze = max(reference.anamorphicSqueeze ?? 1, 1)
+        let rear = Self.rearAdapterFactor(reference.anamorphicAdapter)
+        return atan((sensor * squeeze / 2) / (focal * rear))
+    }
+
+    /// How much a rear anamorphic adapter ("2× rear") lengthens the focal length;
+    /// 1 for a front adapter or none.
+    nonisolated static func rearAdapterFactor(_ adapter: String?) -> Double {
+        guard let adapter, adapter.lowercased().hasSuffix("rear"),
+              let match = adapter.range(of: #"[0-9]+(\.[0-9]+)?"#, options: .regularExpression),
+              let factor = Double(adapter[match]), factor > 0 else { return 1 }
+        return factor
+    }
+
     /// The CineStager camera name for a camera marker (used to resolve the auto
     /// basis), or nil when that shot has no imported sensor.
     func cineStagerCameraName(for element: MapElement) -> String? {

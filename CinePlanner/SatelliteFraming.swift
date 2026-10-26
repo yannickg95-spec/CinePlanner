@@ -198,6 +198,10 @@ extension Scene {
     var mapNorthOffset: Double? {
         if let capture = satelliteCapture { return -capture.heading }
         let sun = sunSettings
+        // A CineStager map knows its own north, turned with the background.
+        if let north = sun.backgroundNorthDeg {
+            return Compass.normalized(north + sceneMapBackgroundRotation)
+        }
         return sun.hasLocation ? sun.northOffsetDeg : nil
     }
 
@@ -215,6 +219,12 @@ extension Scene {
         sceneMapSatelliteMeters = nil
         sceneMapSatelliteHeading = 0
         sceneMapSatelliteCalibrated = false
+        // Nor does a CineStager map's north outlive its image.
+        if sunSettings.backgroundNorthDeg != nil {
+            var sun = sunSettings
+            sun.backgroundNorthDeg = nil
+            sunSettings = sun
+        }
     }
 
     /// Records a capture against the scene.

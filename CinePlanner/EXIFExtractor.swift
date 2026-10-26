@@ -25,6 +25,8 @@ struct PhotoMetadata {
             || cameraPhysicalWidth != nil || cameraPhysicalLength != nil
             || locationModel != nil || locationWidth != nil || locationLength != nil
             || locationHeight != nil
+            || fNumber != nil || tStop != nil || focusDistance != nil
+            || anamorphicSqueeze != nil || locationFloorName != nil || placeName != nil
     }
 
     /// The rows the top-down map metadata card actually shows — used both to
@@ -46,8 +48,20 @@ struct PhotoMetadata {
         if let h = locationHeight {
             rows.append(("Location Height", String(format: "%.2fm", h)))
         }
+        if let floor = locationFloorName, !floor.isEmpty { rows.append(("Floor", floor)) }
+        if let place = placeName, !place.isEmpty {
+            rows.append(("Place", place))
+        } else if let lat = latitude, let lon = longitude {
+            rows.append(("Place", String(format: "%.5f, %.5f", lat, lon)))
+        }
+        if let north = mapNorth { rows.append(("North", "\(Int(north.rounded()))° from up")) }
         return rows
     }
+
+    /// The stop and focus as the card shows them: "T3.1 (f/2.8)" or "f/2.8",
+    /// and "3.2 m".
+    var stopText: String? { LensSettingsText.stop(fNumber: fNumber, tStop: tStop) }
+    var focusText: String? { focusDistance.map(LensSettingsText.focus) }
 
     // Camera Settings
     var cameraFamily: String?
@@ -78,6 +92,71 @@ struct PhotoMetadata {
     var locationWidth: Double?         // in meters
     var locationLength: Double?        // in meters
     var locationHeight: Double?        // in meters
+
+    // Lens settings (a CineStager Game-mode capture with depth of field, or a
+    // real camera's photo): the f-number, a cine lens's T-stop, and where focus
+    // was set (metres).
+    var fNumber: Double?
+    var tStop: Double?
+    var focusDistance: Double?
+    /// The full horizontal angle of view of the recorded format (degrees),
+    /// desqueezed — CineStager's own figure.
+    var horizontalFOV: Double?
+    /// An anamorphic lens's total squeeze, and its adapter ("1.33× front").
+    var anamorphicSqueeze: Double?
+    var anamorphicAdapter: String?
+
+    // Where a CineStager map lies in the world.
+    /// The storey the camera stood on (0 = the lowest set up), and its name.
+    var locationFloor: Int?
+    var locationFloorName: String?
+    /// Degrees clockwise from the top of the map image to north.
+    var mapNorth: Double?
+    var latitude: Double?
+    var longitude: Double?
+    var timeZoneID: String?
+    var placeName: String?
+}
+
+/// How lens settings read, the same everywhere they're shown.
+nonisolated enum LensSettingsText {
+    /// "T3.1 (f/2.8)" with a T-stop, else "f/2.8".
+    static func stop(fNumber: Double?, tStop: Double?) -> String? {
+        switch (tStop, fNumber) {
+        case let (t?, f?): return "T\(number(t)) (f/\(number(f)))"
+        case let (t?, nil): return "T\(number(t))"
+        case let (nil, f?): return "f/\(number(f))"
+        default: return nil
+        }
+    }
+
+    /// "3.2 m"; past 100 m whole metres.
+    static func focus(_ metres: Double) -> String {
+        metres >= 100 ? "\(Int(metres.rounded())) m" : String(format: "%.1f m", metres)
+    }
+
+    /// "2× anamorphic" with the adapter when there is one: "2× anamorphic (1.33× front)".
+    static func anamorphic(squeeze: Double?, adapter: String?) -> String? {
+        guard let squeeze, squeeze > 1 else { return nil }
+        let base = "\(number(squeeze))× anamorphic"
+        guard let adapter, !adapter.isEmpty else { return base }
+        return "\(base) (\(adapter))"
+    }
+
+    /// The lens line under a reference: stop, focus and squeeze, as there are.
+    static func line(fNumber: Double?, tStop: Double?, focusDistance: Double?,
+                     squeeze: Double?, adapter: String?) -> String? {
+        let parts = [stop(fNumber: fNumber, tStop: tStop),
+                     focusDistance.map { "Focus " + focus($0) },
+                     anamorphic(squeeze: squeeze, adapter: adapter)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 2.8, 3.1, 2 — one decimal at most, none when whole.
+    static func number(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
+    }
 }
 
 class EXIFExtractor {
@@ -117,6 +196,16 @@ class EXIFExtractor {
                 Log.exif.debug("  ✅ Focal Length: \(focalLength)mm")
             }
             
+            // Aperture and focus distance — CineStager writes them, and a real
+            // camera's photo often has them too.
+            if let fNumber = exifDict[kCGImagePropertyExifFNumber as String] as? Double, fNumber > 0 {
+                metadata.fNumber = fNumber
+            }
+            if let distance = exifDict[kCGImagePropertyExifSubjectDistance as String] as? Double,
+               distance > 0, distance.isFinite {
+                metadata.focusDistance = distance
+            }
+
             // Lens model/preset
             if let lensModel = exifDict[kCGImagePropertyExifLensModel as String] as? String {
                 metadata.lensPreset = lensModel
@@ -199,15 +288,8 @@ class EXIFExtractor {
             Log.exif.notice("⚠️ No IPTC dictionary found")
         }
         
-        // Extract GPS data (if available, for height)
-        if let gpsDict = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any] {
-            Log.exif.debug("📍 GPS Dictionary found")
-            if let altitude = gpsDict[kCGImagePropertyGPSAltitude as String] as? Double {
-                // Convert meters to centimeters
-                metadata.height = altitude * 100
-                Log.exif.debug("  ✅ GPS Altitude: \(altitude)m (\(altitude * 100)cm)")
-            }
-        }
+        // GPS altitude is deliberately not taken for the camera height: it's the
+        // height above the sea, not above the floor the camera stood on.
         
         Log.exif.debug("📊 Final metadata summary:")
         Log.exif.debug("  Camera: \(metadata.cameraFamily ?? "nil") / \(metadata.cameraFormat ?? "nil")")
@@ -307,6 +389,10 @@ class EXIFExtractor {
         
         // Split by " | " (pipe with spaces)
         let parts = comment.components(separatedBy: " | ")
+        // CineStager's height above the floor beats its `Height`, which in AR is
+        // measured from where the AR session began.
+        var heightAboveFloor: Double?
+        defer { if let heightAboveFloor { metadata.height = heightAboveFloor } }
         Log.exif.debug("  🔸 Found \(parts.count) parts: \(parts)")
         
         for part in parts {
@@ -350,6 +436,30 @@ class EXIFExtractor {
                     Log.exif.notice("      ⚠️ Could not parse Height from '\(value)'")
                 }
                 
+            case "Camera Height Above Floor":
+                heightAboveFloor = parseNumericDouble(from: value)
+            case "F-Number":
+                metadata.fNumber = parseNumericDouble(from: value) ?? metadata.fNumber
+            case "T-Stop":
+                metadata.tStop = parseNumericDouble(from: value)
+            case "Focus Distance":
+                metadata.focusDistance = parseNumericDouble(from: value) ?? metadata.focusDistance
+            case "Horizontal FOV":
+                metadata.horizontalFOV = parseNumericDouble(from: value)
+            case "MapNorth":
+                metadata.mapNorth = parseNumericDouble(from: value)
+            case "Location Latitude":
+                metadata.latitude = parseNumericDouble(from: value)
+            case "Location Longitude":
+                metadata.longitude = parseNumericDouble(from: value)
+            case "Location Time Zone":
+                metadata.timeZoneID = value.isEmpty ? nil : value
+            case "Location Place":
+                metadata.placeName = value.isEmpty ? nil : value
+            case "Location Floor":
+                metadata.locationFloor = Int(value)
+            case "Location Floor Name":
+                metadata.locationFloorName = value.isEmpty ? nil : value
             case "Preset":
                 metadata.lensPreset = value
                 Log.exif.debug("      ✅ Parsed Preset: \(value)")
@@ -502,34 +612,20 @@ class EXIFExtractor {
     }
     
     /// Parse framelines token from IPTC caption. Example caption:
-    /// "Camera: Arri Alexa 35 4.6K 16:9 • Anamorphic 2.39:1 • 35mm"
-    private static func parseFramelines(from caption: String) -> String? {
-        let parts = caption.components(separatedBy: "•").map { $0.trimmingCharacters(in: .whitespaces) }
-        
-        // Look through all parts to find one that matches framelines pattern
-        for part in parts {
-            // Skip empty parts
-            if part.isEmpty {
-                continue
-            }
-            
-            // Skip if it ends with "mm" (focal length, not framelines)
-            if part.hasSuffix("mm") {
-                continue
-            }
-            
-            // Skip if it starts with known non-framelines prefixes
-            if part.hasPrefix("Camera:") || part.hasPrefix("Preset:") {
-                continue
-            }
-            
-            // Framelines should contain either ":" or "."
-            if part.contains(":") || part.contains(".") {
-                return part
-            }
-        }
-        
-        return nil
+    /// "Camera: Arri Alexa 35 4.6K 16:9 • 2.39 • 35mm • T2.8 (f/2.5) • Focus 3.2 m"
+    /// Only a bare ratio counts — "2.39", "1.85:1", "16:9" — so the lens's stop,
+    /// its focus or its anamorphic squeeze are never taken for framelines.
+    static func parseFramelines(from caption: String) -> String? {
+        caption.components(separatedBy: "•")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first(where: isFramelinesRatio)
+    }
+
+    /// "2.39", "1.66", "1.85:1", "16:9", "2:1" — a framelines ratio, nothing else
+    /// (a bare whole number isn't one).
+    static func isFramelinesRatio(_ s: String) -> Bool {
+        s.range(of: #"^([0-9]+\.[0-9]+|[0-9]+(\.[0-9]+)?\s*:\s*[0-9]+(\.[0-9]+)?)$"#,
+                options: .regularExpression) != nil
     }
     
     /// Format metadata for display

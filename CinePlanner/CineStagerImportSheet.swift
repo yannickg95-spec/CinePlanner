@@ -18,6 +18,7 @@ struct CineStagerImportSheet: View {
     /// on import, not when the sheet is cancelled.
     let provideReference: () -> ShotReference
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
 
     @StateObject private var library = CineStagerLibrary()
     @State private var selectedIDs: Set<UUID> = []
@@ -26,12 +27,39 @@ struct CineStagerImportSheet: View {
     /// Set when an import would overwrite an existing scene map, so we can ask
     /// first whether to replace it or keep the current one.
     @State private var mapConflict: PendingMapImport?
+    /// Set when the shot's location is somewhere other than where the scene is
+    /// already set, to ask before moving the scene there.
+    @State private var placeConflict: PendingPlace?
+    /// Shots already added whose map CineStager made later (Link Location).
+    @State private var lateMaps: [LateMap] = []
+    @State private var lateMapsOnSceneMaps = true
+    @State private var isAddingLateMaps = false
+
+    /// A reference that has no map yet, and the CineStager shot (the same
+    /// capture) that has one now.
+    private struct LateMap {
+        let reference: ShotReference
+        let shot: CineStagerShot
+    }
 
     /// An import paused on the "replace the scene map?" question.
     private struct PendingMapImport {
         let reference: ShotReference
         let cs: CineStagerShot
         let cleanData: Data?
+        /// The scene's map is this location's too, on another storey.
+        let otherStorey: Bool
+    }
+
+    /// An import paused on the "move the scene to this place?" question.
+    private struct PendingPlace {
+        let scene: Scene
+        let place: CineStagerPlace
+        let location: String
+        let current: String
+        /// Closes the sheet once answered (an import), or leaves it open (maps
+        /// added to earlier shots).
+        var closesSheet = true
     }
 
     /// CineStager's brand blue (#3ECFFF).
@@ -72,7 +100,10 @@ struct CineStagerImportSheet: View {
         #if os(macOS)
         .adaptiveSheetFrame(width: 720, height: 620)
         #endif
-        .task { await library.refresh() }
+        .task {
+            await library.refresh()
+            findLateMaps()
+        }
         .alert("Replace scene map?", isPresented: Binding(
             get: { mapConflict != nil },
             set: { if !$0 { mapConflict = nil; isImporting = false } }
@@ -89,10 +120,36 @@ struct CineStagerImportSheet: View {
                                        cleanData: item.cleanData, replaceBackground: false)
                 }
             }
-        } message: { _ in
-            Text("This scene already has a scene map. Replace it with the map image "
-                 + "from CineStager, or keep the one you have? The shot's camera is "
-                 + "added to the map either way.")
+        } message: { item in
+            if item.otherStorey {
+                Text("This scene's map shows another storey of \(item.cs.locationModelName ?? "this location"). "
+                     + "This shot was taken on \(item.cs.floorName ?? "another storey"). Replace the map "
+                     + "with this storey's, or keep the one you have? The shot's camera is added to the "
+                     + "map either way.")
+            } else {
+                Text("This scene already has a scene map. Replace it with the map image "
+                     + "from CineStager, or keep the one you have? The shot's camera is "
+                     + "added to the map either way.")
+            }
+        }
+        .alert("Move the scene to this location?", isPresented: Binding(
+            get: { placeConflict != nil },
+            set: { if !$0 {
+                let closes = placeConflict?.closesSheet ?? true
+                placeConflict = nil
+                isImporting = false
+                if closes { dismiss() }
+            } }
+        ), presenting: placeConflict) { item in
+            Button("Use \(item.location)'s Location") {
+                SceneMapMarkerImport.setPlace(item.place, in: item.scene)
+                item.scene.modelContext?.saveReporting()
+            }
+            Button("Keep the Scene's Location", role: .cancel) {}
+        } message: { item in
+            Text("The scene's location is set to \(item.current). In CineStager, \(item.location) is at "
+                 + "\(item.place.name ?? String(format: "%.5f, %.5f", item.place.latitude, item.place.longitude)). "
+                 + "Its location is used for the sun.")
         }
     }
 
@@ -118,6 +175,10 @@ struct CineStagerImportSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if !lateMaps.isEmpty {
+                lateMapsBanner
+            }
+
             if library.state == .loaded && !library.shots.isEmpty {
                 Picker("Organize by", selection: $grouping) {
                     ForEach(Grouping.allCases) { Text($0.rawValue).tag($0) }
@@ -130,6 +191,32 @@ struct CineStagerImportSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+    }
+
+    /// Offers the maps CineStager made later for shots already added.
+    private var lateMapsBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "map")
+                .font(.title3)
+                .foregroundStyle(Self.cineStagerBlue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(lateMaps.count == 1
+                     ? "CineStager has made a map for a shot you've already added."
+                     : "CineStager has made maps for \(lateMaps.count) shots you've already added.")
+                    .font(.callout)
+                Toggle("Also put them on the scene maps", isOn: $lateMapsOnSceneMaps)
+                    .font(.caption)
+            }
+            Spacer()
+            if isAddingLateMaps {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(lateMaps.count == 1 ? "Add Map" : "Add Maps") { addLateMaps() }
+            }
+        }
+        .padding(10)
+        .background(Self.cineStagerBlue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.top, 6)
     }
 
     // MARK: - Content
@@ -329,14 +416,24 @@ struct CineStagerImportSheet: View {
             // Same location as the scene's current map? Then it's effectively the
             // same map (CineStager renders a fresh clean image per capture, so the
             // bytes differ) — just add the markers, no prompt.
-            let newLocation = cs.locationModelName?.trimmingCharacters(in: .whitespaces)
-            let otherRefsSameLocation = scene?.shots
+            // A map belongs to one storey: the same location on another storey is
+            // another map.
+            let floor = reference.mapLocationFloor
+            let sameAsScene = scene.map {
+                SceneMapMarkerImport.sceneShows(location: cs.locationModelName, floor: floor, in: $0)
+            } ?? false
+            let otherRefsSameLocation = scene?.sceneMapLocation == nil && (scene?.shots
                 .flatMap { $0.references }
-                .contains { $0 !== reference && $0.mapLocationModel == newLocation } ?? false
-            let sameLocation = newLocation?.isEmpty == false
-                && (scene?.sceneMapLocation == newLocation || otherRefsSameLocation)
-            if let existingMap, let cleanData, existingMap != cleanData, !sameLocation {
-                mapConflict = PendingMapImport(reference: reference, cs: cs, cleanData: cleanData)
+                .contains { $0 !== reference
+                    && SceneMapMarkerImport.sameMap(location: $0.mapLocationModel, floor: $0.mapLocationFloor,
+                                                    as: cs.locationModelName, floor: floor) } ?? false)
+            if let existingMap, let cleanData, existingMap != cleanData, !(sameAsScene || otherRefsSameLocation) {
+                let otherStorey = scene.map {
+                    SceneMapMarkerImport.sameMap(location: cs.locationModelName, floor: nil,
+                                                 as: $0.sceneMapLocation, floor: nil)
+                } ?? false
+                mapConflict = PendingMapImport(reference: reference, cs: cs, cleanData: cleanData,
+                                               otherStorey: otherStorey)
             } else {
                 await finishImport(reference, from: cs, cleanData: cleanData, replaceBackground: false)
             }
@@ -348,15 +445,30 @@ struct CineStagerImportSheet: View {
     /// per-shot replace prompt, which would be tedious across many shots.
     private func importBatch(_ shots: [CineStagerShot]) {
         Task { @MainActor in
+            var conflict: PendingPlace?
             for cs in shots {
                 let reference = provideReference()
                 await fill(reference, from: cs)
                 let cleanData = cs.hasMap ? await library.data(at: library.cleanMapURL(for: cs)) : nil
-                await populateSceneMap(for: reference, from: cs, cleanData: cleanData, replaceBackground: false)
+                // Markers only onto this shot's own map: one of another location or
+                // storey would put them in the wrong places.
+                if let scene = reference.shot?.scene, scene.sceneMapBackgroundData != nil,
+                   !SceneMapMarkerImport.sceneShows(location: cs.locationModelName,
+                                                    floor: reference.mapLocationFloor, in: scene) {
+                    reference.mapCleanData = cleanData
+                } else {
+                    let asked = await populateSceneMap(for: reference, from: cs, cleanData: cleanData,
+                                                       replaceBackground: false)
+                    conflict = conflict ?? asked
+                }
                 reference.modelContext?.saveReporting()
             }
-            isImporting = false
-            dismiss()
+            if let conflict {
+                placeConflict = conflict          // dismisses once answered
+            } else {
+                isImporting = false
+                dismiss()
+            }
         }
     }
 
@@ -364,11 +476,16 @@ struct CineStagerImportSheet: View {
     /// caller's choice, saves, and closes the sheet.
     private func finishImport(_ ref: ShotReference, from cs: CineStagerShot,
                               cleanData: Data?, replaceBackground: Bool) async {
-        await populateSceneMap(for: ref, from: cs, cleanData: cleanData, replaceBackground: replaceBackground)
+        let conflict = await populateSceneMap(for: ref, from: cs, cleanData: cleanData,
+                                              replaceBackground: replaceBackground)
         ref.modelContext?.saveReporting()
-        isImporting = false
         mapConflict = nil
-        dismiss()
+        if let conflict {
+            placeConflict = conflict              // dismisses once answered
+        } else {
+            isImporting = false
+            dismiss()
+        }
     }
 
     /// Populates `ref` (and its parent shot's empty camera fields) from a
@@ -387,21 +504,7 @@ struct CineStagerImportSheet: View {
                 ref.videoExtension = nil
             }
         }
-        var mapData: Data?
-        if cs.hasMap, let data = await library.data(at: library.mapURL(for: cs)) {
-            mapData = data
-            ref.mapData = data
-            // Read the top-down map's own EXIF (location + camera physical size)
-            // so its metadata card is populated, the same as a dragged-in map.
-            if let m = EXIFExtractor.extractMetadata(from: data) {
-                ref.mapCameraPhysicalWidth = m.cameraPhysicalWidth
-                ref.mapCameraPhysicalLength = m.cameraPhysicalLength
-                ref.mapLocationModel = m.locationModel
-                ref.mapLocationWidth = m.locationWidth
-                ref.mapLocationLength = m.locationLength
-                ref.mapLocationHeight = m.locationHeight
-            }
-        }
+        let mapData = await fillMap(ref, from: cs)
 
         // Guess the shot size when it has none: prefer the geometric estimate
         // (camera↔mannequin distance + focal length), reliable even for mannequin
@@ -447,9 +550,17 @@ struct CineStagerImportSheet: View {
         // annotated "Previously pitch"/"Previously roll").
         ref.horizon = cs.pitchDeg
         ref.tilt = cs.rollDeg
-        ref.height = cs.heightCM
+        // Above the floor when CineStager measured it; `heightCM` is, in AR, from
+        // where the AR session began — kept only for older captures.
+        ref.height = cs.cameraHeightAboveFloorCM ?? cs.heightCM
         ref.captureType = cs.type
         ref.dateTimeOriginal = cs.timestamp
+        ref.fNumber = cs.fNumber
+        ref.tStop = cs.tStop
+        ref.focusDistance = cs.focusDistanceM
+        ref.horizontalFOV = cs.horizontalFOVDegrees
+        ref.anamorphicSqueeze = cs.anamorphicSqueeze
+        ref.anamorphicAdapter = cs.anamorphicAdapter
 
         // Seed only the parent shot's *empty* camera fields. Camera information the
         // user — or a project default — already put there is left alone; the
@@ -485,13 +596,93 @@ struct CineStagerImportSheet: View {
         }
     }
 
+    /// Puts the shot's top-down map on the reference, with what its EXIF says
+    /// (location, camera size, storey) — the same as a dragged-in map. Hands
+    /// back the map's bytes; nil without one.
+    private func fillMap(_ ref: ShotReference, from cs: CineStagerShot) async -> Data? {
+        var mapData: Data?
+        if cs.hasMap, let data = await library.data(at: library.mapURL(for: cs)) {
+            mapData = data
+            ref.mapData = data
+            ref.mapCaptureID = cs.captureID
+            if let m = EXIFExtractor.extractMetadata(from: data) {
+                ref.mapCameraPhysicalWidth = m.cameraPhysicalWidth
+                ref.mapCameraPhysicalLength = m.cameraPhysicalLength
+                ref.mapLocationModel = m.locationModel
+                ref.mapLocationWidth = m.locationWidth
+                ref.mapLocationLength = m.locationLength
+                ref.mapLocationHeight = m.locationHeight
+                ref.mapLocationFloor = m.locationFloor
+                ref.mapLocationFloorName = m.locationFloorName
+            }
+        }
+        // The storey, from shots.json too (a video's has no EXIF of its own).
+        if cs.floor != nil {
+            ref.mapLocationFloor = cs.floor
+            ref.mapLocationFloorName = cs.floorName
+        }
+        return mapData
+    }
+
+    // MARK: - Maps made later
+
+    /// References imported before CineStager had a map for them — a capture later
+    /// given one with Link Location — that the library now has a map for.
+    private func findLateMaps() {
+        let withMap = Dictionary(library.shots.filter(\.hasMap).map { ($0.captureID, $0) },
+                                 uniquingKeysWith: { first, _ in first })
+        guard !withMap.isEmpty else { lateMaps = []; return }
+        let references = (try? modelContext.fetch(FetchDescriptor<ShotReference>(
+            predicate: #Predicate { $0.captureID != nil }))) ?? []
+        lateMaps = references.compactMap { reference in
+            guard reference.mapData == nil, reference.mapVideoData == nil, reference.shot != nil,
+                  let id = reference.captureID, let shot = withMap[id] else { return nil }
+            return LateMap(reference: reference, shot: shot)
+        }
+    }
+
+    /// Gives each of them its map — and what Link Location filled in with it:
+    /// the location, the camera's height above the floor, the storey — and, when
+    /// asked, puts it on its scene map: as the background when there's none, its
+    /// markers when the background is this location's map.
+    private func addLateMaps() {
+        isAddingLateMaps = true
+        let items = lateMaps
+        let onSceneMaps = lateMapsOnSceneMaps
+        Task { @MainActor in
+            var conflict: PendingPlace?
+            for item in items {
+                let reference = item.reference, cs = item.shot
+                _ = await fillMap(reference, from: cs)
+                if let above = cs.cameraHeightAboveFloorCM { reference.height = above }
+                let cleanData = await library.data(at: library.cleanMapURL(for: cs))
+                reference.mapCleanData = cleanData
+                if onSceneMaps, let scene = reference.shot?.scene,
+                   scene.sceneMapBackgroundData == nil
+                    || SceneMapMarkerImport.sceneShows(location: cs.locationModelName,
+                                                       floor: reference.mapLocationFloor, in: scene) {
+                    var asked = await populateSceneMap(for: reference, from: cs, cleanData: cleanData,
+                                                       replaceBackground: false)
+                    asked?.closesSheet = false
+                    conflict = conflict ?? asked
+                }
+                reference.modelContext?.saveReporting()
+            }
+            lateMaps = []
+            isAddingLateMaps = false
+            placeConflict = conflict
+        }
+    }
+
     /// Populates the parent scene's top-down map: the clean location map as the
     /// background, plus the camera — for a video that travelled, a camera at
     /// every position joined by arrows — and mannequin markers read from the
-    /// top-down map image's embedded coordinates.
+    /// top-down map image's embedded coordinates. When the background is (now)
+    /// the shot's location's map, its north and place come along — a place is
+    /// handed back instead when the scene is already somewhere else, to ask first.
     private func populateSceneMap(for ref: ShotReference, from cs: CineStagerShot,
-                                  cleanData: Data?, replaceBackground: Bool) async {
-        guard let scene = ref.shot?.scene, let shot = ref.shot else { return }
+                                  cleanData: Data?, replaceBackground: Bool) async -> PendingPlace? {
+        guard let scene = ref.shot?.scene, let shot = ref.shot else { return nil }
 
         // The marker map's EXIF carries the marker positions and where the clean
         // map lies among them.
@@ -503,16 +694,32 @@ struct CineStagerImportSheet: View {
         // into the margin the fit opens up. Set it when the scene has none, or when
         // the user chose to replace an existing one; otherwise leave it untouched.
         ref.mapCleanData = cleanData   // keep the clean map for later re-adds
+        let north = cs.mapNorth ?? markers?.mapNorth
         if let clean = cleanData, scene.sceneMapBackgroundData == nil || replaceBackground {
             SceneMapMarkerImport.setBackground(clean, reference: ref, markers: markers,
-                                               location: cs.locationModelName, in: scene)
+                                               location: cs.locationModelName, north: north, in: scene)
         }
+        let place = cs.locationPlace ?? markers?.place
+        let conflict = SceneMapMarkerImport.applyGeography(north: north, place: place,
+                                                           location: cs.locationModelName,
+                                                           floor: ref.mapLocationFloor, to: scene)
+            .map { PendingPlace(scene: scene, place: $0, location: cs.locationModelName ?? "This location",
+                                current: currentPlaceName(of: scene)) }
 
-        guard let markers else { return }
+        guard let markers else { return conflict }
         SceneMapMarkerImport.addMissing(markers, frame: SceneMapMarkerImport.cleanMapFrame(of: markers, onCleanMap: true),
                                         shot: shot, video: ref, to: scene)
         // Re-importing recomputes the one-time fit.
         SceneMapMarkerImport.fitBackgroundToMarkers(in: scene)
+        return conflict
+    }
+
+    /// How the scene's current location reads: its address, else its coordinates.
+    private func currentPlaceName(of scene: Scene) -> String {
+        let sun = scene.sunSettings
+        if !sun.address.trimmingCharacters(in: .whitespaces).isEmpty { return sun.address }
+        guard let lat = sun.latitude, let lon = sun.longitude else { return "another place" }
+        return String(format: "%.5f, %.5f", lat, lon)
     }
 }
 

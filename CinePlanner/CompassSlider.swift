@@ -13,7 +13,7 @@
 
 import SwiftUI
 
-enum Compass {
+nonisolated enum Compass {
     /// Nearest compass point to a heading: N, NE, E, and so on.
     static func label(_ degrees: Double) -> String {
         let names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]

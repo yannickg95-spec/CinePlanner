@@ -30,8 +30,15 @@ struct MetadataView: View {
             rows.append(("Focal Length", focalString))
         }
         if let lens = metadata.lensPreset { rows.append(("Lens", lens)) }
+        if let squeeze = LensSettingsText.anamorphic(squeeze: metadata.anamorphicSqueeze,
+                                                     adapter: metadata.anamorphicAdapter) {
+            rows.append(("Anamorphic", squeeze))
+        }
+        if let stop = metadata.stopText { rows.append(("Aperture", stop)) }
+        if let focus = metadata.focusText { rows.append(("Focus", focus)) }
         if let framelines = metadata.framelines, !framelines.isEmpty { rows.append(("Framelines", framelines)) }
         if let tilt = metadata.tilt { rows.append(("Tilt", String(format: "%.1f\u{00B0}", tilt))) }
+        if let height = metadata.height { rows.append(("Camera Height", String(format: "%.0f cm", height))) }
         return rows
     }
 

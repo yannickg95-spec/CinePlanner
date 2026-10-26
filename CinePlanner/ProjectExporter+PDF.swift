@@ -390,7 +390,9 @@ extension ProjectExporter {
                     let gap: CGFloat = 12
                     let thumbW = (textWidth - gap * CGFloat(cols - 1)) / CGFloat(cols)
                     let thumbH = thumbW * 0.66
-                    let rowH = thumbH + 12 + 10          // image + caption + gap
+                    // A line more under each when any reference has lens settings.
+                    let detailH: CGFloat = items.contains { $0.detail != nil } ? 10 : 0
+                    let rowH = thumbH + 12 + detailH + 10   // image + caption (+ lens) + gap
                     let headingH: CGFloat = 22
 
                     if yPosition + headingH + rowH > bottomLimit {
@@ -410,7 +412,7 @@ extension ProjectExporter {
                             endContentPage(); beginContentPage()
                         }
                         let x = margin + CGFloat(col) * (thumbW + gap)
-                        drawPDFThumb(item.data, caption: item.caption, in: pdfContext,
+                        drawPDFThumb(item.data, caption: item.caption, detail: item.detail, in: pdfContext,
                                      box: CGRect(x: x, y: yPosition, width: thumbW, height: thumbH))
                         col += 1
                         if col == cols { col = 0; yPosition += rowH }
@@ -787,15 +789,18 @@ extension ProjectExporter {
     /// below a scene's shot list. (The scene map gets its own full page afterwards.)
     /// `onlyShotUIDs`, when set, limits the gallery to those shots (a split scene's
     /// shots for the current shooting day).
-    private func pdfGalleryItems(for scene: Scene, onlyShotUIDs: Set<String>? = nil) -> [(data: Data, caption: String)] {
-        var items: [(data: Data, caption: String)] = []
+    /// Each carries its lens settings (stop, focus, squeeze) as a second line.
+    private func pdfGalleryItems(for scene: Scene, onlyShotUIDs: Set<String>? = nil) -> [(data: Data, caption: String, detail: String?)] {
+        var items: [(data: Data, caption: String, detail: String?)] = []
         for shot in scene.shots.sorted(by: { $0.shotNumber < $1.shotNumber }) {
             if let ids = onlyShotUIDs, !ids.contains(shot.uid) { continue }
             // Only the reference photos — the per-shot top-down maps are skipped.
             let refs = shot.orderedReferences.filter { $0.imageData != nil }
             for (i, r) in refs.enumerated() {
                 let suffix = refs.count > 1 ? " \(i + 1)" : ""
-                if let d = r.imageData { items.append((d, "Shot \(shot.displayNumber) — Ref\(suffix)")) }
+                if let d = r.imageData {
+                    items.append((d, "Shot \(shot.displayNumber) — Ref\(suffix)", r.lensSettingsLine))
+                }
             }
         }
         return items
@@ -938,8 +943,8 @@ extension ProjectExporter {
     }
 
     /// Draws one gallery thumbnail (image letterboxed in `box`, thin border, caption
-    /// centered just below).
-    private func drawPDFThumb(_ data: Data, caption: String, in context: CGContext, box: CGRect) {
+    /// centered just below, and under that the lens settings when there are any).
+    private func drawPDFThumb(_ data: Data, caption: String, detail: String? = nil, in context: CGContext, box: CGRect) {
         let grey = PlatformColor(white: 0.42, alpha: 1)
         if let img = PlatformImage(data: data), img.size.width > 0, img.size.height > 0,
            let cg = img.cgImageForDrawing {
@@ -961,6 +966,14 @@ extension ProjectExporter {
         let attr: [NSAttributedString.Key: Any] = [.font: PlatformFont.systemFont(ofSize: 8, weight: .medium), .foregroundColor: grey]
         let cs = (caption as NSString).size(withAttributes: attr)
         (caption as NSString).draw(at: CGPoint(x: box.midX - cs.width / 2, y: box.maxY + 2), withAttributes: attr)
+        if let detail {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineBreakMode = .byTruncatingTail
+            (detail as NSString).draw(in: CGRect(x: box.minX, y: box.maxY + 12, width: box.width, height: 10),
+                                      withAttributes: [.font: PlatformFont.systemFont(ofSize: 7),
+                                                       .foregroundColor: grey, .paragraphStyle: paragraph])
+        }
     }
 
     /// Draws an image letterboxed and centered to fill `box` as large as possible,

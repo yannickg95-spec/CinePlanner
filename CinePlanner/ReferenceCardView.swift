@@ -449,6 +449,8 @@ struct ReferenceCardView: View {
         reference.mapLocationWidth = metadata.locationWidth
         reference.mapLocationLength = metadata.locationLength
         reference.mapLocationHeight = metadata.locationHeight
+        reference.mapLocationFloor = metadata.locationFloor
+        reference.mapLocationFloorName = metadata.locationFloorName
     }
 
     /// Handles a picked file that may be a photo or a video, routing by its type.
@@ -482,6 +484,12 @@ struct ReferenceCardView: View {
         reference.caption = nil
         reference.framelines = nil
         reference.software = nil
+        reference.fNumber = nil
+        reference.tStop = nil
+        reference.focusDistance = nil
+        reference.horizontalFOV = nil
+        reference.anamorphicSqueeze = nil
+        reference.anamorphicAdapter = nil
     }
 
     private func clearMap() {
@@ -495,6 +503,8 @@ struct ReferenceCardView: View {
         reference.mapLocationWidth = nil
         reference.mapLocationLength = nil
         reference.mapLocationHeight = nil
+        reference.mapLocationFloor = nil
+        reference.mapLocationFloorName = nil
     }
 }
 

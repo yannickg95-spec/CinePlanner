@@ -428,6 +428,10 @@ final class Scene {
     /// so importing another shot of the same location adds its markers without
     /// prompting to replace the (same) map. nil for hand-set / drawn backgrounds.
     var sceneMapLocation: String?
+    /// The storey of `sceneMapLocation` the background shows (0 = the lowest set up
+    /// in CineStager), for a location with several; nil for one storey, or a
+    /// background from before CineStager sent it. A map belongs to one storey.
+    var sceneMapFloor: Int?
 
     /// Scene-wide film-length tool. When enabled (from the tool's gear menu), every
     /// shot in the scene gets a film-length field with these stock settings, and new
@@ -629,6 +633,7 @@ extension Scene {
         copy.sceneMapBackgroundOffsetY = sceneMapBackgroundOffsetY
         copy.sceneMapBackgroundRotation = sceneMapBackgroundRotation
         copy.sceneMapLocation = sceneMapLocation
+        copy.sceneMapFloor = sceneMapFloor
         copy.sceneFilmToolEnabled = sceneFilmToolEnabled
         copy.sceneFilmGauge = sceneFilmGauge
         copy.sceneFilmFPS = sceneFilmFPS
@@ -928,6 +933,19 @@ final class ShotReference {
     var caption: String?
     var framelines: String?
     var software: String?
+    /// The lens's f-number, a cine lens's T-stop, and where focus was set
+    /// (metres) — from CineStager's Game mode with depth of field, or a real
+    /// camera's photo.
+    var fNumber: Double?
+    var tStop: Double?
+    var focusDistance: Double?
+    /// The full horizontal angle of view of the recorded format (degrees),
+    /// desqueezed — what the camera's FOV wedge on the scene map should span.
+    var horizontalFOV: Double?
+    /// An anamorphic lens's total squeeze (with its adapter), and the adapter:
+    /// "1.33× front", "2× rear" (a rear one also lengthens the focal length).
+    var anamorphicSqueeze: Double?
+    var anamorphicAdapter: String?
 
     // Metadata read off the map
     var mapCaptureID: String?
@@ -937,6 +955,10 @@ final class ShotReference {
     var mapLocationWidth: Double?
     var mapLocationLength: Double?
     var mapLocationHeight: Double?
+    /// The storey the camera stood on (0 = the lowest set up in CineStager), and
+    /// its name ("Ground", "Floor 1"), for a location with several.
+    var mapLocationFloor: Int?
+    var mapLocationFloorName: String?
 
     var shot: Shot?
 
@@ -965,6 +987,12 @@ final class ShotReference {
         m.iptcCaption = caption
         m.framelines = framelines
         m.tiffSoftware = software
+        m.fNumber = fNumber
+        m.tStop = tStop
+        m.focusDistance = focusDistance
+        m.horizontalFOV = horizontalFOV
+        m.anamorphicSqueeze = anamorphicSqueeze
+        m.anamorphicAdapter = anamorphicAdapter
         return m
     }
 
@@ -977,7 +1005,16 @@ final class ShotReference {
         m.locationWidth = mapLocationWidth
         m.locationLength = mapLocationLength
         m.locationHeight = mapLocationHeight
+        m.locationFloor = mapLocationFloor
+        m.locationFloorName = mapLocationFloorName
         return m
+    }
+
+    /// The stop, focus and squeeze as one line ("T3.1 (f/2.8) · Focus 3.2 m"),
+    /// for the exports; nil when there's none.
+    var lensSettingsLine: String? {
+        LensSettingsText.line(fNumber: fNumber, tStop: tStop, focusDistance: focusDistance,
+                              squeeze: anamorphicSqueeze, adapter: anamorphicAdapter)
     }
 
     func duplicate() -> ShotReference {
@@ -1004,6 +1041,12 @@ final class ShotReference {
         copy.caption = caption
         copy.framelines = framelines
         copy.software = software
+        copy.fNumber = fNumber
+        copy.tStop = tStop
+        copy.focusDistance = focusDistance
+        copy.horizontalFOV = horizontalFOV
+        copy.anamorphicSqueeze = anamorphicSqueeze
+        copy.anamorphicAdapter = anamorphicAdapter
         copy.mapCaptureID = mapCaptureID
         copy.mapCameraPhysicalWidth = mapCameraPhysicalWidth
         copy.mapCameraPhysicalLength = mapCameraPhysicalLength
@@ -1011,6 +1054,8 @@ final class ShotReference {
         copy.mapLocationWidth = mapLocationWidth
         copy.mapLocationLength = mapLocationLength
         copy.mapLocationHeight = mapLocationHeight
+        copy.mapLocationFloor = mapLocationFloor
+        copy.mapLocationFloorName = mapLocationFloorName
         return copy
     }
 }
